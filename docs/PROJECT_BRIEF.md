@@ -156,6 +156,21 @@ Later optional roles:
 MODERATOR
 ```
 
+SECURITY BASELINE (from review — this is the security-sensitive phase; slow down here in
+Phase 3). Full details in [GO_CONVENTIONS.md](GO_CONVENTIONS.md) §12:
+
+- Password hashing: bcrypt (cost ≥ 12) or argon2id — never SHA/MD5.
+- JWT: short-lived access (~15 min); **explicitly verify the signing algorithm** (reject
+  `alg=none`); secret from env, never committed; set `exp/iat/iss/aud`.
+- "Logout": a stateless JWT can't be revoked — use the DB-backed `refresh_tokens` table (§9),
+  rotate on use, logout = delete the refresh token (no Redis blacklist just to log out).
+- Authorization in the service layer + **resource-ownership checks** (IDOR): e.g.
+  `PATCH/DELETE /books/{id}/ratings` must verify the rating belongs to the caller, not merely
+  that they are authenticated.
+- Whitelisted DTOs (no mass assignment); parameterized queries (no `ILIKE` string concat,
+  §6.8); generic auth errors; CORS allowlist; rate-limit login/register; verify/reset tokens
+  single-use + expiring + `crypto/rand` + hashed.
+
 ---
 
 ## 6.2 Book Management
@@ -304,11 +319,22 @@ Rules:
 - A user can remove their own rating in a later phase.
 - Rating changes should update the book's rating statistics.
 
+CORRECTNESS (from review — the #1 data-integrity lesson, Phase 5):
+
+- Enforce "rate once" at the DB with `UNIQUE(user_id, book_id)`, and implement
+  create-or-update as `INSERT ... ON CONFLICT (user_id, book_id) DO UPDATE` (one statement,
+  no read-then-write race).
+- `ratings` is the **source of truth**. Never app-read-then-write `average_rating` /
+  `rating_count` (concurrent ratings = lost update). Recompute aggregates from the table
+  **inside the same transaction** as the rating write (SQL `AVG`/`COUNT`), or compute at read
+  time. The same recompute applies on delete. See [GO_CONVENTIONS.md](GO_CONVENTIONS.md) §7
+  and [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md) §10.
+
 Book should store:
 
-- Average rating
-- Rating count
-- Weighted score
+- Average rating (NUMERIC, derived)
+- Rating count (derived)
+- Weighted score — **computed, not write-denormalized** (see §6.7)
 
 ---
 
@@ -370,6 +396,18 @@ not simply:
 ```text
 average_rating DESC
 ```
+
+DECISION (from review — Phase 6):
+
+- Do **not** store `weighted_score` as a per-write denormalized column. `C` (global average)
+  and `m` are **global**, so any new rating anywhere changes every book's correct score — a
+  stored column silently goes stale for all other books.
+- Compute it **at query time** with parameterized `C`/`m` in the `ORDER BY`, or via a
+  periodically-refreshed **materialized view** once you can *measure* the sort is slow (that
+  measurement is the Phase 7 "why cache" lesson — don't pre-optimize).
+- `m` is a **config knob** — start small (~10), not 100 (with few ratings, m=100 collapses
+  every score toward `C` and the ranking is useless). `C` is **derived**
+  (`SELECT AVG(score) FROM ratings`) with a sane cold-start fallback while the dataset is tiny.
 
 ---
 
@@ -449,27 +487,35 @@ The backend should expose admin-only APIs from the beginning.
 ```text
 Language: Go
 Router: Chi
-Database driver: pgx
-Query layer: sqlc or pgx manually at first
-Migrations: goose or golang-migrate
-Validation: go-playground/validator or custom validation
-Auth: JWT
-Logging: slog or zerolog
-Config: environment variables
+Database driver: pgx (pgxpool)
+Query layer: sqlc + pgx   (DECISION: committed from Phase 2 — not "manual or later")
+ORM: none — GORM/bun explicitly EXCLUDED
+Migrations: goose
+Validation: go-playground/validator (handler-layer DTOs)
+Auth: JWT (see expanded §6.1 security baseline)
+Logging: slog (stdlib, context-aware) — zerolog optional later
+Config: environment variables (validated at boot, fail-fast)
 ```
 
 Recommended starting choice:
 
 ```text
-Go + Chi + pgx + goose
+Go + Chi + pgx + sqlc + goose
 ```
 
 Reason:
 
 - Chi keeps HTTP concepts visible.
 - pgx is a strong PostgreSQL driver.
+- sqlc reads your hand-written SQL and generates type-safe Go — you still learn joins and the
+  many-to-many (§6.4), but the `rows.Scan`/`rows.Err()`/NULL footguns are removed. It is NOT
+  an ORM (no query DSL, no magic). An ORM would defeat §2's "learn how relations work" goal.
 - goose is simple for migrations.
 - This stack avoids too much framework magic.
+
+> See [GO_CONVENTIONS.md](GO_CONVENTIONS.md) for the Go idioms (ctx-first, `%w` errors,
+> hand-wired DI, table-driven tests) and [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md) §6 for *why*
+> sqlc+pgx over Prisma/an ORM.
 
 ---
 
@@ -485,8 +531,29 @@ Why:
 - Good for many-to-many relationships.
 - Good aggregation support for ratings.
 - Supports full-text search later.
-- Can be run locally with Docker.
-- Can be hosted for free or low cost using services like Supabase or Neon.
+
+DECISION (hosting): **dev = local Docker Postgres · prod = Supabase free tier.** The app
+connects only via a connection string (`DATABASE_URL`), so the same code targets either by
+changing one env var (12-factor). This is the professional-standard setup and maximizes
+Docker/infra learning.
+
+- **dev** → a Postgres container in Docker Compose (§7.6). Fast, offline, free, disposable —
+  run `goose down`, reset the schema, seed garbage freely without touching anything real.
+- **prod** → a Supabase project (real user data). Never point dev tooling (`goose down`,
+  resets) at it. The dev DSN lives in local `.env`; the prod DSN lives in the deploy
+  platform's secret store (Render/Fly/Vercel env) and is **never** committed.
+
+Practical notes for Supabase + pgx in **prod** (these will save you an afternoon):
+
+- Use `sslmode=require` — managed Postgres mandates TLS (local Docker doesn't).
+- Connect the app through the **pooler (Supavisor)** with `pgxpool`. With the
+  transaction-mode pooler, **disable pgx prepared-statement caching** (simple protocol) —
+  prepared statements aren't supported there.
+- Run **goose migrations against the direct connection (port 5432)**, not the transaction
+  pooler.
+- Free projects **pause after ~1 week of inactivity** and add network latency. Free-tier
+  limits change — check before relying (see §13).
+- Worth recording the dev-local / prod-cloud split as an ADR in `docs/decisions/`.
 
 ---
 
@@ -496,17 +563,17 @@ Why:
 Redis
 ```
 
-Local:
+DECISION (hosting): **dev = local Docker Redis · prod = Upstash free tier** — same split as
+the database (§7.2). Connect via a `REDIS_URL` using `redis/go-redis/v9` (local: `redis://`;
+Upstash: `rediss://`, TLS). dev URL in local `.env`, prod URL in the deploy platform's secret
+store, never committed.
 
-```text
-Docker Redis container
-```
+Notes:
 
-Cloud later:
-
-```text
-Upstash Redis free tier or similar
-```
+- Upstash free tier has a **daily command limit** and is serverless. Fine for learning; check
+  current limits before relying (§13).
+- Redis is still **not introduced until Phase 7**, and only when a real caching / rate-limit
+  need exists (§6.9, §14.5) — choosing a host now does not mean wiring it early.
 
 ---
 
@@ -551,23 +618,26 @@ Supabase Storage
 
 ## 7.6 Local Development
 
-Use Docker Compose for:
+Docker Compose runs the **dev** stack locally:
 
-- Go API
-- PostgreSQL
-- Redis
-- Optional MinIO
+- PostgreSQL (dev database — §7.2; prod uses Supabase)
+- Redis (dev cache — §7.3; prod uses Upstash, introduced Phase 7)
+- Optional MinIO (object-storage experiments)
+- The Go API container itself (from Phase 8)
 
-Initial local architecture:
+This is where you learn Docker hands-on: images, volumes (DB data persistence), container
+networking, `depends_on`/healthchecks, and Compose orchestration. In **prod** the stateful
+services are managed cloud (Supabase + Upstash); only your API image is deployed — same code,
+different `DATABASE_URL`/`REDIS_URL`.
+
+Local (dev) architecture:
 
 ```text
 Frontend
    ↓
 Go API
    ↓
-PostgreSQL
-   ↓
-Redis
+PostgreSQL (Docker)  +  Redis (Docker, Phase 7+)
 ```
 
 ---
@@ -1186,6 +1256,13 @@ Use a simple layered structure:
 Handler → Service → Repository → Database
 ```
 
+CORRECTION (from review): this is the **target**, not a day-one rule. **Skip the Service
+layer for pure CRUD** (Phase 2 books/genres) where it would only forward calls — an anemic
+pass-through layer is a cargo-cult habit a TS/OOP background invites. Add a Service layer only
+where real logic lives: auth (Phase 3), moderation/status transitions (Phase 4),
+weighted-score recalculation (Phase 6). Define interfaces **at the consumer**, only once a
+test fake or a second implementation needs one. See [GO_CONVENTIONS.md](GO_CONVENTIONS.md) §4.
+
 Handler:
 
 - HTTP request/response.
@@ -1256,6 +1333,13 @@ When using Codex inside VS Code, follow these principles:
 8. Use Go idioms where possible.
 9. Keep errors explicit.
 10. Write meaningful tests for important business logic, especially rating calculations.
+11. Follow [GO_CONVENTIONS.md](GO_CONVENTIONS.md) (ctx-first, `%w` errors + sentinels,
+    hand-wired DI, graceful shutdown, table-driven tests, conditional layering, the security
+    baseline).
+12. Run `gofmt`, `go vet`, and `golangci-lint`; keep `go test -race` green.
+13. At the end of each phase, fill the relevant [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md) placeholder
+    with a real `path:Symbol` reference + a short reflection (confirm/falsify), and add ≥1
+    entry to its §15 ("where TS/JS wins"). See the per-phase checklist in that doc.
 
 Suggested first Codex prompt:
 
@@ -1266,7 +1350,7 @@ Read PROJECT_BRIEF.md. Create the initial Go backend structure for Phase 1 only.
 Suggested second Codex prompt:
 
 ```text
-Continue from Phase 1. Add PostgreSQL support for books and genres only. Add migrations using goose, connect with pgx, and implement basic book and genre CRUD. Do not add auth, Redis, Docker, or ratings yet.
+Continue from Phase 1. Add PostgreSQL support for books and genres only, using a local Docker Compose Postgres for dev (prod will be Supabase; same code, different DATABASE_URL). Add migrations using goose, define queries in sql/queries and generate type-safe code with sqlc, connect with pgxpool, and implement CRUD as a thin vertical slice first (one Book end-to-end through all layers + a test) before fanning out to genres and the many-to-many relation. No ORM. Do not add auth, Redis, or ratings yet.
 ```
 
 Suggested third Codex prompt:
@@ -1288,4 +1372,84 @@ The most important learning outcome is not memorizing commands or tools.
 The most important learning outcome is understanding:
 
 > Which problem does each technology solve, and when is it worth adding?
+
+---
+
+## 18. Review Addendum — Decisions & Corrections (2026-06)
+
+This section consolidates a multi-lens review. Inline sections above were edited where the
+original text would otherwise contradict a decision; the rest lives here. The **original
+unedited brief** is preserved in git history (the initial commit) — recoverable via
+`git show <initial-commit>:docs/PROJECT_BRIEF.md`.
+
+Companion docs created alongside this addendum:
+
+- [GO_CONVENTIONS.md](GO_CONVENTIONS.md) — *how* we write Go (idioms + security baseline).
+- [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md) — *why* Go vs TS/JS, a living doc filled in per phase.
+
+### 18.1 Roadmap corrections (§11)
+
+- **Phase 0 (new):** `git init`, a Go `.gitignore` protecting `.env`, commit the brief. _Done
+  — this repo is now under `mtgezgin/BookHub`._
+- **Docker Compose for backing services before Phase 2:** stand up the **dev** Postgres (and
+  later Redis) in Compose early (§7.6) so you never hand-install a DB; the Go API still runs
+  via `go run` for fast feedback. Full API containerization stays at Phase 8. This teaches
+  Docker in two correct stages.
+- **Testing is first-class from Phase 1:** every phase's Definition of Done includes tests.
+  Phase 1 → first table-driven + `httptest` handler test; Phase 2 → repository/integration
+  tests against the Compose Postgres; Phase 6 → the weighted-rating pure function as the
+  flagship tested example. Run with `-race`.
+- **Phase 2 = thin vertical slice first:** one Book wired end-to-end (migration → repo →
+  (service if needed) → handler → JSON → a test) before fanning out to genres and the
+  many-to-many relation.
+- **Fold into Phase 1 (cheap production hygiene):** graceful `http.Server` shutdown, fail-fast
+  config validation, a documented typed-error → HTTP-status convention, and structured-logging
+  + request-ID middleware. (See [GO_CONVENTIONS.md](GO_CONVENTIONS.md) §2, §5, §10.)
+
+### 18.2 Scope tiering (de-risk burnout)
+
+- **MVP = Phases 1–7** (the §15 Definition of Done) is the declared **win condition**.
+- **Phases 8–12** are an optional infra-learning track, each independently skippable.
+- **§12 extras** (especially the AI features §12.8) are post-mastery and outside the
+  Go-backend learning objective. Stopping at the MVP counts as success, not failure.
+
+### 18.3 Schema specifics (§9 — decide with the migrations)
+
+- **Types/constraints:** `score SMALLINT CHECK (score BETWEEN 1 AND 10)`; averages `NUMERIC`
+  (not `FLOAT` — sort drift); `books.slug UNIQUE`; status/role as `TEXT + CHECK (... IN (...))`
+  **not native ENUM** (easier to evolve when `MODERATOR`/new statuses arrive); `timestamptz`
+  everywhere; PK = `bigint GENERATED ALWAYS AS IDENTITY` by default (choose UUIDv7 only if you
+  specifically want to learn that tradeoff).
+- **Indexes (Postgres does NOT auto-index FKs):** partial index `books(status) WHERE
+  status='APPROVED'`; an index for the top-rated sort; `comments(book_id, created_at)`; every
+  FK you join/filter on; `book_genres` PK `(book_id, genre_id)` **plus** a separate
+  `(genre_id)` index for "filter books by genre". Plan these so later Redis adoption (Phase 7)
+  is driven by real need, not a missing index.
+- **Soft-delete single source of truth:** for comments (§6.5), use `deleted_at IS NULL` as the
+  deletion truth and reserve `status` for moderation state (VISIBLE/HIDDEN); standardize reads
+  on `WHERE deleted_at IS NULL`.
+
+### 18.4 Repo structure notes (§8)
+
+- Two SQL dirs, distinct roles: `backend/sql/queries/*.sql` (sqlc input) vs
+  `backend/migrations/*.sql` (goose); `backend/sqlc.yaml` at the backend root.
+- **Avoid the per-domain import cycle:** a comment references a user and a book; a rating
+  references both. Reference cross-domain entities **by ID** (`BookID`, `UserID`), or put
+  shared entities in a small `domain/` package. Domain packages depend on shared types, not on
+  each other.
+
+### 18.5 Git hooks (polyglot, most instructive)
+
+Defer hooks to **Phase 1** (no Go code to lint yet). When added, use **`core.hooksPath` + a
+committed `.githooks/pre-commit` shell script** (not husky — a Node dependency in a Go repo).
+The script branches on changed files: `backend/**.go` → `gofmt`/`go vet`/`golangci-lint`/`go
+test`; `frontend/**` → `eslint`/`prettier`/`tsc`. Most transparent (teaches what a hook is)
+and naturally polyglot. `lefthook` is the ergonomic step-up later. Record as an ADR.
+
+### 18.6 Living comparison doc — per-phase fill-in
+
+At the end of every phase, update [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md): replace the relevant
+`[Phase X — path — TBD]` placeholder with a real `path:Symbol` reference + a short reflection
+(confirm/falsify), and grow its §15 ("where TS/JS wins"). The per-phase section map lives in
+that doc's "Living-document mechanism".
 
