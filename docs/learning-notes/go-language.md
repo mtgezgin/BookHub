@@ -7,6 +7,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 
 1. [stdlib (standart kütüphane) nedir?](#1-stdlib-standart-kütüphane-nedir)
 2. [Testler neden ayrı klasörde değil? (`_test.go` konvansiyonu)](#2-testler-neden-ayrı-klasörde-değil-_testgo-konvansiyonu)
+3. [Go paketleri JS/TS modüllerine nasıl denk gelir?](#3-go-paketleri-jsts-modüllerine-nasıl-denk-gelir)
 
 ---
 
@@ -99,3 +100,63 @@ Go'da ayrı klasör ne zaman? (nüans)
 - [backend/cmd/api/main_test.go](../../backend/cmd/api/main_test.go) (ilk testimiz)
 - [docs/GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §8 (test: table-driven, std `testing`, `-race`)
 - [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §13 (zero-config toolchain)
+
+---
+
+## 3. Go paketleri JS/TS modüllerine nasıl denk gelir?
+
+**🗓️ Bağlam:** Config'i ayrı bir `internal/config` paketine mi yazsak diye konuşurken "Go'da
+paket yazmak neye göre karar verilir, paketsiz kullanılamaz mı?" diye sordum; sonra JS modül
+alışkanlığımdan "JS/TS'de neye denk geliyor? import alias (tsconfig) var mı? döngüsel import
+nasıl?" diye devam ettim.
+
+**⚡ Kısa cevap:** Go paketi ≈ JS/TS modülü — **ama** JS modülü = 1 **dosya**, Go paketi = 1
+**klasör**. Terminoloji ters: JS'teki "package" (npm) → Go'da **module** (`go.mod`); JS'teki
+"module" (dosya) → Go'da **package** (klasör). Export = **harf büyüklüğü** (`Config` public,
+`getenv` private). tsconfig-style path alias **yok**. Döngüsel import **yasak** (derleme hatası).
+
+**📖 Açıklama:**
+
+Terminoloji tersliği (asıl kafa karıştıran):
+
+| Birim | JS/TS adı | Go adı |
+|---|---|---|
+| En küçük import birimi | module (1 dosya) | **package** (1 klasör) |
+| Bağımlılık / dağıtım birimi | package (`package.json`, npm) | **module** (`go.mod`) |
+
+Eşleştirme:
+
+| Konu | JS/TS | Go |
+|---|---|---|
+| Public yapma | `export` | **Büyük harfle başlat** (`Config`, `Load`) |
+| Private | export etmemek | küçük harf (`getenv`) |
+| Import | `import { x } from './f'` (cherry-pick) | `import "yol"` → `paket.X` (tüm namespace; `import * as` gibi) |
+| Birim sınırı | 1 dosya = 1 modül | 1 klasör = 1 paket |
+| `internal` zorlanır mı | hayır (convention) | **evet** (derleyici; sadece bu modül import eder) |
+| Döngüsel import | tolere (dağınık) | **yasak** (derleme hatası) |
+
+**Import path alias (tsconfig `paths` gibi) var mı? → Hayır.**
+- Yol kanonik: `<module-path>` + `<klasör>`. Bir config dosyasında kısaltma tanımlanamaz.
+- `import cfg "uzun/yol"` ile paketin **yerel adını** değiştirebilirsin (ama yolu kısaltmaz).
+- Pratikte yolu elle yazmazsın; `gopls`/`goimports` otomatik ekler.
+- Kısa import istersen kaldıraç = `go.mod`'da kısa module path (ama `go get`'lenemez olur).
+- Tasarım: yollar küresel benzersiz + kendini-açıklayan → sıfır-config çözümleme.
+
+**Döngüsel import — örnek** (`Book` bir kullanıcıya ait; `User`'ın da kitapları var):
+
+❌ Yanlış (cycle): `books` paketi `users`'ı, `users` paketi `books`'u import eder →
+`import cycle not allowed` (derleme hatası).
+
+✅ Doğru yollar:
+1. **ID ile referans:** `Book{ OwnerID int64 }`, `User{ ID int64 }` — paketler birbirini import etmez.
+2. **Ortak `internal/domain` paketi:** ikisi de `domain`'i import eder, `domain` kimseyi → diamond (döngü değil).
+3. **Tüketicide interface:** `books` küçük bir interface tanımlar, somut `users`'ı `main` enjekte eder.
+
+Neden yasak? Döngüsüz grafik → her paket bir kez, bağımlılık sırasına göre derlenir (hızlı,
+basit); temiz katmanlaşmayı zorlar. (Not: döngü yasağı **paketler arası**; aynı paketteki
+dosyalar birbirine serbest erişir.)
+
+**🔗 İlgili:**
+- [docs/GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §6 (import-cycle tuzağı: ID ile bağla / shared domain)
+- [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §4 (görünür yapı)
+- [backend/go.mod](../../backend/go.mod) (module path = import prefix); `internal/config` (gelince)

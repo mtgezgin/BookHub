@@ -7,6 +7,8 @@ Dil-bağımsız backend/web kavramları: HTTP, API tasarımı, config/12-factor,
 
 1. [Graceful shutdown nedir, neden önemli?](#1-graceful-shutdown-nedir-neden-önemli)
 2. [Graceful shutdown Express/Node ile de yapılır mı?](#2-graceful-shutdown-expressnode-ile-de-yapılır-mı)
+3. [Environment variable nedir? (os.Getenv, lokal vs prod)](#3-environment-variable-nedir-osgetenv-lokal-vs-prod)
+4. [The Twelve-Factor App (12-factor) nedir?](#4-the-twelve-factor-app-12-factor-nedir)
 
 ---
 
@@ -106,3 +108,81 @@ kazandı" demek değil; **"bu fark benim için gerçekten önemli mi?"** diye so
 **🔗 İlgili:**
 - Yukarıda [Girdi 1](#1-graceful-shutdown-nedir-neden-önemli) (graceful shutdown'ın kendisi)
 - [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §8 ve §15 ("TS/JS nerede daha iyi/eşit")
+
+---
+
+## 3. Environment variable nedir? (os.Getenv, lokal vs prod)
+
+**🗓️ Bağlam:** Config'te `getenv`/`os.Getenv` satırını görünce "port'u ben nasıl tanımlayacağım,
+`os.Getenv` nereden çekiyor, lokalde ve prod'da nasıl bir işlem gerekiyor?" diye sordum.
+
+**⚡ Kısa cevap:** Her process'in OS'tan aldığı `KEY=value` çiftleri = environment.
+`os.Getenv("PORT")` **o process'in environment'ından** okur (DOSYA DEĞİL); yoksa `""` döner.
+Lokalde shell ile (`export`/inline) veya `.env`+loader ile; prod'da deploy platformu enjekte
+eder. Aynı kod her yerde.
+
+**📖 Açıklama:**
+
+`os.Getenv` bir **dosya okumaz**; process'in hafızasındaki env'i okur. Process bu env'i onu
+**başlatan şeyden** (shell, Docker, platform) miras alır.
+
+Lokalde tanımlama:
+- **Inline** (tek komut): `PORT=9090 go run ./cmd/api`
+- **Shell oturumu:** `export PORT=9090` → sonraki komutlar görür (`unset` ile kaldırılır)
+- **`.env` dosyası — TUZAK:** OS `.env`'i **otomatik okumaz**; bir loader gerekir (Node'da
+  `dotenv`, Go'da `godotenv`). **Bizim kod şu an `.env` okumuyor** → `.env`'e yazmak tek başına
+  işe yaramaz.
+
+Prod'da: shell/`.env` yok, secret git'te yok. **Platform enjekte eder:**
+- Render/Fly/Vercel → dashboard / secret store
+- Docker → `-e KEY=val` / compose `environment:`
+- K8s → Pod `env:` / `envFrom:` (ConfigMap + Secret)
+
+Secret vs değil: PORT secret değil (`.env.example`'a yazılabilir); `DATABASE_URL`/`JWT_SECRET`
+**secret** → asla git'te, prod'da secret store'da.
+
+Bizde pratik: tek PORT için şimdilik default/inline yeter; `.env`+`godotenv`'i **Faz 2**'de
+`DATABASE_URL` gelince (sebepli) ekleriz.
+
+**🔗 İlgili:**
+- [backend/internal/config/config.go](../../backend/internal/config/config.go) (`getenv`/`os.Getenv`)
+- [docs/PROJECT_BRIEF.md](../PROJECT_BRIEF.md) §7.2/§7.3 (dev-lokal/prod-cloud; DSN'ler secret store'da)
+- Aşağıda [Girdi 4](#4-the-twelve-factor-app-12-factor-nedir) (config-in-env = 12-factor III)
+
+---
+
+## 4. The Twelve-Factor App (12-factor) nedir?
+
+**🗓️ Bağlam:** Config'i env'den okurken "12-factor" dememe üzerine "o nedir, onu da bilmiyorum"
+dedim.
+
+**⚡ Kısa cevap:** Modern web/SaaS uygulamaları için **12 ilkelik bir rehber** (Heroku, ~2011,
+12factor.net): "bulut dostu, kolay deploy edilen/ölçeklenen" uygulama nasıl yazılır — yaygın bir
+**ortak dil**.
+
+**📖 Açıklama:**
+
+12 ilke (⭐ = bizde doğrudan karşılığı olan):
+
+| # | İlke | Bizde |
+|---|---|---|
+| 1 | Codebase (tek repo, çok deploy) | git repo |
+| 2 | Dependencies (açık tanım) | `go.mod` |
+| 3 | **Config (env'de tut)** ⭐ | PORT env'den (config adımı) |
+| 4 | **Backing services (takılı kaynak)** ⭐ | `DATABASE_URL`/`REDIS_URL` swap (dev↔prod) |
+| 5 | Build/release/run ayrı | Faz 8 |
+| 6 | Stateless processes | state'i DB/cache'te tut |
+| 7 | **Port binding** ⭐ | Go server `:8080`'e bağlanır |
+| 8 | Concurrency (çok instance) | Faz 12 |
+| 9 | **Disposability (graceful shutdown)** ⭐ | shutdown dersi |
+| 10 | **Dev/prod parity** ⭐ | aynı binary, env-driven |
+| 11 | **Logs → stdout** ⭐ | `log` stdout/stderr'e yazar |
+| 12 | **Admin processes** ⭐ | planlanan `bookhub` CLI |
+
+Asıl ders: soyut değil — fazları ilerledikçe bunları **sebebiyle** uyguluyoruz. Config'i
+env'den okumak = Factor III; graceful shutdown = Factor IX; "aynı kod, farklı env" = Factor X.
+
+**🔗 İlgili:**
+- 12factor.net (kaynak)
+- Yukarıda [Girdi 3](#3-environment-variable-nedir-osgetenv-lokal-vs-prod) (config-in-env)
+- [docs/PROJECT_BRIEF.md](../PROJECT_BRIEF.md) §7 (dev-lokal/prod-cloud = parity)
