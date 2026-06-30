@@ -8,6 +8,8 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 1. [stdlib (standart kütüphane) nedir?](#1-stdlib-standart-kütüphane-nedir)
 2. [Testler neden ayrı klasörde değil? (`_test.go` konvansiyonu)](#2-testler-neden-ayrı-klasörde-değil-_testgo-konvansiyonu)
 3. [Go paketleri JS/TS modüllerine nasıl denk gelir?](#3-go-paketleri-jsts-modüllerine-nasıl-denk-gelir)
+4. [Go eşzamanlılık temelleri: goroutine, channel, context, defer](#4-go-eşzamanlılık-temelleri-goroutine-channel-context-defer)
+5. [async zihninden Go zihnine: sync-by-default](#5-async-zihninden-go-zihnine-sync-by-default)
 
 ---
 
@@ -160,3 +162,89 @@ dosyalar birbirine serbest erişir.)
 - [docs/GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §6 (import-cycle tuzağı: ID ile bağla / shared domain)
 - [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §4 (görünür yapı)
 - [backend/go.mod](../../backend/go.mod) (module path = import prefix); `internal/config` (gelince)
+
+---
+
+## 4. Go eşzamanlılık temelleri: goroutine, channel, context, defer
+
+**🗓️ Bağlam:** Graceful shutdown adımına gelince bu 4 kavrama yabancı olduğumu fark ettim;
+sıfırdan öğrenip sonra kodda (main.go) görmek istedim.
+
+**⚡ Kısa cevap:**
+- **goroutine** = hafif eşzamanlı akış; `go f()` ile başlar, beklemez.
+- **channel** = goroutine'ler arası tipli boru; `ch <- v` gönder / `<-ch` al — **bloklar** (senkronizasyon).
+- **context** = iptal/deadline sinyali; `ctx.Done()` bir **kanaldır**, iptalde kapanır.
+- **defer** = fonksiyon biterken çalışan temizlik (JS'teki `finally` gibi).
+
+**📖 Açıklama:**
+
+| Kavram | Ne | JS analojisi | Minik örnek |
+|---|---|---|---|
+| `defer` | fonksiyon biterken çalışır (return/panik) | `try/finally` | `defer f.Close()` |
+| goroutine | hafif eşzamanlı akış (OS thread değil) | ~`worker_threads` ama çok hafif | `go isYap()` |
+| channel | tipli, bloklayan boru | thread-safe kuyruk / stream | `ch:=make(chan int); ch<-5; x:=<-ch` |
+| context | iptal/deadline taşır | `AbortController`/`AbortSignal` | `<-ctx.Done()` |
+
+Dördü graceful shutdown'da birleşti (canlı gördük):
+```go
+ctx, stop := signal.NotifyContext(ctx, SIGINT, SIGTERM) // context
+defer stop()                                            // defer
+go func(){ srv.ListenAndServe() }()                     // goroutine
+<-ctx.Done()                                            // channel: sinyali bekle
+srv.Shutdown(timeoutCtx)                                // nazikçe kapat
+```
+**Tuzak:** `main()` biterse tüm goroutine'ler ölür → bir goroutine'i beklemek için
+channel / `sync.WaitGroup` gerekir.
+
+**🔗 İlgili:**
+- [backend/cmd/api/main.go](../../backend/cmd/api/main.go) (4'ü birlikte: graceful shutdown)
+- [docs/learning-notes/backend-and-web.md](backend-and-web.md) Girdi 1 (graceful shutdown *kavramı*)
+- [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §7 (context), §9 (goroutine vs event loop)
+- Aşağıda [Girdi 5](#5-async-zihninden-go-zihnine-sync-by-default)
+
+---
+
+## 5. async zihninden Go zihnine: sync-by-default
+
+**🗓️ Bağlam:** Tüm yazılım deneyimimi async/await ile yazmıştım; "Go'da nasıl kod yazma
+pratiği geliştirmeliyim?" diye sordum.
+
+**⚡ Kısa cevap:** JS = async-by-default + her yerde `await` + function coloring. Go =
+**sync/bloklayan-by-default**; `await` yok; eşzamanlılığı **sen `go` ile** eklersin. Bloklamak
+ucuz (goroutine'i bloklar, OS thread'ini değil).
+
+**📖 Açıklama:**
+
+Neden mümkün: Go'da I/O çağrısı bir **goroutine**'i bloklar, thread'i değil. Goroutine bloklanınca
+runtime başkalarını çalıştırır → **senkron görünen kod, async I/O verimi**.
+
+Ardışık I/O — JS `await` zinciri vs Go düz bloklayan:
+```go
+user, err := db.FindUser(id)    // await yok, .then yok — sadece bloklar
+posts, err := db.FindPosts(id)  // yine bloklar
+```
+Eşzamanlı (Promise.all) — Go'da AÇIKÇA opt-in:
+```go
+g, ctx := errgroup.WithContext(ctx)
+g.Go(func() error { ... })   // goroutine
+g.Go(func() error { ... })
+err := g.Wait()              // ikisini bekle (Promise.all karşılığı)
+```
+
+Kilit içgörüler:
+- **Function coloring YOK:** "bu async mı, await etmeli miyim?" diye düşünmezsin; her fonksiyon
+  her yerden çağrılır.
+- Zihinsel çevirme: JS'te *"bu async mı?"*; Go'da *"**bunu eşzamanlı İSTİYOR muyum?**"*
+  (genelde hayır → düz yaz).
+
+Pratik alışkanlıklar: (1) düz/bloklayan yaz, (2) `await` refleksini sil, (3) `err`'i hep ele al
+(throw yok), (4) `ctx`'i I/O'ya ilet, (5) `go`'yu sadece gerçek paralellikte kullan + channel /
+`WaitGroup` / `errgroup` ile sonucu topla.
+
+Dürüst takas: basit "3 I/O paralel" için JS `Promise.all` daha kısa; Go'nun her yerde
+`if err != nil`'i daha tekrarlı.
+
+**🔗 İlgili:**
+- [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §2 (errors-as-values), §9 (concurrency)
+- [docs/GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §1 (ctx-first)
+- Yukarıda [Girdi 4](#4-go-eşzamanlılık-temelleri-goroutine-channel-context-defer)
