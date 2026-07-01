@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# BookHub — git pre-commit hook (HIZLI kontroller, her commit'te).
+# gofmt (biçim/Prettier) + go vet (ucuz statik kontrol).
+# Ağır kontroller (golangci-lint + test) pre-push'ta (bkz. .githooks/pre-push).
+#
+# Kurulum (repo başına bir kez):  git config core.hooksPath .githooks
+set -euo pipefail
+
+# Sadece backend/ (Go) değiştiyse çalış. (Frontend gelince ayrı ele alınır.)
+if ! git diff --cached --name-only --diff-filter=ACMR | grep -q '^backend/'; then
+  exit 0
+fi
+
+echo "▶ pre-commit: hızlı backend kontrolleri (gofmt + vet)..."
+
+# 1) gofmt — biçim (Prettier'in Go karşılığı). CI'ı kırmızı yapan buydu.
+unformatted="$(gofmt -l backend)"
+if [ -n "$unformatted" ]; then
+  echo "✗ Bu dosyalar gofmt gerektiriyor:"
+  echo "$unformatted" | sed 's/^/    /'
+  echo "  Düzelt:  gofmt -w backend   (sonra 'git add' + commit)"
+  exit 1
+fi
+
+# 2) go vet — ucuz statik kontrol (toolchain'in parçası).
+go -C backend vet ./...
+
+echo "✓ pre-commit: gofmt + vet temiz"

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# BookHub — git pre-push hook (AĞIR kontroller, her push'ta bir kez).
+# golangci-lint (kalite/bug — ESLint) + go test -race (tam test takımı).
+# Amaç: kod makineden çıkmadan CI'ın ağır kısmını lokalde geçmek → CI kırmızı olmasın.
+# Hızlı kontroller (gofmt + vet) pre-commit'te (bkz. .githooks/pre-commit).
+#
+# Kurulum (repo başına bir kez):  git config core.hooksPath .githooks
+set -euo pipefail
+
+echo "▶ pre-push: ağır backend kontrolleri (golangci-lint + test -race)..."
+
+# 1) golangci-lint — kalite/bug linter (ESLint'in Go karşılığı).
+#    Kuruluysa çalıştır; değilse zarifçe atla (CI yine de kontrol eder).
+if command -v golangci-lint >/dev/null 2>&1; then
+  ( cd backend && golangci-lint run ./... )
+else
+  echo "⚠ golangci-lint kurulu değil, atlanıyor (CI kontrol eder). Kur: brew install golangci-lint"
+fi
+
+# 2) Tam test takımı, yarış dedektörüyle — push'tan önce son kontrol.
+go -C backend test -race ./...
+
+echo "✓ pre-push: golangci-lint + test temiz"
