@@ -11,6 +11,7 @@ import (
 //   - dosya adı _test.go ile biter,
 //   - fonksiyon adı Test ile başlar,
 //   - tek parametre *testing.T alır.
+//
 // `go test` bunları otomatik bulur ve çalıştırır.
 func TestHandleHealth(t *testing.T) {
 	// 1) Sahte bir GET /health isteği oluştur (ağ yok, sadece bellekte).
