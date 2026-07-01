@@ -1,0 +1,53 @@
+# CI — her push/PR'da backend'i otomatik doğrular (test + fmt + vet + build).
+# Bu, lokalde yaptığımız kontrollerin sunucudaki güvenlik ağı hâlidir.
+# NOT: Deploy (CD) burada YOK — o, gerçek bir uygulama + prod DB olunca (Faz 10).
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend # Go modülü backend/ altında
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod # sürümü go.mod'dan al (senkron kalsın)
+          cache-dependency-path: backend/go.sum
+
+      - name: Format check (gofmt)
+        run: |
+          fmt_out="$(gofmt -l .)"
+          if [ -n "$fmt_out" ]; then
+            echo "Bu dosyalar gofmt gerektiriyor:"
+            echo "$fmt_out"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test (race)
+        run: go test -race ./...
