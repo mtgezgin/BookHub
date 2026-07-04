@@ -51,3 +51,12 @@ jobs:
 
       - name: Test (race)
         run: go test -race ./...
+
+      # golangci-lint (kalite/bug linter — ESLint'in Go karşılığı) — otoriter backstop.
+      # (Lokalde pre-push hook'u zaten çalıştırıyor; bu, hook'u atlayan durum için.)
+      # Sürüm lokaldeki ile eşleşsin diye pinlendi.
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          working-directory: backend
