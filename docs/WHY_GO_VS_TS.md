@@ -121,7 +121,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 3. Explicit DI & small interfaces vs duck typing / DI containers
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 1–2 — backend/cmd/api/main.go — TBD]`
+**Status:** `CONFIRMED` (Faz 1) · **Illustration:** `backend/cmd/api/main.go` — `main()` elle DI (config.Load + newRouter, framework yok).
+>
+> **✅ Faz 1:** grafı `main.go`'da elle kurmak net ve okunur. Henüz interface yok — gerçek bir fake / 2. implementasyon gerekmedi, o yüzden eklemedik (GO_CONVENTIONS §3). Hipotez bu ölçekte doğrulandı.
 
 - **Hypothesis:** Wiring dependencies by hand in `main.go` (no framework) keeps the whole
   object graph readable top-to-bottom and teaches DI better than a container that resolves it
@@ -148,7 +150,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 4. Visible HTTP (Chi / net/http) vs framework abstraction
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 1 — backend/internal/server/router.go — TBD]`
+**Status:** `CONFIRMED` (Faz 1) · **Illustration:** `backend/cmd/api/router.go:newRouter` (Chi, net/http uyumlu; dosya `internal/server` yerine `cmd/api`'de — tek handler için erken paketleme yapmadık).
+>
+> **✅ Faz 1:** Chi handler imzaları net/http ile birebir aynı; öğrendiğim hiçbir şey çöpe gitmedi. Ama dürüst: gördüğüm "şeffaflık"ın çoğu **library seçimi** (Chi vs Express), dil farkı değil — caveat doğrulandı.
 
 - **Hypothesis:** Chi keeps HTTP mechanics (request, `http.ResponseWriter`, status codes,
   middleware) visible, so nothing learned about `net/http` is throwaway. Matches §7.1's
@@ -171,7 +175,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 5. JSON (de)serialization & validation at the boundary
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 1–2 — backend/internal/books/dto.go — TBD]`
+**Status:** `PARTIAL` (Faz 1) · **Illustration:** `backend/cmd/api/respond.go:writeJSON` + hata zarfı (JSON *serileştirme* yapıldı).
+>
+> **◑ Faz 1:** JSON yazma (struct/map → JSON) ve tutarlı hata zarfı var. Ama **validation** (`go-playground/validator`) HENÜZ yok — çünkü request body'si alan bir endpoint yok. Gerçek DTO + doğrulama Faz 2'de (suggest-book / rating body). Kısmi.
 
 - **Hypothesis:** Go struct tags + `go-playground/validator` on request DTOs give a
   compile-time-known shape with co-located validation rules, vs untyped `JSON.parse` recovered
@@ -246,7 +252,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 8. Graceful shutdown & fail-fast config
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 1 — backend/cmd/api/main.go shutdown block — TBD]`
+**Status:** `CONFIRMED` (Faz 1) · **Illustration:** `backend/cmd/api/main.go` (graceful shutdown) + `backend/internal/config/config.go:Load` (fail-fast).
+>
+> **✅ Faz 1:** SIGTERM gönderince "sunucu temiz kapandı" (exit 0) **canlı** görüldü; `PORT=abc` ile boot'ta durdu (fail-fast). Dürüst: dikkatli bir Node servisi de aynısını yapar; Go'nun stdlib'i sadece `Shutdown(ctx)` ile bunu daha az uğraşla veriyor.
 
 - **Hypothesis:** Go's stdlib makes `http.Server` timeouts + `signal.NotifyContext` +
   `srv.Shutdown(ctx)` the idiomatic default, and fail-fast config validation at boot prevents
@@ -363,7 +371,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 13. Standard toolchain & DX: `go test` / `vet` / `-race` / `gofmt` / `build` vs the JS toolchain
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 6 — backend/internal/ratings/score_test.go table-driven — TBD]`, `[Phase 10 — .github/workflows/ci.yml — TBD]`
+**Status:** `CONFIRMED` (kısmi, Faz 1) · **Illustration:** `backend/internal/config/config_test.go:TestLoad` (table-driven, 7 alt-test) + `.github/workflows/ci.yml` (CI — Faz 10'dan öne çekildi) + `.githooks/` (fmt/vet/lint/test hook'ları).
+>
+> **✅ Faz 1:** sıfır-config toolchain (`go test`/`vet`/`gofmt`, hepsi kutudan) + table-driven gerçekten rahat — JS'teki jest+eslint+prettier+tsc kurulum yükü yok. Dürüst karşı-nokta: JS'in mock/snapshot/watch ekosistemi daha zengin. (Bayrak weighted-score testi hâlâ Faz 6.)
 
 - **Hypothesis:** One cohesive, zero-config toolchain (`go test`, `go vet`, `gofmt`,
   `go build`, `-race`) plus table-driven tests with the standard `testing` package is a real
@@ -424,6 +434,18 @@ Seed entries:
    and ad-hoc shapes.
 5. **Optional-field / JSON-nullability ergonomics** and some generics niceties read cleaner in
    TS than Go's zero-value + pointer-for-nullable dance.
+
+**Faz 1'de eklenen dürüst gözlemler:**
+6. **Graceful shutdown (§8):** Express de `server.close()` + sinyal ile aynısını yapar. Go'nun
+   `Shutdown(ctx)`'i biraz daha temiz ama bu bir *dil kazanımı değil*, ergonomi.
+7. **Görünür HTTP / Chi (§4):** "şeffaflık" büyük ölçüde Chi-vs-Express (**library seçimi**);
+   TS'te de ince bir router seçebilirsin. Dile puan yazma.
+8. **I/O-bound `/health` (§3–§5):** bu basit JSON CRUD'da Node/Express **birebir yeterdi**;
+   Go'nun hız avantajı bu ölçekte ölçülemez.
+9. **Test DX (§13):** Go'nun sıfır-config'i rahat, AMA jest/vitest'in mock/snapshot/watch DX'i
+   ve JS ekosisteminin genişliği gerçek bir avantaj.
+10. **Hata zarfı (§5):** tutarlı `{"error":{"code","message"}}` JS'te de birebir kurulur — dil
+    farkı değil, **disiplin**.
 
 > **Refleksiyon (TR):** Buraya her Go bölümü doldurduğunda en az bir dürüst "TS/JS kazanırdı"
 > girdisi ekle. Bu bölüm büyümüyorsa, doküman Go reklamına kaymış demektir.
