@@ -10,6 +10,8 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 3. [Go paketleri JS/TS modüllerine nasıl denk gelir?](#3-go-paketleri-jsts-modüllerine-nasıl-denk-gelir)
 4. [Go eşzamanlılık temelleri: goroutine, channel, context, defer](#4-go-eşzamanlılık-temelleri-goroutine-channel-context-defer)
 5. [async zihninden Go zihnine: sync-by-default](#5-async-zihninden-go-zihnine-sync-by-default)
+6. [if init statement ve tek harfli isimler (`v`, `err`, `ok`)](#6-if-init-statement-ve-tek-harfli-isimler-v-err-ok)
+7. [Go toolchain komutları: paket kalıpları ve `gofmt`](#7-go-toolchain-komutları-paket-kalıpları-ve-gofmt)
 
 ---
 
@@ -248,3 +250,115 @@ Dürüst takas: basit "3 I/O paralel" için JS `Promise.all` daha kısa; Go'nun 
 - [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §2 (errors-as-values), §9 (concurrency)
 - [docs/GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §1 (ctx-first)
 - Yukarıda [Girdi 4](#4-go-eşzamanlılık-temelleri-goroutine-channel-context-defer)
+
+---
+
+## 6. if init statement ve tek harfli isimler (`v`, `err`, `ok`)
+
+**🗓️ Bağlam:** Faz 2'nin `DatabaseURL` config egzersizini yaparken
+[config.go](../../backend/internal/config/config.go)'daki `getenv` helper'ında
+`if v := os.Getenv(key); v != ""` satırını gördüm; "buradaki `v` neyi ifade ediyor, bilerek mi
+seçilmiş yoksa rastgele mi?" diye sordum.
+
+**⚡ Kısa cevap:** İki ayrı şey var: (1) `if <ifade>; <koşul>` Go'nun **"if with init
+statement"** kalıbı — değişken önce tanımlanır ve **sadece o if bloğunda yaşar**; (2) `v` ismi
+rastgele değil, **konvansiyon**: "value"nun kısaltması. Go'da kural: **scope ne kadar kısaysa
+isim o kadar kısa.**
+
+**📖 Açıklama:**
+
+```go
+if v := os.Getenv(key); v != "" {  // v burada doğar...
+    return v
+}                                   // ...burada ölür; fonksiyonun kalanında YOK
+```
+
+İki satırlı eşdeğerinden farkı **scope**: init statement'taki `v` if/else dışına sızmaz.
+Okuyucuya sinyali: *"bu değişken yalnızca bu karar için var."* JS'te `const v = ...` fonksiyon
+sonuna kadar yaşar — Go'daki bu blok-kilitleme JS'te yok. Aynı idiom'u en sık `err` ile
+görürsün: `if err := cfg.validate(); err != nil { ... }` (Go'nun belki en çok tekrarlanan
+satırı).
+
+Yerleşik tek harfli isimler:
+
+| İsim | Anlamı | Nerede |
+|---|---|---|
+| `i`, `j` | index | döngüler |
+| `k`, `v` | key, value | map iterasyonu, env okuma |
+| `n` | adet | `n, err := r.Read(...)` |
+| `err` | error | her yerde |
+| `ok` | başarı bayrağı | `val, ok := m[key]` |
+| `tt`, `tc` | tablo satırı / test case | table-driven test döngüsü (`for _, tt := range tests`) — `t` adı `*testing.T`'ye kapılmış olduğu için `tt` |
+
+İsimlendirme felsefesi: **tanım ile kullanım arası mesafe arttıkça isim uzar.** Bir satır
+yaşayan yerel değer → `v` yeterli; uzun ömürlü struct alanı → `DatabaseURL` gibi açık isim
+şart. `value` yazsan da derleyici umursamaz — ama idiomatik Go'da kısalık burada bilgi taşır
+("kısa ömürlü yerel").
+
+**Devam sorusu: değere if'ten SONRA ihtiyacım olsaydı?** Init form kullanamazsın — tanımı
+if'in üstüne alırsın (`v := os.Getenv(key)` ayrı satır). Bunu **önceden tahmin etmek
+gerekmez:** en dar scope'la başla; dışarıda kullanmaya kalkınca derleyici `undefined: v` der,
+tanımı yukarı taşırsın (ucuz refactor; JS'te geniş scope sessizce çalışır, Go seni dar scope'a
+iter). İki nüans: (1) init'teki değişken **else dalında da görünür** (scope = if-else
+zincirinin tamamı); (2) kendi kodumuzda iki form yan yana:
+[config.go](../../backend/internal/config/config.go)'da `if err := cfg.validate(); err != nil`
+(err sadece karara lazım → içeride) vs `n, err := strconv.Atoi(c.Port)` if'in dışında —
+çünkü `n` sonra da kullanılıyor (aralık kontrolü + normalize).
+
+**🔗 İlgili:**
+- [backend/internal/config/config.go](../../backend/internal/config/config.go) (`getenv` — soruyu doğuran kod; `validate` çağrısındaki `if err := ...` aynı idiom)
+- [docs/GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §1 (idiomlar)
+- [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §4 (görünür, sıkı-scope'lu kod)
+
+---
+
+## 7. Go toolchain komutları: paket kalıpları ve `gofmt`
+
+**🗓️ Bağlam:** Faz 2'de `DATABASE_URL` egzersizini doğrularken iki komutum art arda patladı:
+repo kökünden (`BookHub/`) `gofmt -w internal/config/` → `lstat ...: no such file or
+directory`; sonra `backend/` içine geçip paket belirtmeden `go test -race` → `no Go files in
+.../backend`. İkisinin de nedenini sordum.
+
+**⚡ Kısa cevap:** (1) Göreli yollar **bulunduğun klasöre (cwd)** göre çözülür —
+`internal/config/` repo kökünde değil `backend/` (modül kökü) altında. (2) `go
+test/build/vet` **paket kalıbı** ister; vermezsen "bulunduğum klasörün paketi" varsayar,
+`backend/` kökünde `.go` dosyası olmadığı için hata. Standart çözüm: `./...` = "bu klasör ve
+altındaki tüm paketler".
+
+**📖 Açıklama:**
+
+İki ayrı kavram üst üste bindi:
+
+1. **İki "kök" var:** repo kökü `BookHub/` (git, docker-compose, docs) ve **modül kökü**
+   `backend/` (`go.mod` burada). Go komutları modül kökünden (veya altından) çalıştırılır;
+   araçlara verdiğin göreli yol terminalde nerede durduğuna göre çözülür.
+
+2. **Paket kalıpları** (`go test`, `go build`, `go vet` hepsinde aynı mantık):
+
+   | Komut | Kapsam |
+   |---|---|
+   | `go test -race ./...` | bu klasör + altındaki TÜM paketler (standart kullanım) |
+   | `go test ./internal/config` | sadece o paket |
+   | `go test` (argümansız) | SADECE cwd'nin paketi — `.go` dosyası yoksa hata |
+
+   `./...`'daki üç nokta Go toolchain'inin "ve altındaki her şey" jokeridir.
+
+3. **`go fmt` vs `gofmt`:** `gofmt` asıl araç ve **dosya/klasör** alır; `go fmt` ise onun
+   **paket bazlı** sarmalayıcısı (paketleri gezip `gofmt -l -w` çağırır). Bayraklar:
+
+   ```bash
+   gofmt -w internal/config/config.go   # -w: dosyayı yerinde düzelt
+   gofmt -l .                           # -l: sadece listele (CI/hook'ların kullandığı)
+   gofmt -d dosya.go                    # -d: diff göster, dokunma
+   ```
+
+   VSCode Go eklentisinde format-on-save varsayılan açık → çoğu zaman elle gerekmez.
+
+JS ile fark: orada hedef seçimi config dosyalarıyla yapılır (prettier/eslint config, jest
+`testMatch`); Go'da config dosyası yok — hedefi komut satırındaki paket kalıbı söyler.
+
+**🔗 İlgili:**
+- [.githooks/](../../.githooks/) — pre-commit (`gofmt -l` + `go vet`) ve pre-push
+  (`golangci-lint` + `go test -race ./...`) aynı komutları koşuyor
+- [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §13 (zero-config toolchain)
+- Yukarıda [Girdi 1](#1-stdlib-standart-kütüphane-nedir) (`go doc` — aynı ailenin keşif komutu)

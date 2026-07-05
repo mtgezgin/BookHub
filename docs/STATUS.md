@@ -3,8 +3,8 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her oturum sonunda güncellenir. (Kişisel öğrenme notları/memory ayrıca otomatik yüklenir.)
 
-**Son güncelleme bağlamı:** Faz 1 tamamlandı; Faz 2'ye (Postgres) başlamak üzereyiz.
-**Repo:** github.com/mtgezgin/BookHub (private) · **Son push'lu commit:** `cecf2b4` (docs: Phase 1 wrap).
+**Son güncelleme bağlamı:** Faz 2 devam ediyor — adım 1–3 tamam (dev Postgres + `DATABASE_URL` config + ilk migration); sırada adım 4 (sqlc).
+**Repo:** github.com/mtgezgin/BookHub (private) · **Son push'lu commit:** `cecf2b4` · Faz 2 milestone commit'i lokalde (push bekliyor).
 
 ---
 
@@ -17,8 +17,16 @@
 - **CI** (`.github/workflows/ci.yml`): gofmt + vet + build + test-race + **golangci-lint** — **tamamen yeşil**.
 - **Katmanlı git hook'ları** (`.githooks/`): pre-commit (gofmt+vet), pre-push (golangci-lint+test-race). `core.hooksPath=.githooks` **yerel git config**'tir → taze klonda bir kez `git config core.hooksPath .githooks` gerekir.
 
+## Faz 2 — devam ediyor 🔄 (adım 3/8 bitti) → [phases/phase-02](phases/phase-02-postgres-books-genres.md)
+- ✅ **1. Docker Postgres:** `docker-compose.yml` (postgres:16, named volume `pg_data`, healthcheck, `5432:5432`). `docker compose up -d` ile ayakta, doğrulandı.
+- ✅ **2. `DATABASE_URL` config:** zorunlu alan (default yok → fail-fast) — kullanıcının ilk "örnekten uyarla" egzersisiydi; testler 8 senaryoya çıktı. `.env.example` eklendi; lokalde `.env` kopyalandı.
+- ✅ **3. goose + ilk migration:** goose v3.27.2 (`go install`, `~/go/bin`). `backend/migrations/0001_books_genres.sql` = `books`/`genres`/`book_genres` (§18.3: identity PK, TEXT+CHECK status **DEFAULT'suz**, timestamptz, slug UNIQUE, partial index `(created_at DESC) WHERE status='APPROVED'`, `book_genres(genre_id)` index'i). **avg_rating/rating_count bilerek yok → Faz 5 migration'ı ekleyecek** (şema evrimi dersi). up/down/up roundtrip doğrulandı; dev DB'de seed: books id=1 "Clean Code".
+- ⏭️ **4. sqlc kurulumu + ilk sorgular** (`sqlc.yaml`, `sql/queries/books.sql`) — **ilk sorguları kullanıcı yazacak.**
+- Sonra: **5.** pgx pool (`internal/database`, elle DI) → **6.** dikey dilim `GET /api/books/{id}` → **7.** liste/create/genres/m2m → **8.** repository integration testi.
+
 ## Ortam / gerçekler
 - **Go 1.26.4** (Homebrew ile yönetiliyor). Module: `github.com/mtgezgin/bookhub/backend`.
+- **goose v3.27.2** CLI `~/go/bin`'de (taze makinede `go install github.com/pressly/goose/v3/cmd/goose@latest`). pgAdmin 4 kurulu (dev DB'ye `localhost:5432`, bookhub/bookhub_dev).
 - **Commit kimliği:** bu repoda **yerel** `user.email=mehmetturgutgezgin@gmail.com` (global iş kimliği değişmedi).
 - Bu repo'da **pre-commit gate'leri** (güvenlik + coverage + kod review) ve **pre-push fan-out panel** çalışıyor → kaynak kod commit/push'ları ağır. **Commit'leri milestone'da topla.**
 
@@ -35,17 +43,14 @@
 - **Örnekten uyarla:** daha önce benzerini yaptıysak → "şu örneğe (Y) bakarak sen yaz (X)". İlk kez → ben yazar+açıklarım.
 - Derin, başlangıç-seviyesi açıklamalar; her adımda kadran kullanıcıda.
 
-## Açık uçlar (non-blocking — sıradaki commit'e yedirilecek)
-- **[F1]** `ci.yml`'deki golangci-lint sürüm yorumu "lokalle eşleşir" diyor ama lokal **2.12.1** vs CI **2.12.2**; ayrıca pre-push hook sürüm pinlemiyor. → yorumu düzelt ("reproducibility için pinlendi") ya da lokali 2.12.2'ye bump'la. **Faz 2'nin ilk commit'ine yedir.**
+## Açık uçlar (non-blocking)
+- ~~[F1] golangci-lint sürüm yorumu~~ ✅ kapandı (yorum "reproducibility için pinlendi; otorite CI" olarak düzeltildi).
 - GitHub Actions **Node 20 deprecation** uyarısı (checkout@v4, setup-go@v5, golangci-lint-action@v7) → ileride action sürümlerini bump'la (acil değil).
 
-## Sırada: Faz 2 — Postgres → [phases/phase-02-postgres-books-genres.md](phases/phase-02-postgres-books-genres.md)
-İlk adımlar (çoğu **yeni pattern** → ben yazıp açıklarım):
-1. `docker-compose.yml` → dev Postgres (Docker'ın "ne/neden"i ile).
-2. Config'e `DatabaseURL` alanı ekle → **ilk "örnekten uyarla": `config.go`'daki `Port`'a bakarak kullanıcı ekler.**
-3. İlk goose migration (`books`, `genres`, `book_genres` — tip/kısıt/index'ler §18.3).
-4. sqlc kurulumu + ilk sorgu.
-5. **İlk dikey dilim:** tek `Book` uçtan uca (migration→repo→handler→JSON→test).
+## Sırada: Faz 2 adım 4 — sqlc
+- `sqlc.yaml` (backend kökünde) + `sql/queries/books.sql` — **iki SQL klasörünü karıştırma:** `sql/queries/` = sqlc girdisi, `migrations/` = goose (§18.4).
+- Kurulum + yaml boilerplate'i asistan yazar; **`GetBook`/`ListBooks`/`CreateBook` sorgularını kullanıcı yazar** (SQL öğrenimi bu fazın asıl dersi).
+- Sonra pgx pool → dikey dilim `GET /api/books/{id}` (seed "Clean Code" ile curl checkpoint'i).
 
 ## Doküman haritası
 - [PROJECT_BRIEF.md](PROJECT_BRIEF.md) — ürün + roadmap (§11) + §18 addendum (kararlar).

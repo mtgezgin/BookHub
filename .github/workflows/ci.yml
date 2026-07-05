@@ -54,7 +54,7 @@ jobs:
 
       # golangci-lint (kalite/bug linter — ESLint'in Go karşılığı) — otoriter backstop.
       # (Lokalde pre-push hook'u zaten çalıştırıyor; bu, hook'u atlayan durum için.)
-      # Sürüm lokaldeki ile eşleşsin diye pinlendi.
+      # Sürüm reproducibility için pinlendi (lokal sürüm ufak farklı olabilir; otorite CI'dır).
       - name: Lint (golangci-lint)
         uses: golangci/golangci-lint-action@v7
         with:

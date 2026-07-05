@@ -26,7 +26,7 @@ altta). Girdi formatı:
 | [go-language.md](go-language.md) | Go dilinin kendisi: stdlib, idiomlar, test konvansiyonları, syntax, generics | aktif |
 | [backend-and-web.md](backend-and-web.md) | Dil-bağımsız backend/web: HTTP, API, config/12-factor, server lifecycle (graceful shutdown), hata yönetimi | aktif |
 | [tooling-and-workflow.md](tooling-and-workflow.md) | Claude Code (skill/memory/hook), git, pre-commit gate'ler, commit ritmi, geliştirme aracı kavramları | aktif |
-| `database.md` | Postgres, SQL, sqlc, migration, transaction, index | sırası gelince |
+| [database.md](database.md) | Postgres, SQL, sqlc, migration, transaction, index | aktif |
 | `security-and-auth.md` | auth, JWT, parola hash, IDOR, rate limit | sırası gelince |
 | `infra-and-devops.md` | Docker, Redis hosting, deploy, CI/CD, K8s | sırası gelince |
 

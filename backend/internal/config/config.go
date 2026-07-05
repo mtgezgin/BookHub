@@ -13,7 +13,8 @@ import (
 // (OOP'deki "class"ın yalnızca VERİ kısmı gibi düşün — metotlar ayrı yazılır.)
 // İleride buraya DatabaseURL, RedisURL, JWTSecret gibi alanlar eklenecek.
 type Config struct {
-	Port string // HTTP sunucusunun dinleyeceği port (ör. "8080")
+	Port        string // HTTP sunucusunun dinleyeceği port (ör. "8080")
+	DatabaseURL string // Veritabanı bağlantı dizesi (ör. "postgres://...")
 }
 
 // Load, env'den ayarları okur, doğrular ve hazır bir Config döner.
@@ -22,7 +23,8 @@ type Config struct {
 func Load() (Config, error) {
 	// Config{...} = "struct literal" (JS'teki nesne literali { } gibi).
 	cfg := Config{
-		Port: getenv("PORT", "8080"), // PORT tanımlı değilse varsayılan 8080
+		Port:        getenv("PORT", "8080"),     // PORT tanımlı değilse varsayılan 8080
+		DatabaseURL: getenv("DATABASE_URL", ""), // DATABASE_URL yoksa boş
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -47,6 +49,10 @@ func (c *Config) validate() error {
 	// kabul eder. Kanonik hâli ("8080") geri yazarak addr=":+8080" gibi geçersiz
 	// değerlerin sunucuya sızmasını önleriz. (Pointer receiver sayesinde mümkün.)
 	c.Port = strconv.Itoa(n)
+	if c.DatabaseURL == "" {
+		return fmt.Errorf("DATABASE_URL zorunlu - dev için .env.example'daki değeri kullan")
+	}
+
 	return nil
 }
 

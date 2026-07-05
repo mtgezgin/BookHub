@@ -11,17 +11,19 @@ func TestLoad(t *testing.T) {
 	tests := []struct {
 		name     string // alt-testin adı (çıktıda görünür)
 		port     string // PORT env değeri ("" = boş → varsayılana düşmeli)
+		dbURL    string // DATABASE_URL env değeri
 		wantPort string // hata yoksa beklenen cfg.Port
 		wantErr  bool   // hata bekliyor muyuz?
 	}{
-		{name: "PORT boş → varsayılan 8080", port: "", wantPort: "8080"},
-		{name: "geçerli PORT", port: "9090", wantPort: "9090"},
-		{name: "sayı olmayan PORT → hata", port: "abc", wantErr: true},
-		{name: "aralık dışı (büyük) → hata", port: "70000", wantErr: true},
-		{name: "geçersiz 0 → hata", port: "0", wantErr: true},
+		{name: "PORT boş → varsayılan 8080", port: "", wantPort: "8080", dbURL: "postgres://test"},
+		{name: "geçerli PORT", port: "9090", wantPort: "9090", dbURL: "postgres://test"},
+		{name: "sayı olmayan PORT → hata", port: "abc", wantErr: true, dbURL: "postgres://test"},
+		{name: "aralık dışı (büyük) → hata", port: "70000", wantErr: true, dbURL: "postgres://test"},
+		{name: "geçersiz 0 → hata", port: "0", wantErr: true, dbURL: "postgres://test"},
 		// Normalize: Atoi bunları kabul eder ama biz kanonik "8080" döndürmeliyiz.
-		{name: "kanonik olmayan +8080 → normalize 8080", port: "+8080", wantPort: "8080"},
-		{name: "baştaki sıfır 08080 → normalize 8080", port: "08080", wantPort: "8080"},
+		{name: "kanonik olmayan +8080 → normalize 8080", port: "+8080", wantPort: "8080", dbURL: "postgres://test"},
+		{name: "baştaki sıfır 08080 → normalize 8080", port: "08080", wantPort: "8080", dbURL: "postgres://test"},
+		{name: "boş DATABASE_URL → hata", port: "8080", dbURL: "", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -30,6 +32,7 @@ func TestLoad(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// PORT'u bu test için ayarla; test bitince otomatik eski hâline döner.
 			t.Setenv("PORT", tt.port)
+			t.Setenv("DATABASE_URL", tt.dbURL)
 
 			cfg, err := Load()
 
