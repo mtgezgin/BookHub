@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/mtgezgin/bookhub/backend/internal/books"
@@ -102,5 +104,32 @@ func TestHandleGetBook(t *testing.T) {
 				t.Errorf("kitap yanlış: istenen %+v, gelen %+v", tt.fake.book, got)
 			}
 		})
+	}
+}
+
+// TestHandleGetBook_500DetaySizdirmaz, 500 yolunun "detay SIZMAZ" iddiasını
+// GÖVDE ÜZERİNDEN kanıtlar: error.code'un "internal" olması yetmez — sürücü/şema
+// bilgisi taşıyan hata metninin cevabın HİÇBİR yerinde geçmemesi gerekir.
+// (Detay operatör için log'a gider; istemciye gitmesi bilgi sızıntısıdır.)
+func TestHandleGetBook_500DetaySizdirmaz(t *testing.T) {
+	// Gerçekçi bir iç hata: repository'nin %w ile sardığı sürücü mesajı.
+	const surucuDetayi = `ERROR: relation "books" does not exist (SQLSTATE 42P01) @ 10.0.0.7:5432`
+	fake := fakeBooks{err: fmt.Errorf("kitap sorgusu (id=1): %w", errors.New(surucuDetayi))}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/books/1", nil)
+	rec := httptest.NewRecorder()
+
+	newRouter(fake).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("durum kodu: istenen %d, gelen %d", http.StatusInternalServerError, rec.Code)
+	}
+
+	govde := rec.Body.String()
+	// Tam metin + tek tek sızıntı işaretleri: biri bile geçerse cevap detay taşıyor.
+	for _, sizinti := range []string{surucuDetayi, "relation", "SQLSTATE", "42P01", "5432", "kitap sorgusu"} {
+		if strings.Contains(govde, sizinti) {
+			t.Errorf("iç detay gövdeye sızdı (%q): %s", sizinti, govde)
+		}
 	}
 }
