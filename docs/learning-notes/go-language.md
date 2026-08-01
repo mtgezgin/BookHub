@@ -12,6 +12,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 5. [async zihninden Go zihnine: sync-by-default](#5-async-zihninden-go-zihnine-sync-by-default)
 6. [if init statement ve tek harfli isimler (`v`, `err`, `ok`)](#6-if-init-statement-ve-tek-harfli-isimler-v-err-ok)
 7. [Go toolchain komutları: paket kalıpları ve `gofmt`](#7-go-toolchain-komutları-paket-kalıpları-ve-gofmt)
+8. [Zero value nedir, nasıl belirlenir?](#8-zero-value-nedir-nasıl-belirlenir)
 
 ---
 
@@ -198,6 +199,17 @@ srv.Shutdown(timeoutCtx)                                // nazikçe kapat
 **Tuzak:** `main()` biterse tüm goroutine'ler ölür → bir goroutine'i beklemek için
 channel / `sync.WaitGroup` gerekir.
 
+**Devam sorusu (Faz 2, `database.go`'daki `defer cancel()`): timeout varken cancel neden,
+ve her durumda mı çalışır?** Evet — `defer`'i tetikleyen şey timeout DEĞİL, **fonksiyondan
+çıkış** (normal return / error / panic; her yol). Timeout senaryosunda sıra "timeout → Ping
+hata döner → fonksiyon biter → defer" diye göründüğü için neden-sonuç sanılır; değildir.
+`cancel()`'ın işi: `WithTimeout`'un arka planda tuttuğu **zamanlayıcıyı erken bırakmak** —
+Ping 50ms'de bitse bile cancel çağrılmazsa timer kalan ~4.95sn boşuna yaşar. Timeout
+sonrasında çağrılması zararsızdır (`cancel` idempotent). O kadar yerleşik ki `go vet`
+(`lostcancel`) cancel'ı unutan kodu hata sayar → kalıp: `WithTimeout` satırının hemen altına
+`defer cancel()`. JS karşılığı birebir: `finally { clearTimeout(timer) }` — o da her durumda
+çalışır; Go'nun farkı temizliğin en sona değil, kaynağı aldığın satırın ALTINA yazılması.
+
 **🔗 İlgili:**
 - [backend/cmd/api/main.go](../../backend/cmd/api/main.go) (4'ü birlikte: graceful shutdown)
 - [docs/learning-notes/backend-and-web.md](backend-and-web.md) Girdi 1 (graceful shutdown *kavramı*)
@@ -362,3 +374,50 @@ JS ile fark: orada hedef seçimi config dosyalarıyla yapılır (prettier/eslint
   (`golangci-lint` + `go test -race ./...`) aynı komutları koşuyor
 - [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §13 (zero-config toolchain)
 - Yukarıda [Girdi 1](#1-stdlib-standart-kütüphane-nedir) (`go doc` — aynı ailenin keşif komutu)
+
+---
+
+## 8. Zero value nedir, nasıl belirlenir?
+
+**🗓️ Bağlam:** Faz 2 adım 7'de repository review'ında "hata yolunda `[]db.Book{}` değil
+`nil` dön — slice'ın zero value'su o" deyince "zero value nedir, nasıl belirlenir/bilinir?"
+diye sordum.
+
+**⚡ Kısa cevap:** Go'da değer verilmeden tanımlanan HER değişken, tipine göre **garantili
+bir başlangıç değeri** taşır = zero value. JS'teki `undefined` Go'da yoktur. Kural ezber
+değil: **tüm bit'ler sıfırken tipin aldığı değer** — sayı `0`, bool `false`, string `""`,
+pointer/slice/map/channel/interface `nil`, struct = her alanı kendi zero value'sunda
+(öz yinelemeli).
+
+**📖 Açıklama:**
+
+| Tip ailesi | Zero value |
+|---|---|
+| sayılar | `0` |
+| `bool` | `false` |
+| `string` | `""` |
+| pointer, slice, map, channel, func, interface | `nil` |
+| struct / array | tüm alanlar/elemanlar kendi zero value'sunda |
+
+Tek ayrım: **değer tipleri** "boş ama somut" değer alır; **referans-vari tipler** `nil`.
+
+Projede karşılaştığım yerler:
+- `config_test.go` tablosunda yazılmayan `dbURL` alanı → `""` (7 test ondan kırılmıştı);
+- `Get`'in hata yolu `return db.Book{}, err` → tüm alanları zero'lu Book;
+- sqlc'nin ürettiği `var items []Book` → `nil` slice → **JSON'a `[]` değil `null` serileşir**
+  (handler'da normalize gerekir — gerçek tuzak!);
+- `m[key]` olmayan anahtarda zero value döner → `val, ok := m[key]` idiom'unun sebebi.
+
+**"Make the zero value useful"** (Go atasözü): `var sb strings.Builder` init'siz çalışır,
+`sync.Mutex`'in zero'su açık kilittir, `nil` slice'a `append` edilebilir (ilk append tahsis
+eder). Bedeli: `0` ile "girilmedi"yi ayırt edemezsin → ayrım gerekiyorsa pointer
+(`PublicationYear *int32`: `nil` = bilinmiyor, `0`'dan ayrı).
+
+JS farkı felsefi: JS "değer yoksa özel yokluk değeri (`undefined`) koy" der; Go "yokluk
+olmasın, her tip somut varsayılanla doğsun" der → deterministik, ama sıfır/boş anlam yükü
+taşır. Kontrol: `x == 0`, `s == ""`, `p == nil`, `b == db.Book{}`.
+
+**🔗 İlgili:**
+- [backend/internal/config/config_test.go](../../backend/internal/config/config_test.go) (eksik alan = zero value dersi)
+- [backend/internal/db/models.go](../../backend/internal/db/models.go) (`*int32` — NULL/0 ayrımı için pointer)
+- Yukarıda [Girdi 5](#5-async-zihninden-go-zihnine-sync-by-default) (JS→Go zihinsel çevirmeler)

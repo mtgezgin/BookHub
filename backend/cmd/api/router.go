@@ -9,7 +9,9 @@ import (
 
 // newRouter, uygulamanın HTTP router'ını (yönlendiricisini) kurar.
 // Chi, net/http ile uyumludur: handler imzaları aynı, sadece daha zengin.
-func newRouter() http.Handler {
+// Bağımlılıklar (şimdilik: kitap repository'si) PARAMETRE olarak gelir —
+// elle DI: kim neye muhtaç, imzadan okunur (GO_CONVENTIONS §5).
+func newRouter(bookRepo bookGetter) http.Handler {
 	r := chi.NewRouter()
 
 	// Middleware: her isteğe, yukarıdan aşağı SIRAYLA uygulanan ara katmanlar.
@@ -25,8 +27,9 @@ func newRouter() http.Handler {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "bu method desteklenmiyor")
 	})
 
-	// Rotalar. İleride buraya /api/books, /api/admin/... grupları eklenecek.
+	// Rotalar. İleride buraya /api/admin/... grupları eklenecek.
 	r.Get("/health", handleHealth)
+	r.Get("/api/books/{id}", handleGetBook(bookRepo)) // {id} = Chi URL parametresi
 
 	return r
 }

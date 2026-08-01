@@ -13,7 +13,8 @@ func TestRouter_NotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/bilinmeyen-yol", nil)
 	rec := httptest.NewRecorder()
 
-	newRouter().ServeHTTP(rec, req) // router'ı gerçek bir istekle çağır
+	// Bu test kitap rotasına hiç girmiyor → repository yerine nil geçmek güvenli.
+	newRouter(nil).ServeHTTP(rec, req) // router'ı gerçek bir istekle çağır
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("durum kodu: istenen %d, gelen %d", http.StatusNotFound, rec.Code)

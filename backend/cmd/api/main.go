@@ -10,7 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/config"
+	"github.com/mtgezgin/bookhub/backend/internal/database"
 )
 
 func main() {
@@ -20,18 +22,29 @@ func main() {
 		log.Fatalf("config yüklenemedi: %v", err)
 	}
 
+	// [context + defer] SIGINT/SIGTERM gelince ctx iptal olur.
+	// (Havuzdan ÖNCE kuruldu ki açılış işlemleri de sinyalle iptal edilebilsin.)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// Veritabanı havuzunu aç (içinde Ping var → bağlantı yoksa BURADA ölürüz).
+	pool, err := database.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("veritabanı hazır değil: %v", err)
+	}
+	defer pool.Close() // kapanışta havuzdaki bağlantıları düzgün bırak
+
+	// ELLE DI ZİNCİRİ (GO_CONVENTIONS §5): pool → repository → router.
+	// Framework yok; bağımlılık grafiğinin tamamı şu üç satırda okunuyor.
+	bookRepo := books.NewRepository(pool)
+
 	// http.Server'ı elle kuruyoruz: timeout'lar + Shutdown() erişimi.
-	// Handler artık Chi router'ı (bkz. router.go).
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      newRouter(),
+		Handler:      newRouter(bookRepo),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
-
-	// [context + defer] SIGINT/SIGTERM gelince ctx iptal olur.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	// [goroutine] Sunucuyu ayrı akışta çalıştır; graceful kapanışta gelen
 	// http.ErrServerClosed beklenen durumdur.

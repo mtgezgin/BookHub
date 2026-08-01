@@ -30,10 +30,11 @@ services:
       POSTGRES_PASSWORD: bookhub_dev # dev-only — prod DSN'i Supabase/secret store'da yaşar
       POSTGRES_DB: bookhub
 
-    # Port yayını: "host:container". Container içindeki 5432'yi host'taki 5432'ye bağlar
-    # ki host'ta çalışan API (go run) ve psql "localhost:5432" ile erişebilsin.
+    # Port yayını: "host_ip:host_port:container_port". Başındaki 127.0.0.1 ÖNEMLİ:
+    # yazmazsak Docker 0.0.0.0'a bağlar → aynı Wi-Fi/LAN'daki herkes (şifresi repoda
+    # yazan!) dev DB'ne erişebilirdi. 127.0.0.1 = sadece bu makine (go run, psql, pgAdmin).
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
     # Named volume: container SİLİNSE bile veri kalır (container'ın kendi dosya sistemi
     # geçicidir). /var/lib/postgresql/data = Postgres'in veri dizini.

@@ -1,0 +1,42 @@
+# sqlc.yaml — sqlc'nin yapılandırması (Faz 2, adım 4).
+#
+# SQLC NE YAPAR: sql/queries/*.sql içindeki EL YAZMASI sorguları okur, migrations/'taki
+# şemaya karşı DOĞRULAR (kolon adı yanlışsa üretim ANINDA hata — runtime'da değil!) ve
+# her sorgu için tip-güvenli Go fonksiyonu üretir. ORM değil: SQL'i sen yazarsın,
+# sqlc sadece rows.Scan/param boilerplate'ini üretir.
+#
+# İKİ SQL KLASÖRÜNÜ KARIŞTIRMA (§18.4):
+#   migrations/   = goose'un şema tarihi (CREATE TABLE...)  → sqlc bunu sadece OKUR
+#   sql/queries/  = sqlc'nin girdisi (SELECT/INSERT...)     → üretimin kaynağı
+
+version: "2"
+sql:
+  - engine: "postgresql"
+    # El yazması sorgular (girdi):
+    queries: "sql/queries"
+    # Şema kaynağı: goose migration'larını doğrudan okur; "-- +goose Down" bölümlerini
+    # akıllıca yok sayar. Yani şemayı İKİNCİ kez tanımlamıyoruz — tek gerçek: migrations/.
+    schema: "migrations"
+    gen:
+      go:
+        package: "db"            # üretilen paketin adı  → import edince db.GetBook(...)
+        out: "internal/db"       # üretilen dosyaların yeri (commit'lenir — build sqlc istemesin)
+        sql_package: "pgx/v5"    # pgx sürücüsüyle çalışan kod üret (database/sql değil)
+        emit_json_tags: true     # struct alanlarına `json:"..."` etiketi (handler'da işe yarar)
+        overrides:
+          # timestamptz → time.Time: tüm timestamptz kolonlarımız NOT NULL olduğu için
+          # pgtype.Timestamptz sarmalayıcısına gerek yok; düz time.Time hem doğal hem
+          # JSON'a "2026-07-05T..." olarak temiz serileşir.
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          # NULL olabilen sayılar → *int32 (pointer): NULL = nil. Pointer'sız bırakırsak
+          # pgtype.Int4 üretirdi ({Int32,Valid} — JSON'da çirkin). NULL'un Go karşılığını
+          # migration'da bilerek seçmiştik; burada da ucunu bağlıyoruz.
+          - column: "books.publication_year"
+            go_type:
+              type: "int32"
+              pointer: true
+          - column: "books.page_count"
+            go_type:
+              type: "int32"
+              pointer: true
