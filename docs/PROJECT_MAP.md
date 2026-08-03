@@ -159,14 +159,14 @@ handler'ın işi).
 | `config/config_test.go` | Table-driven, `t.Setenv` ile izole, 8 senaryo |
 | `database/database.go` | Tek işi: `pgxpool` aç + **5sn timeout'lu Ping** (pgxpool tembel olduğu için fail-fast bunu gerektirir) |
 | `books/repository.go` | Kitap veri erişimi. `pgx.ErrNoRows` → `books.ErrNotFound` çevirisi; `db.DBTX` aldığı için ileride **transaction içinde de** çalışır. Metotlar: `Get`, `List`, `Create` |
-| `db/` (**sqlc üretimi, elle düzenleme**) | `db.go` (`DBTX`/`Queries`/`WithTx`), `models.go` (`Book`/`Genre`/`BookGenre` struct'ları), `books.sql.go` (`GetBook`/`ListBooks`/`CreateBook` + `Scan` boilerplate'i) |
+| `db/` (**sqlc üretimi, elle düzenleme**) | `db.go` (`DBTX`/`Queries`/`WithTx`), `models.go` (`Book`/`Genre`/`BookGenre` struct'ları), `books.sql.go` (`GetApprovedBook`/`ListBooks`/`CreateBook` + `Scan` boilerplate'i) |
 
 ### `backend/` — SQL ve yapılandırma
 
 | Yol | Rolü — **ikisini karıştırma** |
 |---|---|
 | `migrations/0001_books_genres.sql` | **goose'un şema tarihi.** `books`/`genres`/`book_genres`. Kararlar: identity PK, `TEXT + CHECK` status (DEFAULT'suz!), `timestamptz`, `slug UNIQUE`, partial index (`created_at DESC WHERE status='APPROVED'`), `book_genres` bileşik PK + ayrı `(genre_id)` index'i |
-| `sql/queries/books.sql` | **sqlc'nin girdisi.** `GetBook :one`, `ListBooks :many`, `CreateBook :one` |
+| `sql/queries/books.sql` | **sqlc'nin girdisi.** `GetApprovedBook :one` (status filtresi burada — görünürlük sınırı), `ListBooks :many`, `CreateBook :one` |
 | `sqlc.yaml` | Şemayı `migrations/`'tan okur (şema iki kez tanımlanmaz). pgx/v5, JSON tag'leri, override'lar: `timestamptz→time.Time`, nullable int → `*int32` |
 | `go.mod` | **Sadece 2 doğrudan bağımlılık:** chi v5.3.0, pgx/v5 v5.10.0. goose ve sqlc CLI'dır — burada yoklar |
 

@@ -122,7 +122,7 @@ JS dünyasında en yakın akraba Prisma değil **pgtyped** (SQL yaz → TS tipi 
 şema-DSL'den hem SQL'i hem client'ı kendi üretir — "SQL'i sen yaz" ilkesi orada yok.
 
 **Devam sorusu: hangi sorgunun hangisi olduğunu nasıl anlıyor?** Sorgunun üstündeki
-`-- name: GetBook :one` satırı normal yorum değil, **direktif**: `name:` sonrası üretilecek
+`-- name: GetApprovedBook :one` satırı normal yorum değil, **direktif**: `name:` sonrası üretilecek
 Go fonksiyonunun adı, `:one/:many/:exec/:execrows` ise dönüş şekli (`(Book, error)` /
 `([]Book, error)` / `error` / `(int64, error)`). Bu satır yoksa sqlc sorguyu derlemez.
 Tipleri iki kaynağı çaprazlayarak bulur: **parametreler** ($1'i şemadaki kolonla eşler —

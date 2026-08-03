@@ -21,7 +21,7 @@
 - ✅ **1. Docker Postgres:** `docker-compose.yml` (postgres:16, named volume `pg_data`, healthcheck, `5432:5432`). `docker compose up -d` ile ayakta, doğrulandı.
 - ✅ **2. `DATABASE_URL` config:** zorunlu alan (default yok → fail-fast) — kullanıcının ilk "örnekten uyarla" egzersisiydi; testler 8 senaryoya çıktı. `.env.example` eklendi; lokalde `.env` kopyalandı.
 - ✅ **3. goose + ilk migration:** goose v3.27.2 (`go install`, `~/go/bin`). `backend/migrations/0001_books_genres.sql` = `books`/`genres`/`book_genres` (§18.3: identity PK, TEXT+CHECK status **DEFAULT'suz**, timestamptz, slug UNIQUE, partial index `(created_at DESC) WHERE status='APPROVED'`, `book_genres(genre_id)` index'i). **avg_rating/rating_count bilerek yok → Faz 5 migration'ı ekleyecek** (şema evrimi dersi). up/down/up roundtrip doğrulandı; dev DB'de seed: books id=1 "Clean Code".
-- ✅ **4. sqlc:** v1.31.1 (`go install`) + `sqlc.yaml` (açıklamalı; pgx/v5, timestamptz→time.Time, nullable int→*int32 override'ları) + `sql/queries/books.sql`: `GetBook` (asistan, örnek) + `ListBooks`/`CreateBook` (**kullanıcı yazdı**, ilk denemede doğru). Üretilen kod `internal/db/` (commit'lenir). pgx/v5 v5.10.0 go.mod'da.
+- ✅ **4. sqlc:** v1.31.1 (`go install`) + `sqlc.yaml` (açıklamalı; pgx/v5, timestamptz→time.Time, nullable int→*int32 override'ları) + `sql/queries/books.sql`: `GetApprovedBook` (asistan, örnek) + `ListBooks`/`CreateBook` (**kullanıcı yazdı**, ilk denemede doğru). Üretilen kod `internal/db/` (commit'lenir). pgx/v5 v5.10.0 go.mod'da.
 - ✅ **5. pgx pool:** `internal/database/database.go` — pgxpool + fail-fast Ping (5sn timeout). main.go'da elle DI: pool → repository → router.
 - ✅ **6. Dikey dilim `GET /api/books/{id}`:** `internal/books/repository.go` (ErrNoRows→ErrNotFound çevirisi, DBTX ile tx-hazır) + `cmd/api/books.go` (tüketici-tarafı `bookGetter` interface, closure DI, 400/404/500 haritalama) + fake'li table-driven handler testi. **Canlı doğrulandı** (5 Tem): seed id=1 → 200, 999 → 404, abc → 400.
 - 🔶 **7. Liste + create — kullanıcı egzersizi YARIM:**
@@ -29,12 +29,13 @@
   - ⏳ Kalan: `List`/`Create` doc comment + `gofmt -w internal/books/repository.go`; `handleListBooks` (**nil slice → `[]` normalize et — JSON null tuzağı!**) + `handleCreateBook` (ayrı request struct — istemciden `status` ALINMAZ, handler `APPROVED` yazar; decode şablonu konuşma geçmişinde/aşağıda); router'a `GET /api/books` + `POST /api/admin/books`; `fakeBooks`'a `List`/`Create` (interface 3 metoda çıkınca derlenmesi için şart) + liste testi.
   - Stretch: slug UNIQUE ihlali (pgconn.PgError 23505) → domain hatası → **409** (şu an 500 döner).
   - Sonra: genres CRUD + book_genres m2m.
-- ⏭️ **8. Repository integration testi** (compose Postgres'e karşı, mock'suz) → sonra milestone commit + push.
+- ✅ **8. Testler (adım 7'den ÖNCE geldi):** coverage kapısı tetikledi → `internal/books/repository_test.go` (hata çevirisi: `ErrNoRows`→`ErrNotFound`; `List`/`Create`'te bu çevirinin OLMADIĞI), `repository_integration_test.go` (**görünürlük sınırı** + liste sırası, gerçek Postgres'e karşı), `internal/database/database_test.go` + `_integration_test.go` (havuz hata yolları + mutlu yol), ayrıca handler tarafında "500 detay sızdırmaz" ve "405 JSON zarfı" testleri. Entegrasyon testleri `TEST_DATABASE_URL` ile korumalı → DB'siz `go test ./...` yeşil kalır.
+  - Çalıştırmak: `docker compose up -d` sonra `TEST_DATABASE_URL="$DATABASE_URL" go test -race ./...`
 
 ## Ortam / gerçekler
 - **Go 1.26.4** (Homebrew ile yönetiliyor). Module: `github.com/mtgezgin/bookhub/backend`.
 - **goose v3.27.2** ve **sqlc v1.31.1** CLI'ları `~/go/bin`'de (taze makinede `go install` ile). pgAdmin 4 kurulu (dev DB'ye `localhost:5432`, bookhub/bookhub_dev).
-- **Compose portu artık `127.0.0.1:5432:5432`** (LAN'a kapalı — güvenlik sohbetinin çıktısı; commit'siz değişikliklerde). Oturum başında `docker compose up -d` gerekebilir (yeniden başlatmada container kalkmaz, veri named volume'da durur).
+- **Compose portu `127.0.0.1:5432:5432`** (LAN'a kapalı — güvenlik sohbetinin çıktısı). Oturum başında `docker compose up -d` gerekebilir (yeniden başlatmada container kalkmaz, veri named volume'da durur).
 - Dev DB'de seed: books id=1 "Clean Code" (dikey dilimin curl hedefi).
 - **Commit kimliği:** bu repoda **yerel** `user.email=mehmetturgutgezgin@gmail.com` (global iş kimliği değişmedi).
 - Bu repo'da **pre-commit gate'leri** (güvenlik + coverage + kod review) ve **pre-push fan-out panel** çalışıyor → kaynak kod commit/push'ları ağır. **Commit'leri milestone'da topla.**
