@@ -50,7 +50,11 @@ if errors.Is(err, ErrDuplicateRating) { /* ... */ }
 
 - **Map domain errors → HTTP status in exactly one place** (the handler layer / a shared
   `httperr` helper). Handlers translate; services/repos never write HTTP status.
-- `409` for `ErrDuplicateRating`, `404` for `ErrBookNotFound`, `422` for validation, etc.
+- `409` for `ErrDuplicateRating`, `404` for `ErrBookNotFound`, **`400` for validation**, etc.
+  _Decision (Phase 2): validation failures return `400 validation_error`, not `422`. Both
+  malformed JSON (`invalid_json`) and semantic validation are "the client must fix the
+  request"; the machine-readable `code` field — not the status — tells them apart. One
+  client-error status keeps frontend handling simple._
 - Avoid stringly-typed errors (`errors.New(fmt.Sprintf(...))` for control flow).
 
 > **TR:** §14.4 "explicit errors" ilkesinin mekanizması bu. [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md) §2.
