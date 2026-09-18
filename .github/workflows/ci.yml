@@ -1,6 +1,7 @@
-# CI — her push/PR'da backend'i otomatik doğrular (test + fmt + vet + build).
+# CI — her push/PR'da: backend (birim + gerçek Postgres/Redis entegrasyon testleri + lint),
+# frontend (tip kontrolü + test + build) ve uçtan uca (tüm stack konteynerde + MVP smoke).
 # Bu, lokalde yaptığımız kontrollerin sunucudaki güvenlik ağı hâlidir.
-# NOT: Deploy (CD) burada YOK — o, gerçek bir uygulama + prod DB olunca (Faz 10).
+# İmaj YAYINLAMA burada değil: release.yml (yalnız tag ya da elle tetiklenir).
 name: CI
 
 on:
@@ -8,10 +9,14 @@ on:
     branches: [main]
     paths:
       - 'backend/**'
+      - 'frontend/**'
+      - 'docker-compose.yml'
       - '.github/workflows/**'
   pull_request:
     paths:
       - 'backend/**'
+      - 'frontend/**'
+      - 'docker-compose.yml'
       - '.github/workflows/**'
 
 permissions:
@@ -24,6 +29,32 @@ jobs:
     defaults:
       run:
         working-directory: ./backend # Go modülü backend/ altında
+
+    # SERVİS KONTEYNERLERİ: iş boyunca yanımızda çalışan gerçek Postgres ve Redis.
+    # Entegrasyon testleri TEST_DATABASE_URL / TEST_REDIS_URL görünce atlanmaz, gerçekten koşar.
+    # Kimlik bilgileri bu atılabilir runner'a özgü; hiçbir yere erişim vermez.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bookhub
+          POSTGRES_PASSWORD: bookhub_ci
+          POSTGRES_DB: bookhub_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bookhub -d bookhub_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://bookhub:bookhub_ci@localhost:5432/bookhub_test?sslmode=disable
+      TEST_REDIS_URL: redis://localhost:6379/0
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,14 +80,63 @@ jobs:
       - name: Build
         run: go build ./...
 
-      - name: Test (race)
-        run: go test -race ./...
+      # -race + gerçek DB: eşzamanlılık testleri (FOR UPDATE, tek kullanımlık token, 25
+      # eşzamanlı oy) burada gerçekten koşar — lokal "benim makinemde geçiyor"un sigortası.
+      - name: Test (race, Postgres + Redis entegrasyonu dahil)
+        run: go test -race -count=1 ./...
 
       # golangci-lint (kalite/bug linter — ESLint'in Go karşılığı) — otoriter backstop.
-      # (Lokalde pre-push hook'u zaten çalıştırıyor; bu, hook'u atlayan durum için.)
       # Sürüm reproducibility için pinlendi (lokal sürüm ufak farklı olabilir; otorite CI'dır).
       - name: Lint (golangci-lint)
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
           working-directory: backend
+
+  frontend:
+    name: Frontend (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci # lock dosyasına BİREBİR sadık kurulum (npm install'ın aksine)
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx vite build
+
+  e2e:
+    name: E2E (compose + MVP smoke)
+    needs: [backend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      # JWT secret'ı dosyaya YAZMIYORUZ: her koşuda rastgele üretilir, iş bitince yok olur.
+      - name: Generate throwaway JWT secret
+        run: echo "JWT_SECRET=$(openssl rand -base64 48)" >> "$GITHUB_ENV"
+
+      # Aynı docker-compose.yml, lokalde kullandığımız: imajı derler, Postgres + Redis + API'yi
+      # kaldırır; --wait tüm healthcheck'ler yeşillenene kadar bekler.
+      - name: Start the stack
+        run: docker compose --profile app up -d --build --wait
+
+      - name: MVP Definition of Done (smoke)
+        env:
+          API: http://localhost:8080
+          DATABASE_URL: postgres://bookhub:bookhub_dev@localhost:5432/bookhub?sslmode=disable
+        run: backend/scripts/mvp_smoke.sh
+
+      - name: Container logs (on failure)
+        if: failure()
+        run: docker compose --profile app logs
