@@ -52,3 +52,40 @@ func TestLoad(t *testing.T) {
 		})
 	}
 }
+
+// TestLoadAutoMigrate: AUTO_MIGRATE tanımsızken KAPALI (prod güvenli varsayılan),
+// geçerli bool'larda okunur, geçersiz değerde boot durur (sessizce varsayılana düşmez).
+func TestLoadAutoMigrate(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    bool
+		wantErr bool
+	}{
+		{name: "tanımsız → false (güvenli varsayılan)", value: "", want: false},
+		{name: "true", value: "true", want: true},
+		{name: "1 → true", value: "1", want: true},
+		{name: "false", value: "false", want: false},
+		{name: "geçersiz → hata", value: "evet", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("AUTO_MIGRATE", tt.value)
+
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("hata bekleniyordu (AUTO_MIGRATE=%q)", tt.value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("beklenmeyen hata: %v", err)
+			}
+			if cfg.AutoMigrate != tt.want {
+				t.Errorf("AutoMigrate: istenen %v, gelen %v", tt.want, cfg.AutoMigrate)
+			}
+		})
+	}
+}

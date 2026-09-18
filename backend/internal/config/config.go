@@ -15,16 +15,26 @@ import (
 type Config struct {
 	Port        string // HTTP sunucusunun dinleyeceği port (ör. "8080")
 	DatabaseURL string // Veritabanı bağlantı dizesi (ör. "postgres://...")
+	// AutoMigrate: açılışta gömülü migration'ları uygula. Dev/compose'da kolaylık;
+	// prod'da (Supabase pooler arkası) KAPALI kalmalı — migration doğrudan bağlantıyla
+	// ve bilinçli bir adım olarak koşar. Bu yüzden varsayılan false.
+	AutoMigrate bool
 }
 
 // Load, env'den ayarları okur, doğrular ve hazır bir Config döner.
 // Go'da özel "constructor" yoktur; konvansiyon: böyle bir Load()/NewXxx()
 // fonksiyonu değeri kurup döndürür. (Config, error) = iki dönüş değeri.
 func Load() (Config, error) {
+	autoMigrate, err := getenvBool("AUTO_MIGRATE", false)
+	if err != nil {
+		return Config{}, fmt.Errorf("geçersiz config: %w", err)
+	}
+
 	// Config{...} = "struct literal" (JS'teki nesne literali { } gibi).
 	cfg := Config{
 		Port:        getenv("PORT", "8080"),     // PORT tanımlı değilse varsayılan 8080
 		DatabaseURL: getenv("DATABASE_URL", ""), // DATABASE_URL yoksa boş
+		AutoMigrate: autoMigrate,
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -63,4 +73,19 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getenvBool, env değişkenini bool olarak okur. Tanımsızsa varsayılanı döner; tanımlı
+// ama geçersizse ("evet", "1x") HATA döner — sessizce varsayılana düşmek, yanlış
+// yazılmış bir ayarın fark edilmeden etkisiz kalması demektir (fail-fast).
+func getenvBool(key string, fallback bool) (bool, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("%s true/false olmalı, gelen %q", key, v)
+	}
+	return b, nil
 }

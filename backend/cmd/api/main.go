@@ -27,6 +27,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Şemayı güncelle (yalnızca AUTO_MIGRATE=true ise — prod'da bilinçli olarak kapalı).
+	if cfg.AutoMigrate {
+		if err := database.Migrate(ctx, cfg.DatabaseURL); err != nil {
+			log.Fatalf("migration başarısız: %v", err)
+		}
+		log.Println("migration'lar güncel")
+	}
+
 	// Veritabanı havuzunu aç (içinde Ping var → bağlantı yoksa BURADA ölürüz).
 	pool, err := database.New(ctx, cfg.DatabaseURL)
 	if err != nil {
