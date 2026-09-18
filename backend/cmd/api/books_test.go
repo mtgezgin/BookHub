@@ -17,9 +17,12 @@ import (
 // fakeBooks, bookStore'un SAHTE uygulaması: ne dönmesi söylendiyse onu döner.
 // Gerçek DB yok → saf birim testi. (Interface'i tüketen tarafta tanımlamanın meyvesi.)
 type fakeBooks struct {
-	book db.Book
-	list []db.Book
-	err  error
+	book     db.Book
+	list     []db.Book
+	genres   map[int64][]db.Genre
+	err      error
+	setErr   error
+	genreErr error
 }
 
 func (f fakeBooks) Get(context.Context, int64) (db.Book, error) { return f.book, f.err }
@@ -27,6 +30,13 @@ func (f fakeBooks) List(context.Context) ([]db.Book, error)     { return f.list,
 func (f fakeBooks) Create(context.Context, db.CreateBookParams) (db.Book, error) {
 	return f.book, f.err
 }
+func (f fakeBooks) GenresForBook(_ context.Context, id int64) ([]db.Genre, error) {
+	return f.genres[id], f.genreErr
+}
+func (f fakeBooks) GenresForBooks(context.Context, []int64) (map[int64][]db.Genre, error) {
+	return f.genres, f.genreErr
+}
+func (f fakeBooks) SetGenres(context.Context, int64, []int64) error { return f.setErr }
 
 // capturingBooks, Create'e GEÇİLEN params'ı kaydeden sahte (pointer receiver: duruma
 // yazması gerekiyor). "Handler DB'ye ne yazıyor" iddiası ancak böyle kanıtlanır.

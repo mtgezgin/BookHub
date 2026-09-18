@@ -24,6 +24,9 @@ type bookStore interface {
 	Get(ctx context.Context, id int64) (db.Book, error)
 	List(ctx context.Context) ([]db.Book, error)
 	Create(ctx context.Context, params db.CreateBookParams) (db.Book, error)
+	GenresForBook(ctx context.Context, bookID int64) ([]db.Genre, error)
+	GenresForBooks(ctx context.Context, bookIDs []int64) (map[int64][]db.Genre, error)
+	SetGenres(ctx context.Context, bookID int64, genreIDs []int64) error
 }
 
 // bookResponse, kitabın HERKESE AÇIK temsili (response DTO).
@@ -34,20 +37,23 @@ type bookStore interface {
 // istemciye ne gideceğine BİZ karar veririz. `status` bilerek yok — public uçlar zaten
 // yalnızca APPROVED döndürür, alan bilgi taşımaz.
 type bookResponse struct {
-	ID              int64     `json:"id"`
-	Title           string    `json:"title"`
-	Slug            string    `json:"slug"`
-	Author          string    `json:"author"`
-	Description     string    `json:"description"`
-	CoverURL        string    `json:"cover_url"`
-	PublicationYear *int32    `json:"publication_year"`
-	PageCount       *int32    `json:"page_count"`
-	Language        string    `json:"language"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              int64           `json:"id"`
+	Title           string          `json:"title"`
+	Slug            string          `json:"slug"`
+	Author          string          `json:"author"`
+	Description     string          `json:"description"`
+	CoverURL        string          `json:"cover_url"`
+	PublicationYear *int32          `json:"publication_year"`
+	PageCount       *int32          `json:"page_count"`
+	Language        string          `json:"language"`
+	Genres          []genreResponse `json:"genres"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
-func toBookResponse(b db.Book) bookResponse {
+// toBookResponse, kitabı türleriyle birlikte DTO'ya çevirir. Türsüz kitapta bile
+// genres "[]" olur (null değil) — istemci her zaman diziyle çalışsın.
+func toBookResponse(b db.Book, genreList []db.Genre) bookResponse {
 	return bookResponse{
 		ID:              b.ID,
 		Title:           b.Title,
@@ -58,9 +64,18 @@ func toBookResponse(b db.Book) bookResponse {
 		PublicationYear: b.PublicationYear,
 		PageCount:       b.PageCount,
 		Language:        b.Language,
+		Genres:          toGenreResponses(genreList),
 		CreatedAt:       b.CreatedAt,
 		UpdatedAt:       b.UpdatedAt,
 	}
+}
+
+func toGenreResponses(list []db.Genre) []genreResponse {
+	out := make([]genreResponse, 0, len(list))
+	for _, g := range list {
+		out = append(out, toGenreResponse(g))
+	}
+	return out
 }
 
 // handleGetBook, GET /api/books/{id} handler'ını ÜRETİR (closure ile DI):
@@ -83,11 +98,19 @@ func handleGetBook(store bookStore) http.HandlerFunc {
 		switch {
 		case errors.Is(err, books.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "kitap bulunamadı")
+			return
 		case err != nil:
 			writeInternalError(w, "GetBook", err)
-		default:
-			writeJSON(w, http.StatusOK, toBookResponse(book))
+			return
 		}
+
+		// 4) Türleri ikinci bir sorguyla ekle (çoka-çok: ara tablo üzerinden JOIN).
+		genreList, err := store.GenresForBook(r.Context(), book.ID)
+		if err != nil {
+			writeInternalError(w, "GenresForBook", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, toBookResponse(book, genreList))
 	}
 }
 
@@ -101,11 +124,22 @@ func handleListBooks(store bookStore) http.HandlerFunc {
 			return
 		}
 
+		// Türleri TOPLU yükle: tek sorgu, kitap sayısından bağımsız (N+1'den kaçınma).
+		ids := make([]int64, 0, len(list))
+		for _, b := range list {
+			ids = append(ids, b.ID)
+		}
+		genresByBook, err := store.GenresForBooks(r.Context(), ids)
+		if err != nil {
+			writeInternalError(w, "GenresForBooks", err)
+			return
+		}
+
 		// make(..., 0, n): liste BOŞ olsa bile JSON'da "null" değil "[]" çıkar.
 		// (nil slice "null" olarak serileşir ve istemcinin books.map(...)'ini patlatır.)
 		out := make([]bookResponse, 0, len(list))
 		for _, b := range list {
-			out = append(out, toBookResponse(b))
+			out = append(out, toBookResponse(b, genresByBook[b.ID]))
 		}
 		writeJSON(w, http.StatusOK, out)
 	}
@@ -228,8 +262,66 @@ func handleCreateBook(store bookStore) http.HandlerFunc {
 			writeInternalError(w, "CreateBook", err)
 		default:
 			// 201 Created: "istek işlendi VE yeni bir kaynak doğdu".
-			writeJSON(w, http.StatusCreated, toBookResponse(book))
+			writeJSON(w, http.StatusCreated, toBookResponse(book, nil))
 		}
+	}
+}
+
+// setGenresRequest, PUT /api/admin/books/{id}/genres gövdesi. Replace semantiği:
+// verilen liste kitabın YENİ tür listesidir; boş dizi = tüm türleri kaldır.
+// genre_ids ZORUNLU (nil ≠ boş): gövdesiz bir PUT'un yanlışlıkla her şeyi silmesin.
+type setGenresRequest struct {
+	GenreIDs *[]int64 `json:"genre_ids"`
+}
+
+// handleSetBookGenres, bir kitabın türlerini atomik olarak değiştirir ve yeni listeyi döner.
+func handleSetBookGenres(store bookStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := parseID(w, r)
+		if !ok {
+			return
+		}
+		var req setGenresRequest
+		if err := readJSON(w, r, &req); err != nil {
+			writeRequestError(w, err)
+			return
+		}
+
+		var v validator
+		if req.GenreIDs == nil {
+			v.add("genre_ids zorunlu (tüm türleri kaldırmak için boş dizi gönder)")
+		} else {
+			v.check(len(*req.GenreIDs) <= books.MaxGenresPerBook, "en fazla %d tür atanabilir", books.MaxGenresPerBook)
+			for _, gid := range *req.GenreIDs {
+				if gid < 1 {
+					v.add("genre_ids yalnızca pozitif id içerebilir")
+					break
+				}
+			}
+		}
+		if err := v.err(); err != nil {
+			writeRequestError(w, err)
+			return
+		}
+
+		switch err := store.SetGenres(r.Context(), id, *req.GenreIDs); {
+		case errors.Is(err, books.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "kitap bulunamadı")
+			return
+		case errors.Is(err, books.ErrUnknownGenre):
+			writeError(w, http.StatusBadRequest, "unknown_genre", "genre_ids içinde var olmayan bir tür var")
+			return
+		case err != nil:
+			writeInternalError(w, "SetGenres", err)
+			return
+		}
+
+		genreList, err := store.GenresForBook(r.Context(), id)
+		if err != nil {
+			writeInternalError(w, "GenresForBook", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, toGenreResponses(genreList))
 	}
 }
 

@@ -48,6 +48,7 @@ func newRouter(d deps) http.Handler {
 	// içindeki bir "if user.IsAdmin" dalında değil.
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Post("/books", handleCreateBook(d.books))
+		r.Put("/books/{id}/genres", handleSetBookGenres(d.books))
 
 		r.Post("/genres", handleCreateGenre(d.genres))
 		r.Patch("/genres/{id}", handleUpdateGenre(d.genres))

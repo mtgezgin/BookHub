@@ -22,6 +22,13 @@ var ErrNotFound = errors.New("kitap bulunamadı")
 // bunu 409 Conflict'e çevirir (500 değil).
 var ErrDuplicateSlug = errors.New("bu slug zaten kullanılıyor")
 
+// ErrUnknownGenre, kitaba var olmayan bir tür bağlanmaya çalışıldığında döner.
+var ErrUnknownGenre = errors.New("bilinmeyen tür")
+
+// MaxGenresPerBook, bir kitaba bağlanabilecek en fazla tür (makul sınır; istemcinin
+// binlerce id'lik dizi göndermesini engeller).
+const MaxGenresPerBook = 10
+
 // Kitap statüleri — migration'daki CHECK kısıtının Go tarafındaki karşılığı
 // (bkz. migrations/0001_books_genres.sql). Sabit olarak durmalarının sebebi:
 // "APPROVED" gibi bir dizgiyi handler'lara serpiştirmek, yazım hatasını derleme
@@ -37,14 +44,15 @@ const (
 // çevirmek, (2) ileride birden çok sorguyu tek işlemde toplamak (m2m, tx).
 // İş mantığı YOK — o (gerektiğinde, Faz 3+) Service katmanına ait.
 type Repository struct {
-	q *db.Queries
+	conn db.DBTX // transaction açmak için (pool) — bkz. SetGenres
+	q    *db.Queries
 }
 
 // NewRepository, verilen bağlantıyla bir Repository kurar.
 // Parametrenin tipi db.DBTX (üretilen interface): *pgxpool.Pool de pgx.Tx de
 // bunu sağlar → aynı repository ileride transaction İÇİNDE de kullanılabilir.
 func NewRepository(dbtx db.DBTX) *Repository {
-	return &Repository{q: db.New(dbtx)}
+	return &Repository{conn: dbtx, q: db.New(dbtx)}
 }
 
 // Get, HERKESE AÇIK tekil okumadır: yalnızca APPROVED kitabı döner, aksi halde
@@ -94,4 +102,76 @@ func (r *Repository) List(ctx context.Context) ([]db.Book, error) {
 		return nil, fmt.Errorf("kitap listeleme sorgusu: %w", err)
 	}
 	return books, nil
+}
+
+// GenresForBook, tek kitabın türlerini ada göre sıralı döner.
+func (r *Repository) GenresForBook(ctx context.Context, bookID int64) ([]db.Genre, error) {
+	list, err := r.q.ListGenresForBook(ctx, bookID)
+	if err != nil {
+		return nil, fmt.Errorf("kitap türleri sorgusu (id=%d): %w", bookID, err)
+	}
+	return list, nil
+}
+
+// GenresForBooks, birden çok kitabın türlerini TEK sorguda çeker ve kitap id'sine göre
+// gruplar (N+1'den kaçınma: kitap sayısı ne olursa olsun tek sorgu). Türü olmayan kitap
+// haritada hiç yer almaz; çağıran bunu "boş liste" olarak ele almalı.
+func (r *Repository) GenresForBooks(ctx context.Context, bookIDs []int64) (map[int64][]db.Genre, error) {
+	out := make(map[int64][]db.Genre, len(bookIDs))
+	if len(bookIDs) == 0 {
+		return out, nil // boş dizi için sorgu atmaya gerek yok
+	}
+	rows, err := r.q.ListGenresForBooks(ctx, bookIDs)
+	if err != nil {
+		return nil, fmt.Errorf("toplu kitap türleri sorgusu: %w", err)
+	}
+	for _, row := range rows {
+		out[row.BookID] = append(out[row.BookID], db.Genre{ID: row.ID, Name: row.Name, Slug: row.Slug})
+	}
+	return out, nil
+}
+
+// SetGenres, kitabın türlerini verilen listeyle DEĞİŞTİRİR (replace semantiği: boş liste
+// = tüm türleri kaldır). Tek transaction'da: kitabı kilitle → eski bağları sil → yenileri
+// ekle. Ara adımda hata olursa hiçbiri kalıcı olmaz. Kitabın statüsüne bakmaz (admin işi;
+// onay bekleyen bir kitaba da tür atanabilir).
+func (r *Repository) SetGenres(ctx context.Context, bookID int64, genreIDs []int64) error {
+	ids := dedupe(genreIDs) // aynı id iki kez gelirse PK ihlali olurdu; istemcinin hatası değil
+	return database.WithTx(ctx, r.conn, func(tx pgx.Tx) error {
+		q := r.q.WithTx(tx)
+
+		if _, err := q.LockBook(ctx, bookID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return fmt.Errorf("kitap kilitlenemedi (id=%d): %w", bookID, err)
+		}
+		if err := q.ClearBookGenres(ctx, bookID); err != nil {
+			return fmt.Errorf("eski türler silinemedi (id=%d): %w", bookID, err)
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		err := q.AddBookGenres(ctx, db.AddBookGenresParams{BookID: bookID, GenreIds: ids})
+		if _, ok := database.ForeignKeyViolation(err); ok {
+			return ErrUnknownGenre // kitabı kilitledik; kalan tek FK genre_id'dir
+		}
+		if err != nil {
+			return fmt.Errorf("türler eklenemedi (id=%d): %w", bookID, err)
+		}
+		return nil
+	})
+}
+
+// dedupe, sırayı koruyarak tekrarlanan id'leri atar.
+func dedupe(ids []int64) []int64 {
+	seen := make(map[int64]bool, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
 }

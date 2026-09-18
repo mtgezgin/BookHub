@@ -32,6 +32,7 @@ func TestGetBookResponseContract(t *testing.T) {
 		"publication_year",
 		"page_count",
 		"language",
+		"genres",
 		"created_at",
 		"updated_at",
 	}

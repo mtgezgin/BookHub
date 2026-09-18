@@ -81,11 +81,7 @@ func handleListGenres(store genreStore) http.HandlerFunc {
 			writeInternalError(w, "ListGenres", err)
 			return
 		}
-		out := make([]genreResponse, 0, len(list))
-		for _, g := range list {
-			out = append(out, toGenreResponse(g))
-		}
-		writeJSON(w, http.StatusOK, out)
+		writeJSON(w, http.StatusOK, toGenreResponses(list))
 	}
 }
 
