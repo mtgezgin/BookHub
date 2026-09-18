@@ -109,7 +109,7 @@ services:
     image: bookhub-web:dev
     container_name: bookhub-web
     ports:
-      - "127.0.0.1:3000:80"
+      - "127.0.0.1:3000:8080" # konteynerde root olmayan NGINX 8080'de dinler
     # Sabit adres: API, X-Real-IP başlığına yalnızca bu adresten gelen isteklerde güvenir.
     networks:
       default:
