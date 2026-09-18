@@ -131,6 +131,17 @@ func TestVerifyRejects(t *testing.T) {
 			c.Subject = "admin"
 			return sign(t, jwt.SigningMethodHS256, testSecret, c)
 		}},
+		// Sayısal ama pozitif olmayan sub: guard'ın `id < 1` yarısı.
+		{"sıfır sub", func() string {
+			c := validClaims(now)
+			c.Subject = "0"
+			return sign(t, jwt.SigningMethodHS256, testSecret, c)
+		}},
+		{"negatif sub", func() string {
+			c := validClaims(now)
+			c.Subject = "-5"
+			return sign(t, jwt.SigningMethodHS256, testSecret, c)
+		}},
 		{"bilinmeyen rol", func() string {
 			c := validClaims(now)
 			c.Role = "ROOT"

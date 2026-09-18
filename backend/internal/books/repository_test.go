@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/mtgezgin/bookhub/backend/internal/database"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
 )
 
@@ -229,5 +230,72 @@ func TestRepositoryCreateErrors(t *testing.T) {
 				t.Errorf("hata yolunda zero-value Book dönmeliydi, gelen %+v", got)
 			}
 		})
+	}
+}
+
+// TestRepositorySetGenresNoTx: fakeDBTX Begin sağlamaz → SetGenres, WithTx'in ErrNoTx'ini
+// döner; türler transaction'sız yazılmaya çalışılmaz.
+func TestRepositorySetGenresNoTx(t *testing.T) {
+	err := NewRepository(fakeDBTX{}).SetGenres(context.Background(), 1, []int64{2})
+	if !errors.Is(err, database.ErrNoTx) {
+		t.Errorf("database.ErrNoTx bekleniyordu, gelen %v", err)
+	}
+}
+
+// TestRepositoryGenresForBooksEmpty: boş id listesi SORGU ATMADAN boş, nil olmayan bir
+// map döner. fakeDBTX'in Query'si hata dönecek şekilde kurulu: sorgu atılsaydı hata görünürdü.
+func TestRepositoryGenresForBooksEmpty(t *testing.T) {
+	repo := NewRepository(fakeDBTX{queryErr: errors.New("sorgu atılmamalıydı")})
+
+	for _, ids := range [][]int64{nil, {}} {
+		got, err := repo.GenresForBooks(context.Background(), ids)
+		if err != nil {
+			t.Fatalf("boş liste için sorgu atılmamalıydı, gelen hata: %v", err)
+		}
+		if got == nil {
+			t.Error("nil değil, boş map dönmeliydi")
+		}
+		if len(got) != 0 {
+			t.Errorf("boş map bekleniyordu, gelen %v", got)
+		}
+	}
+}
+
+// emptyRows, sıfır satırlık bir pgx.Rows: ListBooks başarılı (boş) dönsün ki hata
+// ikinci sorguda (CountBooks) tetiklenebilsin.
+type emptyRows struct{}
+
+func (emptyRows) Close()                                       {}
+func (emptyRows) Err() error                                   { return nil }
+func (emptyRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (emptyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (emptyRows) Next() bool                                   { return false }
+func (emptyRows) Scan(...any) error                            { return errors.New("satır yok") }
+func (emptyRows) Values() ([]any, error)                       { return nil, nil }
+func (emptyRows) RawValues() [][]byte                          { return nil }
+func (emptyRows) Conn() *pgx.Conn                              { return nil }
+
+// countFailDBTX: liste sorgusu boş döner, sayım sorgusu (QueryRow) row.err ile patlar.
+type countFailDBTX struct{ fakeDBTX }
+
+func (countFailDBTX) Query(context.Context, string, ...interface{}) (pgx.Rows, error) {
+	return emptyRows{}, nil
+}
+
+// TestRepositoryListCountErrorWrapping: ikinci sorgu (CountBooks) hata verirse List
+// sayım bağlamıyla sarılı hata döner ve liste de nil olur.
+func TestRepositoryListCountErrorWrapping(t *testing.T) {
+	errConn := errors.New("bağlantı koptu")
+	repo := NewRepository(countFailDBTX{fakeDBTX{row: fakeRow{err: errConn}}})
+
+	got, total, err := repo.List(context.Background(), ListFilter{Limit: 20})
+	if !errors.Is(err, errConn) {
+		t.Fatalf("sarılı sürücü hatası bekleniyordu, gelen %v", err)
+	}
+	if !strings.Contains(err.Error(), "kitap sayma sorgusu") {
+		t.Errorf("hata metni \"kitap sayma sorgusu\" bağlamını içermeli, gelen %q", err.Error())
+	}
+	if got != nil || total != 0 {
+		t.Errorf("hata yolunda nil liste ve 0 toplam bekleniyordu, gelen %+v, %d", got, total)
 	}
 }

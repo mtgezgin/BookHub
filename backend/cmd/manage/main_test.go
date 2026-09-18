@@ -97,3 +97,64 @@ func TestCreateAdminRealDB(t *testing.T) {
 		t.Errorf("ikinci çalıştırma var olanı yükseltmeli: %q", out.String())
 	}
 }
+
+// TestCreateAdminAutoMigrate: AUTO_MIGRATE=true iken database.Migrate havuz açılmadan
+// ÖNCE çalışır; başarısızlığı "migration başarısız" olarak raporlanır.
+func TestCreateAdminAutoMigrate(t *testing.T) {
+	t.Run("migrate hatası → migration başarısız (havuza hiç gelinmez)", func(t *testing.T) {
+		// Ulaşılamayan hedef: Migrate çalışmasaydı hata database.New'den (farklı metinle) gelirdi.
+		env := func(k string) string {
+			return map[string]string{
+				"DATABASE_URL": "postgres://u:p@127.0.0.1:1/yok?sslmode=disable&connect_timeout=2",
+				"AUTO_MIGRATE": "true",
+			}[k]
+		}
+		err := run(context.Background(), []string{"create-admin", "-email", "a@b.co"}, strings.NewReader("yeterince-uzun-parola\n"), &bytes.Buffer{}, env)
+		if err == nil || !strings.Contains(err.Error(), "migration başarısız") {
+			t.Errorf("\"migration başarısız\" içeren hata bekleniyordu, gelen %v", err)
+		}
+	})
+
+	t.Run("gerçek DB: migrate + admin oluşturma", func(t *testing.T) {
+		pool := testdb.Pool(t)
+		email := testdb.Unique("admin") + "@example.com"
+		t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM users WHERE email = $1", email) })
+		env := func(k string) string {
+			return map[string]string{"DATABASE_URL": os.Getenv("TEST_DATABASE_URL"), "AUTO_MIGRATE": "true"}[k]
+		}
+		var out bytes.Buffer
+		if err := run(context.Background(), []string{"create-admin", "-email", email}, strings.NewReader("yeterince-uzun-parola\n"), &out, env); err != nil {
+			t.Fatalf("create-admin (AUTO_MIGRATE=true): %v", err)
+		}
+		if !strings.Contains(out.String(), "admin oluşturuldu") {
+			t.Errorf("çıktı: %q", out.String())
+		}
+	})
+}
+
+// TestCreateAdminPasswordPolicyRealDB: politikaya uymayan parola → "admin oluşturulamadı"
+// ve DB'de kullanıcı AÇILMAZ (politika servis katmanında, CLI de ondan geçer).
+func TestCreateAdminPasswordPolicyRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	email := testdb.Unique("admin") + "@example.com"
+	t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM users WHERE email = $1", email) })
+	env := func(k string) string {
+		if k == "DATABASE_URL" {
+			return os.Getenv("TEST_DATABASE_URL")
+		}
+		return ""
+	}
+
+	err := run(context.Background(), []string{"create-admin", "-email", email}, strings.NewReader("kisa\n"), &bytes.Buffer{}, env)
+	if err == nil || !strings.Contains(err.Error(), "admin oluşturulamadı") {
+		t.Fatalf("\"admin oluşturulamadı\" içeren hata bekleniyordu, gelen %v", err)
+	}
+
+	var n int
+	if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM users WHERE email = $1", email).Scan(&n); err != nil {
+		t.Fatalf("sayım sorgusu: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("politikaya uymayan parolayla kullanıcı oluşturulmamalıydı, %d kayıt var", n)
+	}
+}

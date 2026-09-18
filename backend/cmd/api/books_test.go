@@ -350,3 +350,13 @@ func assertParams(t *testing.T, got, want db.CreateBookParams) {
 		}
 	}
 }
+
+// TestHandleListBooksGenresError: kitap listesi geldi ama toplu tür yüklemesi
+// (GenresForBooks) başarısız → türleri eksik bir sayfa değil, 500 internal.
+func TestHandleListBooksGenresError(t *testing.T) {
+	fake := fakeBooks{total: 1, list: []db.Book{{ID: 7, Title: "Go"}}, genreErr: errors.New("tür sorgusu koptu")}
+	rec := do(t, newRouter(deps{books: fake}), http.MethodGet, "/api/books", "")
+	if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
+		t.Errorf("500 internal bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+}

@@ -64,6 +64,9 @@ func TestHandleCreateGenre(t *testing.T) {
 	}{
 		{name: "slug verilmezse addan türetilir", body: `{"name":"Bilim Kurgu"}`, wantStatus: http.StatusCreated, wantSlug: "bilim-kurgu"},
 		{name: "verilen slug korunur", body: `{"name":"Bilim Kurgu","slug":"sci-fi"}`, wantStatus: http.StatusCreated, wantSlug: "sci-fi"},
+		// *req.Slug == "" dalı: açıkça boş (ya da trim sonrası boş) slug da addan türetilir.
+		{name: "boş slug addan türetilir", body: `{"name":"Bilim Kurgu","slug":""}`, wantStatus: http.StatusCreated, wantSlug: "bilim-kurgu"},
+		{name: "yalnız boşluktan oluşan slug addan türetilir", body: `{"name":"Bilim Kurgu","slug":"   "}`, wantStatus: http.StatusCreated, wantSlug: "bilim-kurgu"},
 		{name: "ad eksik → 400", body: `{"slug":"x"}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
 		{name: "geçersiz slug → 400", body: `{"name":"X","slug":"Kötü Slug"}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
 		{name: "aynı ad → 409 name_conflict", body: `{"name":"Tarih"}`, err: genres.ErrDuplicateName, wantStatus: http.StatusConflict, wantCode: "name_conflict"},
@@ -109,6 +112,8 @@ func TestHandleUpdateGenre(t *testing.T) {
 		{"boş ad → 400", "/api/admin/genres/3", `{"name":"  "}`, nil, http.StatusBadRequest},
 		{"geçersiz id → 400", "/api/admin/genres/x", `{"name":"a"}`, nil, http.StatusBadRequest},
 		{"olmayan tür → 404", "/api/admin/genres/9", `{"name":"a"}`, genres.ErrNotFound, http.StatusNotFound},
+		{"aynı slug → 409", "/api/admin/genres/3", `{"slug":"tarih"}`, genres.ErrDuplicateSlug, http.StatusConflict},
+		{"repo hatası → 500", "/api/admin/genres/3", `{"name":"a"}`, errors.New("x"), http.StatusInternalServerError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := do(t, adminRouter(deps{genres: &fakeGenres{err: tc.err}}), http.MethodPatch, tc.url, tc.body)
@@ -128,4 +133,61 @@ func TestHandleDeleteGenre(t *testing.T) {
 	if missing.Code != http.StatusNotFound {
 		t.Errorf("olmayan tür: istenen 404, gelen %d", missing.Code)
 	}
+}
+
+func TestHandleListGenresStoreError(t *testing.T) {
+	rec := do(t, newRouter(deps{genres: &fakeGenres{err: errors.New("db down")}}), http.MethodGet, "/api/genres", "")
+	if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
+		t.Errorf("500 internal bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestHandleUpdateGenreSlugOnly: yalnız slug gönderilen PATCH → name nil (dokunulmaz).
+func TestHandleUpdateGenreSlugOnly(t *testing.T) {
+	fake := &fakeGenres{genre: db.Genre{ID: 3}}
+	rec := do(t, adminRouter(deps{genres: fake}), http.MethodPatch, "/api/admin/genres/3", `{"slug":" yeni-slug "}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("durum kodu: istenen 200, gelen %d (%s)", rec.Code, rec.Body)
+	}
+	if fake.gotUpdate[0] != nil || fake.gotUpdate[1] == nil || *fake.gotUpdate[1] != "yeni-slug" {
+		t.Errorf("kısmi güncelleme yanlış: name=%v slug=%v", fake.gotUpdate[0], fake.gotUpdate[1])
+	}
+}
+
+// TestHandleUpdateGenreDuplicateSlugCode: ErrDuplicateSlug → 409 slug_conflict.
+func TestHandleUpdateGenreDuplicateSlugCode(t *testing.T) {
+	rec := do(t, adminRouter(deps{genres: &fakeGenres{err: genres.ErrDuplicateSlug}}), http.MethodPatch, "/api/admin/genres/3", `{"slug":"tarih"}`)
+	if rec.Code != http.StatusConflict || errorCode(t, rec) != "slug_conflict" {
+		t.Errorf("409 slug_conflict bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// deleteRecorder, Delete'in çağrılıp çağrılmadığını kaydeder.
+type deleteRecorder struct {
+	*fakeGenres
+	deleteCalled bool
+}
+
+func (d *deleteRecorder) Delete(ctx context.Context, id int64) error {
+	d.deleteCalled = true
+	return d.fakeGenres.Delete(ctx, id)
+}
+
+func TestHandleDeleteGenreErrors(t *testing.T) {
+	t.Run("geçersiz id → 400 invalid_id, store çağrılmaz", func(t *testing.T) {
+		store := &deleteRecorder{fakeGenres: &fakeGenres{}}
+		rec := do(t, adminRouter(deps{genres: store}), http.MethodDelete, "/api/admin/genres/x", "")
+		if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "invalid_id" {
+			t.Errorf("400 invalid_id bekleniyordu: %d %s", rec.Code, rec.Body)
+		}
+		if store.deleteCalled {
+			t.Error("geçersiz id ile store.Delete çağrılmamalıydı")
+		}
+	})
+	t.Run("repo hatası → 500", func(t *testing.T) {
+		rec := do(t, adminRouter(deps{genres: &fakeGenres{err: errors.New("db down")}}), http.MethodDelete, "/api/admin/genres/3", "")
+		if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
+			t.Errorf("500 internal bekleniyordu: %d %s", rec.Code, rec.Body)
+		}
+	})
 }

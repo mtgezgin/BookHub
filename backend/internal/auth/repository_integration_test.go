@@ -173,3 +173,61 @@ func TestServiceFlowRealDB(t *testing.T) {
 		t.Errorf("çıkıştan sonra reddedilmeli, gelen %v", err)
 	}
 }
+
+// TestDeleteExpiredRefreshTokensRealDB: süpürme yalnızca VERİLEN kullanıcının süresi
+// dolmuş token'larını siler. Yanlış bir WHERE (user_id'yi unutmak ya da expires_at'i
+// ters karşılaştırmak) her girişte kullanıcıları oturumdan atardı.
+func TestDeleteExpiredRefreshTokensRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	repo := NewRepository(pool)
+	ctx := context.Background()
+
+	a, err := repo.CreateUser(ctx, uniqueEmail(t, pool), "A", "hash")
+	if err != nil {
+		t.Fatalf("CreateUser A: %v", err)
+	}
+	b, err := repo.CreateUser(ctx, uniqueEmail(t, pool), "B", "hash")
+	if err != nil {
+		t.Fatalf("CreateUser B: %v", err)
+	}
+
+	now := time.Now()
+	aExpired := []byte(testdb.Unique("a-expired"))
+	aLive := []byte(testdb.Unique("a-live"))
+	bExpired := []byte(testdb.Unique("b-expired"))
+	for _, tok := range []struct {
+		userID int64
+		hash   []byte
+		exp    time.Time
+	}{
+		{a.ID, aExpired, now.Add(-time.Hour)},
+		{a.ID, aLive, now.Add(time.Hour)},
+		{b.ID, bExpired, now.Add(-time.Hour)},
+	} {
+		if err := repo.SaveRefreshToken(ctx, tok.userID, tok.hash, tok.exp); err != nil {
+			t.Fatalf("SaveRefreshToken: %v", err)
+		}
+	}
+
+	if err := repo.DeleteExpiredRefreshTokens(ctx, a.ID); err != nil {
+		t.Fatalf("DeleteExpiredRefreshTokens: %v", err)
+	}
+
+	exists := func(h []byte) bool {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM refresh_tokens WHERE token_hash = $1", h).Scan(&n); err != nil {
+			t.Fatalf("sayım sorgusu: %v", err)
+		}
+		return n == 1
+	}
+	if exists(aExpired) {
+		t.Error("A'nın süresi dolmuş token'ı silinmeliydi")
+	}
+	if !exists(aLive) {
+		t.Error("A'nın geçerli token'ı silinmemeliydi")
+	}
+	if !exists(bExpired) {
+		t.Error("B'nin token'ı A için yapılan süpürmede silinmemeliydi")
+	}
+}

@@ -50,3 +50,22 @@ func TestHashPasswordTooLong(t *testing.T) {
 		t.Errorf("istenen ErrPasswordTooLong, gelen %v", err)
 	}
 }
+
+// TestHashPasswordWrapsBcryptError: bcrypt'in kendi hatası (geçersiz cost) sarılarak
+// yukarı çıkmalı — errors.As ile altındaki InvalidCostError'a hâlâ ulaşılabilmeli.
+func TestHashPasswordWrapsBcryptError(t *testing.T) {
+	h, err := hashPassword("x", 99)
+	if err == nil {
+		t.Fatal("geçersiz cost ile hata bekleniyordu")
+	}
+	if h != "" {
+		t.Errorf("hata durumunda hash boş olmalı, gelen %q", h)
+	}
+	var costErr bcrypt.InvalidCostError
+	if !errors.As(err, &costErr) {
+		t.Errorf("sarılı bcrypt.InvalidCostError bekleniyordu, gelen %v", err)
+	}
+	if !strings.Contains(err.Error(), "parola hash'lenemedi") {
+		t.Errorf("hata bağlam mesajıyla sarılmalı, gelen %q", err)
+	}
+}

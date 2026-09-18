@@ -62,3 +62,44 @@ func TestRepositoryRealDB(t *testing.T) {
 		}
 	})
 }
+
+// TestRepositoryListOrderedByName: List türleri ADA göre sıralar (eklenme sırasına ya da
+// id'ye göre değil). DB'de başka türler de olabileceği için yalnızca bizim eklediğimiz
+// iki türün GÖRELİ sırasını kontrol ediyoruz.
+func TestRepositoryListOrderedByName(t *testing.T) {
+	pool := testdb.Pool(t)
+	repo := NewRepository(pool)
+	ctx := context.Background()
+
+	// "zz" önce eklenir → daha küçük id alır; ada göre sıralama yine de "aa"yı öne koymalı.
+	later, err := repo.Create(ctx, "zz-"+testdb.Unique("Tür"), testdb.Unique("zz-tur"))
+	if err != nil {
+		t.Fatalf("tür eklenemedi: %v", err)
+	}
+	t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM genres WHERE id = $1", later.ID) })
+	earlier, err := repo.Create(ctx, "aa-"+testdb.Unique("Tür"), testdb.Unique("aa-tur"))
+	if err != nil {
+		t.Fatalf("tür eklenemedi: %v", err)
+	}
+	t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM genres WHERE id = $1", earlier.ID) })
+
+	list, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	posEarlier, posLater := -1, -1
+	for i, g := range list {
+		switch g.ID {
+		case earlier.ID:
+			posEarlier = i
+		case later.ID:
+			posLater = i
+		}
+	}
+	if posEarlier < 0 || posLater < 0 {
+		t.Fatalf("eklenen türler listede yok: aa=%d zz=%d", posEarlier, posLater)
+	}
+	if posEarlier > posLater {
+		t.Errorf("ada göre sıralı değil: %q (%d) %q (%d)'den sonra geldi", earlier.Name, posEarlier, later.Name, posLater)
+	}
+}

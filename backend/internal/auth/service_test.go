@@ -379,3 +379,134 @@ func TestEnsureAdmin(t *testing.T) {
 		t.Errorf("var olan hesap yükseltilmeli, yenisi açılmamalı: %+v created=%v err=%v", u2, created, err)
 	}
 }
+
+// TestLoginCorruptHash: compare, "eşleşmedi" dışında bir hata dönerse (bozuk hash)
+// Login sarılı bir hata döner — ErrInvalidCredentials DEĞİL (kullanıcının hatası değil).
+func TestLoginCorruptHash(t *testing.T) {
+	s, _, _ := newTestService(t)
+	ctx := context.Background()
+	if _, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	s.compare = func(_, _ []byte) error { return bcrypt.ErrHashTooShort }
+
+	sess, err := s.Login(ctx, "ali@example.com", goodPassword)
+	if err == nil {
+		t.Fatal("bozuk hash için hata bekleniyordu")
+	}
+	if errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("bozuk hash ErrInvalidCredentials olarak maskelenmemeli: %v", err)
+	}
+	if !errors.Is(err, bcrypt.ErrHashTooShort) {
+		t.Errorf("alttaki hata sarılı olmalı, gelen %v", err)
+	}
+	if sess.AccessToken != "" || sess.RefreshToken != "" {
+		t.Errorf("hata durumunda oturum dönmemeli: %+v", sess)
+	}
+}
+
+// sweepStore, DeleteExpiredRefreshTokens çağrısını kaydeden (ve isteğe bağlı hata
+// döndüren) memStore sarmalayıcısı.
+type sweepStore struct {
+	*memStore
+	sweptFor []int64
+	sweepErr error
+}
+
+func (s *sweepStore) DeleteExpiredRefreshTokens(_ context.Context, userID int64) error {
+	s.sweptFor = append(s.sweptFor, userID)
+	return s.sweepErr
+}
+
+func TestLoginSweepsExpiredTokens(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("başarılı giriş kullanıcının süresi dolmuş token'larını süpürür", func(t *testing.T) {
+		s, st, _ := newTestService(t)
+		u, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword)
+		if err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		sw := &sweepStore{memStore: st}
+		s.store = sw
+
+		if _, err := s.Login(ctx, "ali@example.com", goodPassword); err != nil {
+			t.Fatalf("Login: %v", err)
+		}
+		if len(sw.sweptFor) != 1 || sw.sweptFor[0] != u.ID {
+			t.Errorf("DeleteExpiredRefreshTokens(%d) bir kez çağrılmalıydı, çağrılar %v", u.ID, sw.sweptFor)
+		}
+	})
+
+	t.Run("süpürme hatası oturumsuz döner", func(t *testing.T) {
+		s, st, _ := newTestService(t)
+		if _, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		sweepErr := errors.New("db down")
+		sw := &sweepStore{memStore: st, sweepErr: sweepErr}
+		s.store = sw
+
+		sess, err := s.Login(ctx, "ali@example.com", goodPassword)
+		if !errors.Is(err, sweepErr) {
+			t.Fatalf("süpürme hatası bekleniyordu, gelen %v", err)
+		}
+		if sess.AccessToken != "" || sess.RefreshToken != "" {
+			t.Errorf("hata durumunda oturum dönmemeli: %+v", sess)
+		}
+		if len(st.tokens) != 0 {
+			t.Errorf("hata durumunda refresh token kaydedilmemeli, %d kayıt var", len(st.tokens))
+		}
+	})
+}
+
+// TestRefreshDeletedUser: refresh token verildikten sonra kullanıcı silindiyse
+// UserByID ErrUserNotFound döner → Refresh ErrInvalidToken dönmeli.
+func TestRefreshDeletedUser(t *testing.T) {
+	s, st, _ := newTestService(t)
+	ctx := context.Background()
+	u, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword)
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	sess, err := s.Login(ctx, "ali@example.com", goodPassword)
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	st.mu.Lock()
+	delete(st.users, u.ID)
+	delete(st.byEmail, u.Email)
+	st.mu.Unlock()
+
+	if _, err := s.Refresh(ctx, sess.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("silinmiş kullanıcı için ErrInvalidToken bekleniyordu, gelen %v", err)
+	}
+}
+
+func TestMe(t *testing.T) {
+	s, st, _ := newTestService(t)
+	ctx := context.Background()
+
+	t.Run("db.User → User eşlemesi", func(t *testing.T) {
+		created := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+		st.mu.Lock()
+		st.users[42] = db.User{ID: 42, Email: "veli@example.com", DisplayName: "Veli", PasswordHash: "gizli-hash", Role: RoleAdmin, CreatedAt: created}
+		st.mu.Unlock()
+
+		got, err := s.Me(ctx, 42)
+		if err != nil {
+			t.Fatalf("Me: %v", err)
+		}
+		want := User{ID: 42, Email: "veli@example.com", DisplayName: "Veli", Role: RoleAdmin, CreatedAt: created}
+		if got != want {
+			t.Errorf("Me = %+v, beklenen %+v", got, want)
+		}
+	})
+
+	t.Run("ErrUserNotFound olduğu gibi geçer", func(t *testing.T) {
+		if _, err := s.Me(ctx, 9999); !errors.Is(err, ErrUserNotFound) {
+			t.Errorf("ErrUserNotFound bekleniyordu, gelen %v", err)
+		}
+	})
+}

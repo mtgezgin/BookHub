@@ -114,6 +114,7 @@ func TestLoadJWT(t *testing.T) {
 		{name: "secret yok → hata", secret: "", wantErr: true},
 		{name: "31 baytlık secret → hata", secret: testJWTSecret[1:], wantErr: true},
 		{name: "geçersiz süre → hata", secret: testJWTSecret, access: "onbes-dakika", wantErr: true},
+		{name: "geçersiz refresh süresi → hata", secret: testJWTSecret, refresh: "bir-hafta", wantErr: true},
 		{name: "negatif süre → hata", secret: testJWTSecret, access: "-1m", wantErr: true},
 		{name: "access ≥ refresh → hata", secret: testJWTSecret, access: "2h", refresh: "1h", wantErr: true},
 	}

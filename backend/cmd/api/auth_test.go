@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -239,5 +240,62 @@ func TestMeThroughRouter(t *testing.T) {
 			}
 			assertUserKeys(t, rec.Body.Bytes())
 		})
+	}
+}
+
+// TestHandleRefreshUnexpectedError: beklenmeyen servis hatası → 500 internal; hatanın
+// ham metni cevap gövdesine SIZMAZ.
+func TestHandleRefreshUnexpectedError(t *testing.T) {
+	rec := do(t, handleRefresh(&fakeAuth{err: errors.New("pq: gizli-sürücü-detayı")}), http.MethodPost, "/", `{"refresh_token":"x"}`)
+	if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
+		t.Fatalf("500 internal bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "gizli-sürücü-detayı") {
+		t.Errorf("cevap gövdesi iç hata detayını sızdırıyor: %s", rec.Body)
+	}
+}
+
+// TestReadRefreshTokenTooLong: 256 karakterden uzun refresh_token → 400 validation_error
+// ve servis HİÇ çağrılmaz.
+func TestReadRefreshTokenTooLong(t *testing.T) {
+	svc := &fakeAuth{}
+	body := `{"refresh_token":"` + strings.Repeat("a", 257) + `"}`
+	rec := do(t, handleRefresh(svc), http.MethodPost, "/", body)
+	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "validation_error" {
+		t.Fatalf("400 validation_error bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+	if svc.gotToken != "" {
+		t.Errorf("servis çağrılmamalıydı, iletilen token uzunluğu %d", len(svc.gotToken))
+	}
+}
+
+// TestHandleMeUnexpectedError: Me'den beklenmeyen hata → 500 internal.
+func TestHandleMeUnexpectedError(t *testing.T) {
+	svc := &fakeAuth{err: errors.New("db down")}
+	h := newRouter(deps{auth: svc, tokens: fakeVerifier{}})
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer good-user")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
+		t.Errorf("500 internal bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestHandleMeWithoutPrincipal: handleMe requireAuth'suz çağrılırsa (context'te principal
+// yok) kapalı başarısız olur: 401 missing_token + WWW-Authenticate, servis çağrılmaz.
+func TestHandleMeWithoutPrincipal(t *testing.T) {
+	svc := &fakeAuth{user: sampleUser}
+	rec := do(t, handleMe(svc), http.MethodGet, "/", "")
+
+	if rec.Code != http.StatusUnauthorized || errorCode(t, rec) != "missing_token" {
+		t.Fatalf("401 missing_token bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+	if rec.Header().Get("WWW-Authenticate") == "" {
+		t.Error("401 cevabı WWW-Authenticate başlığı taşımalı")
+	}
+	if svc.gotUserID != 0 {
+		t.Errorf("servis çağrılmamalıydı, gelen userID %d", svc.gotUserID)
 	}
 }

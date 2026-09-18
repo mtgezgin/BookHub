@@ -98,6 +98,9 @@ func TestHandleSetBookGenres(t *testing.T) {
 		{name: "olmayan kitap → 404", url: "/api/admin/books/5/genres", body: `{"genre_ids":[1]}`, store: fakeBooks{setErr: books.ErrNotFound}, wantStatus: http.StatusNotFound, wantCode: "not_found"},
 		{name: "olmayan tür → 400 unknown_genre", url: "/api/admin/books/5/genres", body: `{"genre_ids":[999]}`, store: fakeBooks{setErr: books.ErrUnknownGenre}, wantStatus: http.StatusBadRequest, wantCode: "unknown_genre"},
 		{name: "repo hatası → 500", url: "/api/admin/books/5/genres", body: `{"genre_ids":[1]}`, store: fakeBooks{setErr: errors.New("x")}, wantStatus: http.StatusInternalServerError, wantCode: "internal"},
+		// SetGenres başarılı ama ardından gelen GenresForBook okuması başarısız: kısmi
+		// gövdeli bir 200 değil, 500 dönmeli.
+		{name: "yazma başarılı, geri okuma hatası → 500", url: "/api/admin/books/5/genres", body: `{"genre_ids":[1]}`, store: fakeBooks{genreErr: errors.New("okuma")}, wantStatus: http.StatusInternalServerError, wantCode: "internal"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

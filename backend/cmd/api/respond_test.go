@@ -41,6 +41,14 @@ func TestReadJSON(t *testing.T) {
 			wantStatus: http.StatusBadRequest, wantCode: "invalid_json", wantMessage: "baytta bozuk"},
 		{name: "yanlış tip → alan adıyla mesaj, Go tip adı yok", body: strings.NewReader(`{"title":123}`),
 			wantStatus: http.StatusBadRequest, wantCode: "invalid_json", wantMessage: `"title"`, mustNotLeak: "string"},
+		// Üst düzey tip uyuşmazlığı: typeErr.Field boş → alan adı olmayan genel mesaj.
+		{name: "üst düzey dizi → tip mesajı", body: strings.NewReader(`[]`),
+			wantStatus: http.StatusBadRequest, wantCode: "invalid_json", wantMessage: "gövde beklenen JSON tipinde değil"},
+		{name: "üst düzey string → tip mesajı", body: strings.NewReader(`"str"`),
+			wantStatus: http.StatusBadRequest, wantCode: "invalid_json", wantMessage: "gövde beklenen JSON tipinde değil"},
+		// Geçerli nesne + 1 MiB'ı aşan artık veri: ikinci Decode sınıra takılır → 400 değil 413.
+		{name: "geçerli nesne + sınırı aşan artık veri → 413", body: strings.NewReader(`{"title":"a"}` + strings.Repeat(" ", maxRequestBody)),
+			wantStatus: http.StatusRequestEntityTooLarge, wantCode: "body_too_large", wantMessage: "çok büyük"},
 		{name: "bilinmeyen alan", body: strings.NewReader(`{"status":"APPROVED"}`),
 			wantStatus: http.StatusBadRequest, wantCode: "invalid_json", wantMessage: "bilinmeyen alan"},
 		{name: "boş gövde", body: strings.NewReader(``),
