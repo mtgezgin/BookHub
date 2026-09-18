@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme:** Faz 3 ✅ TAMAM. Sırada **Faz 4 — Öneri + moderasyon**.
+**Son güncelleme:** Faz 4 ✅ TAMAM. Sırada **Faz 5 — Yorum + puan**.
 **Hedef (kullanıcı talebi, 2026-09):** projeyi baştan sona bitir — MVP (Faz 1–7) + opsiyonel
 altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push.
 
@@ -20,8 +20,8 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
 | 1 | Minimal Go API (/health, config, graceful shutdown, CI, hook'lar) | ✅ |
 | 2 | Postgres + kitap/tür CRUD + many-to-many | ✅ |
 | 3 | Auth + roller (JWT, bcrypt, refresh token, admin guard) | ✅ |
-| 4 | Öneri + moderasyon (state machine, audit log) | ⏭️ sırada |
-| 5 | Yorum + puan (ON CONFLICT, tx-içi agregat, eşzamanlılık) | ⏳ |
+| 4 | Öneri + moderasyon (state machine, audit log) | ✅ |
+| 5 | Yorum + puan (ON CONFLICT, tx-içi agregat, eşzamanlılık) | ⏭️ sırada |
 | 6 | Ağırlıklı puan (Bayesian, top-rated) | ⏳ |
 | 7 | Redis cache + rate limit + yük testi — **MVP sonu** | ⏳ |
 | 8–12 | Docker imajı · Frontend · CI/CD · NGINX · Kubernetes | ⏳ |
@@ -54,15 +54,23 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
 - **Commit'ler:** `a4c9f80` şema · `ecd9c8c` bcrypt+JWT · `6def864` servis · `9c19fd6` uçlar ·
   `3820ae2` admin koruması · `9d9226c` create-admin · (docs).
 
-## Sıradaki: Faz 4 — Öneri + moderasyon (plan)
+## Faz 4'te ne oldu (özet)
 
-1. Migration `0003`: `books.status`'a `ARCHIVED`; `submitted_by` (FK users), `rejection_reason`,
-   `moderated_by`/`moderated_at`; `audit_logs` (append-only: actor, action, entity, jsonb detay).
-2. `POST /api/books/suggestions` (USER) → `PENDING` kitap, türleriyle.
-3. `internal/moderation` servisi: geçiş kuralları (PENDING→APPROVED/REJECTED, APPROVED→ARCHIVED…),
-   `FOR UPDATE` + audit kaydı **aynı transaction'da**.
-4. Admin: `GET /api/admin/books?status=PENDING`, `POST .../{id}/approve|reject`, `PATCH`/`DELETE`
-   (arşivle) — admin DTO'su statü/moderasyon alanlarını gösterir; public DTO göstermez.
+- **Uçlar:** `POST /api/books/suggestions` (USER → PENDING); admin: kuyruk (`GET /api/admin/books?status=`),
+  tekil, `PATCH`, `approve|reject|restore`, `DELETE` (= arşiv), `.../audit`.
+- **Kurallar:** durum makinesi `moderation.Next` (veri olarak); geçiş = `FOR UPDATE` + güncelle +
+  denetim kaydı, tek tx; `audit_logs` DB trigger'ıyla append-only (TRUNCATE dahil).
+- **Commit'ler:** `0455a70` çekirdek · `16310ab` uçlar · (docs).
+
+## Sıradaki: Faz 5 — Yorum + puan (plan)
+
+1. Migration `0004`: `comments` (soft-delete: `deleted_at`/`deleted_by`, `(book_id, created_at)` index),
+   `ratings` (`UNIQUE(user_id, book_id)`, `score SMALLINT CHECK 1-10`), `books.average_rating NUMERIC(4,2)`
+   + `rating_count`.
+2. Puan yazımı: `INSERT ... ON CONFLICT DO UPDATE` + aynı tx'te `AVG/COUNT` ile agregat yeniden
+   hesabı (`FOR UPDATE` kitap satırı). Eşzamanlı oy testi `-race` ile.
+3. Uçlar: `GET/POST /api/books/{id}/comments`, `DELETE /api/admin/comments/{id}`,
+   `PUT/DELETE /api/books/{id}/ratings` (sahiplik = token'daki kullanıcı), `GET .../ratings/summary`.
 
 ## Ortam / gerçekler
 

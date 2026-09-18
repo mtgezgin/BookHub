@@ -10,6 +10,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 3. [Natural key vs surrogate key: ISBN neden PK olmaz?](#3-natural-key-vs-surrogate-key-isbn-neden-pk-olmaz)
 4. [DSN (Data Source Name) nedir?](#4-dsn-data-source-name-nedir)
 5. [sqlc + parametreli INSERT: DB DEFAULT'u neden devreye girmez?](#5-sqlc--parametreli-insert-db-defaultu-neden-devreye-girmez)
+6. [Durum makinesi + denetim kaydı: kural nerede yaşamalı?](#6-durum-makinesi--denetim-kaydı-kural-nerede-yaşamalı)
 
 ---
 
@@ -260,3 +261,38 @@ borç — biri değişip diğeri unutulursa sessizce ayrışırlar. Bizim durumd
 - [backend/migrations/0001_books_genres.sql](../../backend/migrations/0001_books_genres.sql) — `language text NOT NULL DEFAULT 'tr'`
 - Yukarıda [Girdi 2](#2-sqlc-nedir-sqli-sen-yaz-goyu-makine-yazsın) (sqlc'nin dinamik sorgu zayıflığı)
 - [go-language.md](go-language.md) Girdi 8 (zero value — boş string neden "yokluk" değil)
+
+---
+
+## 6. Durum makinesi + denetim kaydı: kural nerede yaşamalı?
+
+**🗓️ Bağlam:** Faz 4'te öneri/onay akışını kurarken. İki admin'in aynı öneriyi aynı anda
+onaylayıp reddetmesini test ettik ve kilidi kaldırınca ne olduğunu ölçtük.
+
+**⚡ Kısa cevap:** Statü geçiş kuralı **veri** olarak (bir tablo) servis katmanında; geçişin
+kendisi **kilitli okuma + güncelleme + denetim kaydı** olarak tek transaction'da; denetim
+kaydının değiştirilemezliği ise **DB trigger'ında**. Her kural, atlatılması en zor olan katmanda.
+
+**📖 Açıklama:**
+
+| Kural | Nerede | Neden orada |
+|---|---|---|
+| "PENDING → APPROVED olur, REJECTED → APPROVED olmaz" | `moderation.Next` (Go, saf fonksiyon) | iş kuralı; DB'siz tablo testiyle 16 kombinasyonun hepsi doğrulanır |
+| "iki admin aynı anda karar veremez" | `SELECT ... FOR UPDATE` (tx içinde) | yarış ancak DB kilidiyle çözülür; Go'daki bir mutex çok-instance'ta işe yaramaz |
+| "karar varsa kaydı da var" | aynı transaction | biri yazılıp öteki yazılamazsa ikisi de geri alınır |
+| "kayıt değiştirilemez/silinemez" | trigger (UPDATE/DELETE + TRUNCATE) | uygulamadaki bir bug ya da iz silmeye çalışan biri de DB'den geçmek zorunda |
+| "red gerekçesi yalnız REJECTED'da" | `CHECK` kısıtı | tutarsız satır hiçbir kod yolundan yazılamaz |
+
+**Kilidin ölçülen değeri (mutation):** `FOR UPDATE` kaldırıldığında 5 turun 5'inde de iki admin
+"kazandı" ve denetim kaydında **çelişen iki karar** kaldı: `book.reject` VE `book.approve`.
+Kilitle, ikinci admin birincinin commit'ini bekliyor, kitabı artık `APPROVED` görüyor ve 409 alıyor.
+
+**İki küçük tuzak:**
+- Satır trigger'ı (`FOR EACH ROW`) **TRUNCATE'te çalışmaz** → ayrı `FOR EACH STATEMENT` trigger'ı.
+- `actor_id`'ye FK + `ON DELETE SET NULL` koymak, append-only kuralıyla çakışır: SET NULL bir
+  UPDATE'tir → kullanıcı silmek imkânsızlaşır. Denetim kaydı zaten aktörden uzun yaşamalı; FK yok.
+
+**🔗 İlgili:**
+- [backend/migrations/0003_moderation.sql](../../backend/migrations/0003_moderation.sql)
+- [backend/internal/moderation/](../../backend/internal/moderation/) — `transitions.go`, `service.go`
+- [security-and-auth.md](security-and-auth.md) — Girdi 7 (aynı "check-then-act" yarışının token hâli)

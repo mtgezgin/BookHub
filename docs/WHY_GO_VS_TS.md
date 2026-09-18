@@ -68,7 +68,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 1. Static typing & compile-time enum safety
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 1–2 — backend/internal/books/status.go — TBD]`, `[Phase 4 — status transition validation — TBD]`
+**Status:** `PARTIAL` (Faz 4) · **Illustration:** `backend/internal/books/repository.go:ParseStatus` (sınır), `backend/internal/moderation/transitions.go:Next` (durum makinesi)
+>
+> **🟡 Faz 4:** Sınırda parse gerçekten iş gördü: `?status=approved` ya da `DELETED` sorguya ulaşıp sessizce boş liste döndürmüyor, 400 oluyor. Ama dürüst olmak gerekirse, `type BookStatus string` tanımlamadık — sqlc `db.Book.Status`'u `string` üretiyor ve her sınırda dönüştürmek, bu ölçekte kazandırdığından fazla tören getirirdi. Asıl kazanç tipten değil, **durum makinesini VERİ olarak** yazmaktan geldi (`transitions` map'i): 4×4'lük tablo testi yasak 12 geçişin hepsini kanıtlıyor. TS'te discriminated union + exhaustive `switch` bunu derleme zamanında yapardı — Go'da çalışma zamanı testiyle yapıyoruz (bkz. §15 #18).
 
 - **Hypothesis:** Go's typed constants + a single parse-at-the-edge boundary make an invalid
   `status` *unrepresentable* past the HTTP layer, catching a class of bug earlier than plain
@@ -481,6 +483,13 @@ Seed entries:
     `jest.fn().mockResolvedValue(...)` ile yalnızca test edilen metodu taklit etmek çok daha az
     törenli. Karşılığında sahte, gerçek sözleşmeyi (tekil e-posta, tek kullanımlık token) taklit
     ediyor — ama bu disiplin, dil zorunluluğu değil.
+
+**Faz 4'te eklenen dürüst gözlemler:**
+18. **Durum makinesi (§1):** TS'te `type Status = 'PENDING' | ...` + exhaustive `switch` +
+    `never` ile yeni bir statü eklendiğinde derleyici işlenmeyen her yeri gösterir. Go'nun sahte
+    enum'u bunu yapamıyor; biz aynı güvenceyi bir tablo testiyle (4×4) sağlıyoruz. TS kazanır.
+19. **Admin/public DTO (§5):** iki ayrı DTO'nun (ve gömülü struct'ın) faydası dil-bağımsız bir
+    disiplin; NestJS'te `@Exclude()`/serializer grupları aynısını yapar.
 
 > **Refleksiyon (TR):** Buraya her Go bölümü doldurduğunda en az bir dürüst "TS/JS kazanırdı"
 > girdisi ekle. Bu bölüm büyümüyorsa, doküman Go reklamına kaymış demektir.
