@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 // Config, uygulamanın çalışması için gereken tüm ayarları bir arada tutan TİP.
 // (OOP'deki "class"ın yalnızca VERİ kısmı gibi düşün — metotlar ayrı yazılır.)
-// İleride buraya DatabaseURL, RedisURL, JWTSecret gibi alanlar eklenecek.
 type Config struct {
 	Port        string // HTTP sunucusunun dinleyeceği port (ör. "8080")
 	DatabaseURL string // Veritabanı bağlantı dizesi (ör. "postgres://...")
@@ -19,7 +19,17 @@ type Config struct {
 	// prod'da (Supabase pooler arkası) KAPALI kalmalı — migration doğrudan bağlantıyla
 	// ve bilinçli bir adım olarak koşar. Bu yüzden varsayılan false.
 	AutoMigrate bool
+
+	// JWTSecret: access token'ların HMAC anahtarı. Zorunlu ve en az 32 bayt — koda ya da
+	// repoya ASLA yazılmaz; sızarsa herkes istediği rolde token üretebilir.
+	JWTSecret       string
+	AccessTokenTTL  time.Duration // kısa: çalınan access token'ın ömrü bu kadar
+	RefreshTokenTTL time.Duration // uzun: kullanıcı bu süre boyunca tekrar giriş yapmaz
 }
+
+// minJWTSecretLen, auth.MinSecretLen ile aynı sınır. config'i auth'a bağımlı yapmamak için
+// burada tekrar ediliyor (config yaprak paket kalsın); auth da kendi içinde yeniden denetler.
+const minJWTSecretLen = 32
 
 // Load, env'den ayarları okur, doğrular ve hazır bir Config döner.
 // Go'da özel "constructor" yoktur; konvansiyon: böyle bir Load()/NewXxx()
@@ -29,12 +39,24 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("geçersiz config: %w", err)
 	}
+	accessTTL, err := getenvDuration("JWT_ACCESS_TTL", 15*time.Minute)
+	if err != nil {
+		return Config{}, fmt.Errorf("geçersiz config: %w", err)
+	}
+	refreshTTL, err := getenvDuration("JWT_REFRESH_TTL", 7*24*time.Hour)
+	if err != nil {
+		return Config{}, fmt.Errorf("geçersiz config: %w", err)
+	}
 
 	// Config{...} = "struct literal" (JS'teki nesne literali { } gibi).
 	cfg := Config{
 		Port:        getenv("PORT", "8080"),     // PORT tanımlı değilse varsayılan 8080
 		DatabaseURL: getenv("DATABASE_URL", ""), // DATABASE_URL yoksa boş
 		AutoMigrate: autoMigrate,
+
+		JWTSecret:       os.Getenv("JWT_SECRET"), // varsayılan YOK: zayıf bir varsayılan, hiç olmamasından kötüdür
+		AccessTokenTTL:  accessTTL,
+		RefreshTokenTTL: refreshTTL,
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -62,6 +84,15 @@ func (c *Config) validate() error {
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("DATABASE_URL zorunlu - dev için .env.example'daki değeri kullan")
 	}
+	if len(c.JWTSecret) < minJWTSecretLen {
+		return fmt.Errorf("JWT_SECRET zorunlu ve en az %d bayt olmalı (üret: openssl rand -base64 48)", minJWTSecretLen)
+	}
+	if c.AccessTokenTTL <= 0 || c.RefreshTokenTTL <= 0 {
+		return fmt.Errorf("JWT_ACCESS_TTL ve JWT_REFRESH_TTL pozitif olmalı")
+	}
+	if c.AccessTokenTTL >= c.RefreshTokenTTL {
+		return fmt.Errorf("JWT_ACCESS_TTL (%s), JWT_REFRESH_TTL'den (%s) kısa olmalı", c.AccessTokenTTL, c.RefreshTokenTTL)
+	}
 
 	return nil
 }
@@ -88,4 +119,18 @@ func getenvBool(key string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s true/false olmalı, gelen %q", key, v)
 	}
 	return b, nil
+}
+
+// getenvDuration, env değişkenini süre olarak okur ("15m", "168h"). Tanımsızsa varsayılan;
+// geçersizse hata (getenvBool ile aynı fail-fast gerekçesi).
+func getenvDuration(key string, fallback time.Duration) (time.Duration, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s süre olmalı (ör. 15m, 168h), gelen %q", key, v)
+	}
+	return d, nil
 }

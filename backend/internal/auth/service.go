@@ -193,6 +193,14 @@ func (s *Service) Register(ctx context.Context, email, displayName, password str
 
 // Login, kimlik bilgilerini doğrular ve yeni bir oturum (access + refresh) açar.
 func (s *Service) Login(ctx context.Context, email, password string) (Session, error) {
+	// bcrypt.CompareHashAndPassword 72 bayttan sonrasını SESSİZCE kırpar (Generate'in
+	// aksine hata dönmez — denenerek doğrulandı): 72 baytlık parolanın sonuna ne
+	// eklenirse eklensin giriş başarılı olurdu. Kayıt zaten >72'yi reddettiği için böyle
+	// bir parola hiçbir hesabın parolası olamaz → doğrudan "hatalı".
+	if len(password) > MaxPasswordBytes {
+		return Session{}, ErrInvalidCredentials
+	}
+
 	u, err := s.store.UserByEmail(ctx, NormalizeEmail(email))
 	if errors.Is(err, ErrUserNotFound) {
 		// Kullanıcı yok — yine de bir bcrypt karşılaştırması yap (bkz. dummyHash).

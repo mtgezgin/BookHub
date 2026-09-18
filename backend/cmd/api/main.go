@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mtgezgin/bookhub/backend/internal/auth"
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/config"
 	"github.com/mtgezgin/bookhub/backend/internal/database"
@@ -43,11 +44,19 @@ func main() {
 	}
 	defer pool.Close() // kapanışta havuzdaki bağlantıları düzgün bırak
 
-	// ELLE DI ZİNCİRİ (GO_CONVENTIONS §3): pool → repository'ler → router.
+	tokens, err := auth.NewTokenManager([]byte(cfg.JWTSecret), cfg.AccessTokenTTL)
+	if err != nil {
+		log.Fatalf("token yöneticisi kurulamadı: %v", err)
+	}
+
+	// ELLE DI ZİNCİRİ (GO_CONVENTIONS §3): pool → repository'ler → (servis) → router.
 	// Framework yok; bağımlılık grafiğinin tamamı burada, tek yerde okunuyor.
+	// Auth'un araya bir servisi var (gerçek iş mantığı); kitap/tür CRUD'unun yok.
 	d := deps{
 		books:  books.NewRepository(pool),
 		genres: genres.NewRepository(pool),
+		auth:   auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL),
+		tokens: tokens,
 	}
 
 	// http.Server'ı elle kuruyoruz: timeout'lar + Shutdown() erişimi.

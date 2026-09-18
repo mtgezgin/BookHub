@@ -16,6 +16,8 @@ import (
 type deps struct {
 	books  bookStore
 	genres genreStore
+	auth   authService
+	tokens tokenVerifier
 }
 
 // newRouter, uygulamanın HTTP router'ını (yönlendiricisini) kurar.
@@ -42,6 +44,16 @@ func newRouter(d deps) http.Handler {
 	r.Get("/api/books", handleListBooks(d.books))
 	r.Get("/api/books/{id}", handleGetBook(d.books)) // {id} = Chi URL parametresi
 	r.Get("/api/genres", handleListGenres(d.genres))
+
+	// Kimlik uçları. /me dışındakiler bilerek açık: token'ı zaten bunlar veriyor.
+	r.Route("/api/auth", func(r chi.Router) {
+		r.Post("/register", handleRegister(d.auth))
+		r.Post("/login", handleLogin(d.auth))
+		r.Post("/refresh", handleRefresh(d.auth))
+		r.Post("/logout", handleLogout(d.auth))
+		// r.With(mw): middleware'i YALNIZCA bu rotaya uygula.
+		r.With(requireAuth(d.tokens)).Get("/me", handleMe(d.auth))
+	})
 
 	// /api/admin altı Faz 3'te auth middleware'iyle korunacak — şimdilik açık.
 	// Ayrı yol öneki bilinçli: yetki kararı routing tablosunda görünsün, handler

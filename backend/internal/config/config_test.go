@@ -1,6 +1,13 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+// testJWTSecret, testlerde geçerli kabul edilen (≥32 bayt) sahte anahtar.
+var testJWTSecret = strings.Repeat("s", minJWTSecretLen)
 
 // TestLoad, table-driven (tablo tabanlı) bir testtir: önce bir "tablo" (test
 // durumlarının slice'ı) tanımlarız, sonra HEPSİNİ tek bir döngüde çalıştırırız.
@@ -33,6 +40,7 @@ func TestLoad(t *testing.T) {
 			// PORT'u bu test için ayarla; test bitince otomatik eski hâline döner.
 			t.Setenv("PORT", tt.port)
 			t.Setenv("DATABASE_URL", tt.dbURL)
+			t.Setenv("JWT_SECRET", testJWTSecret)
 
 			cfg, err := Load()
 
@@ -71,6 +79,7 @@ func TestLoadAutoMigrate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("JWT_SECRET", testJWTSecret)
 			t.Setenv("AUTO_MIGRATE", tt.value)
 
 			cfg, err := Load()
@@ -85,6 +94,48 @@ func TestLoadAutoMigrate(t *testing.T) {
 			}
 			if cfg.AutoMigrate != tt.want {
 				t.Errorf("AutoMigrate: istenen %v, gelen %v", tt.want, cfg.AutoMigrate)
+			}
+		})
+	}
+}
+
+// TestLoadJWT: secret'sız ya da kısa secret'la boot DURMALI; süreler okunur ve
+// access < refresh kuralı uygulanır.
+func TestLoadJWT(t *testing.T) {
+	tests := []struct {
+		name                 string
+		secret               string
+		access, refresh      string
+		wantAccess, wantRefr time.Duration
+		wantErr              bool
+	}{
+		{name: "varsayılan süreler", secret: testJWTSecret, wantAccess: 15 * time.Minute, wantRefr: 7 * 24 * time.Hour},
+		{name: "özel süreler", secret: testJWTSecret, access: "5m", refresh: "24h", wantAccess: 5 * time.Minute, wantRefr: 24 * time.Hour},
+		{name: "secret yok → hata", secret: "", wantErr: true},
+		{name: "31 baytlık secret → hata", secret: testJWTSecret[1:], wantErr: true},
+		{name: "geçersiz süre → hata", secret: testJWTSecret, access: "onbes-dakika", wantErr: true},
+		{name: "negatif süre → hata", secret: testJWTSecret, access: "-1m", wantErr: true},
+		{name: "access ≥ refresh → hata", secret: testJWTSecret, access: "2h", refresh: "1h", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("JWT_SECRET", tt.secret)
+			t.Setenv("JWT_ACCESS_TTL", tt.access)
+			t.Setenv("JWT_REFRESH_TTL", tt.refresh)
+
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("hata bekleniyordu")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("beklenmeyen hata: %v", err)
+			}
+			if cfg.AccessTokenTTL != tt.wantAccess || cfg.RefreshTokenTTL != tt.wantRefr {
+				t.Errorf("süreler: istenen %s/%s, gelen %s/%s", tt.wantAccess, tt.wantRefr, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 			}
 		})
 	}

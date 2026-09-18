@@ -231,6 +231,23 @@ func TestLogin(t *testing.T) {
 	})
 }
 
+// TestLoginRejectsTruncatedPassword: bcrypt karşılaştırması 72 baytta kırptığı için
+// "72 baytlık parola + herhangi bir sonek" eskiden girişi açıyordu.
+func TestLoginRejectsTruncatedPassword(t *testing.T) {
+	s, _, _ := newTestService(t)
+	ctx := context.Background()
+	pw := strings.Repeat("p", MaxPasswordBytes)
+	if _, err := s.Register(ctx, "ali@example.com", "Ali", pw); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if _, err := s.Login(ctx, "ali@example.com", pw); err != nil {
+		t.Fatalf("tam parola çalışmalı: %v", err)
+	}
+	if _, err := s.Login(ctx, "ali@example.com", pw+"SONEK"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("72 bayt + sonek reddedilmeli, gelen %v", err)
+	}
+}
+
 // TestLoginUnknownEmailStillCompares: e-posta yokken de bcrypt karşılaştırması yapılmalı
 // (zamanlama ile kullanıcı keşfine karşı). Süre ölçmek kırılgan olurdu; bunun yerine
 // karşılaştırmanın ÇAĞRILDIĞINI sayıyoruz.
