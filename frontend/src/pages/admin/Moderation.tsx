@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api } from "../../api/client";
-import type { AdminBook, BookStatus, Page } from "../../api/types";
+import type { BookStatus } from "../../api/types";
 import { ErrorBox, formatDate } from "../../components/ui";
+import { Pager, usePaged } from "../../components/usePaged";
 
 const TABS: { status: BookStatus; label: string }[] = [
   { status: "PENDING", label: "Bekleyen" },
@@ -13,23 +14,11 @@ const TABS: { status: BookStatus; label: string }[] = [
 /** Admin moderasyon ekranı: statüye göre kuyruk + durum makinesindeki geçişler. */
 export function Moderation() {
   const [status, setStatus] = useState<BookStatus>("PENDING");
-  const [offset, setOffset] = useState(0);
-  const [page, setPage] = useState<Page<AdminBook> | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [genre, setGenre] = useState("");
 
-  const load = useCallback(() => {
-    api
-      .adminBooks(status, offset)
-      .then((p) => {
-        // Son sayfadaki son kitap onaylanınca/reddedilince o sayfa boşalır: bir sayfa geri
-        // git (yoksa admin "liste boş" ekranında mahsur kalırdı — review bulgusu R1).
-        if (p.items.length === 0 && offset > 0) setOffset(Math.max(0, offset - p.limit));
-        else setPage(p);
-      })
-      .catch(setError);
-  }, [status, offset]);
-  useEffect(load, [load]);
+  const fetchPage = useCallback((offset: number) => api.adminBooks(status, offset), [status]);
+  const { page, offset, setOffset, reload: load, showPager } = usePaged(fetchPage, status, setError);
 
   const act = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -46,7 +35,7 @@ export function Moderation() {
       <h1>Moderasyon</h1>
       <div className="tabs">
         {TABS.map((t) => (
-          <button key={t.status} className={t.status === status ? "active" : ""} onClick={() => { setStatus(t.status); setOffset(0); }}>{t.label}</button>
+          <button key={t.status} className={t.status === status ? "active" : ""} onClick={() => { setError(null); setStatus(t.status); }}>{t.label}</button>
         ))}
       </div>
       <ErrorBox error={error} />
@@ -75,13 +64,7 @@ export function Moderation() {
           </li>
         ))}
       </ul>
-      {page && (offset > 0 || page.total > page.limit) && (
-        <div className="pager">
-          <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - page.limit))}>← Önceki</button>
-          <span className="muted">{offset + 1}–{Math.min(offset + page.limit, page.total)} / {page.total}</span>
-          <button disabled={offset + page.limit >= page.total} onClick={() => setOffset(offset + page.limit)}>Sonraki →</button>
-        </div>
-      )}
+      {showPager && page && <Pager page={page} offset={offset} onChange={setOffset} />}
 
       <h2>Yeni tür</h2>
       <form className="search" onSubmit={(e) => { e.preventDefault(); act(async () => { await api.createGenre(genre); setGenre(""); }); }}>

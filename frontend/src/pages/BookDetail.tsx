@@ -1,30 +1,32 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { Book, Comment, Page, RatingSummary } from "../api/types";
+import type { Book, RatingSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBox, formatDate, Rating } from "../components/ui";
+import { Pager, usePaged } from "../components/usePaged";
 
 export function BookDetail() {
   const id = Number(useParams().id);
   const { user } = useAuth();
   const [book, setBook] = useState<Book | null>(null);
   const [summary, setSummary] = useState<RatingSummary | null>(null);
-  const [comments, setComments] = useState<Page<Comment> | null>(null);
-  const [commentOffset, setCommentOffset] = useState(0);
   const [mine, setMine] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<unknown>(null);
 
-  // Hatalar YUTULMAZ: özet ya da yorumlar gelmezse boş ("henüz puan yok") gibi görünüp
-  // yanıltmasın, hata kutusunda görünsün (review bulgusu R2).
-  const reload = useCallback(() => {
+  // Kitap + puan özeti ve yorumlar AYRI yüklenir: yorum sayfası değişince kitabı yeniden
+  // çekmeye gerek yok. Hatalar yutulmaz; yeni bir yükleme eski hata mesajını temizler.
+  const loadBook = useCallback(() => {
+    setError(null);
     api.book(id).then(setBook).catch(setError);
     api.ratingSummary(id).then(setSummary).catch(setError);
-    api.comments(id, commentOffset).then(setComments).catch(setError);
-  }, [id, commentOffset]);
+  }, [id]);
+  useEffect(loadBook, [loadBook]);
 
-  useEffect(reload, [reload]);
+  const fetchComments = useCallback((offset: number) => api.comments(id, offset), [id]);
+  const comments = usePaged(fetchComments, String(id), setError);
+
   useEffect(() => {
     if (!user) return setMine(null);
     api.myRating(id)
@@ -37,7 +39,7 @@ export function BookDetail() {
     try {
       await api.rate(id, score);
       setMine(score);
-      reload();
+      loadBook();
     } catch (e) {
       setError(e);
     }
@@ -48,7 +50,7 @@ export function BookDetail() {
     try {
       await api.removeRating(id);
       setMine(null);
-      reload();
+      loadBook();
     } catch (e) {
       setError(e);
     }
@@ -60,7 +62,8 @@ export function BookDetail() {
     try {
       await api.addComment(id, text);
       setText("");
-      reload();
+      if (comments.offset === 0) comments.reload();
+      else comments.setOffset(0); // en yeni yorum ilk sayfada
     } catch (err) {
       setError(err);
     }
@@ -68,7 +71,7 @@ export function BookDetail() {
 
   const remove = async (commentId: number) => {
     await api.deleteComment(commentId).catch(setError);
-    reload();
+    comments.reload();
   };
 
   if (!book) return <ErrorBox error={error} />;
@@ -116,7 +119,7 @@ export function BookDetail() {
       </section>
 
       <section>
-        <h2>Yorumlar {comments ? `(${comments.total})` : ""}</h2>
+        <h2>Yorumlar {comments.page ? `(${comments.page.total})` : ""}</h2>
         {user && (
           <form onSubmit={post} className="comment-form">
             <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} placeholder="Düşüncelerini yaz…" required />
@@ -124,7 +127,7 @@ export function BookDetail() {
           </form>
         )}
         <ul className="comments">
-          {comments?.items.map((c) => (
+          {comments.page?.items.map((c) => (
             <li key={c.id}>
               <div className="muted small">
                 <strong>{c.author?.display_name ?? "silinmiş kullanıcı"}</strong> · {formatDate(c.created_at)}
@@ -134,12 +137,8 @@ export function BookDetail() {
             </li>
           ))}
         </ul>
-        {comments && comments.total > comments.limit && (
-          <div className="pager">
-            <button disabled={commentOffset === 0} onClick={() => setCommentOffset(Math.max(0, commentOffset - comments.limit))}>← Yeniler</button>
-            <span className="muted small">{commentOffset + 1}–{Math.min(commentOffset + comments.limit, comments.total)} / {comments.total}</span>
-            <button disabled={commentOffset + comments.limit >= comments.total} onClick={() => setCommentOffset(commentOffset + comments.limit)}>Eskiler →</button>
-          </div>
+        {comments.showPager && comments.page && (
+          <Pager page={comments.page} offset={comments.offset} onChange={comments.setOffset} prev="← Yeniler" next="Eskiler →" />
         )}
       </section>
     </article>
