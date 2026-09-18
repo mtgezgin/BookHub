@@ -14,101 +14,79 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/db"
 )
 
-// fakeBooks, bookGetter interface'inin SAHTE (fake) uygulaması: ne dönmesi
-// söylendiyse onu döner. Gerçek DB yok → bu test saf birim testi ve ışık hızında.
-// (Interface'i tüketen tarafta tanımlamanın meyvesi tam olarak bu satırlar.)
+// fakeBooks, bookStore'un SAHTE uygulaması: ne dönmesi söylendiyse onu döner.
+// Gerçek DB yok → saf birim testi. (Interface'i tüketen tarafta tanımlamanın meyvesi.)
 type fakeBooks struct {
 	book db.Book
 	list []db.Book
 	err  error
 }
 
-func (f fakeBooks) Get(_ context.Context, _ int64) (db.Book, error) {
+func (f fakeBooks) Get(context.Context, int64) (db.Book, error) { return f.book, f.err }
+func (f fakeBooks) List(context.Context) ([]db.Book, error)     { return f.list, f.err }
+func (f fakeBooks) Create(context.Context, db.CreateBookParams) (db.Book, error) {
 	return f.book, f.err
 }
 
-func (f fakeBooks) List(_ context.Context) ([]db.Book, error) {
-	return f.list, f.err
+// capturingBooks, Create'e GEÇİLEN params'ı kaydeden sahte (pointer receiver: duruma
+// yazması gerekiyor). "Handler DB'ye ne yazıyor" iddiası ancak böyle kanıtlanır.
+type capturingBooks struct {
+	fakeBooks
+	got db.CreateBookParams
 }
 
-// Create, gelen params'ı saklamaz; bu sahte yalnızca DÖNÜŞ değerini kontrol eder.
-// Handler'ın params'a NE YAZDIĞINI doğrulamak için aşağıdaki capturingBooks var.
-func (f fakeBooks) Create(_ context.Context, _ db.CreateBookParams) (db.Book, error) {
+func (f *capturingBooks) Create(_ context.Context, p db.CreateBookParams) (db.Book, error) {
+	f.got = p
 	return f.book, f.err
 }
 
-// TestHandleGetBook, GET /api/books/{id}'nin hata HARİTALAMASINI table-driven doğrular:
-// geçersiz girdi → 400, yok → 404, repo hatası → 500 (detay sızdırmadan), var → 200.
+func do(t *testing.T, h http.Handler, method, url, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, url, strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var env errorBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("hata cevabı geçerli JSON değil: %v (gövde: %s)", err, rec.Body)
+	}
+	return env.Error.Code
+}
+
+// TestHandleGetBook, GET /api/books/{id}'nin hata HARİTALAMASINI doğrular:
+// geçersiz girdi → 400, yok → 404, repo hatası → 500, var → 200 + DTO.
 func TestHandleGetBook(t *testing.T) {
 	tests := []struct {
 		name       string
 		url        string
 		fake       fakeBooks
 		wantStatus int
-		wantCode   string // hata zarfındaki error.code ("" = başarı bekleniyor)
+		wantCode   string // "" = başarı beklenir
 	}{
-		{
-			name:       "geçerli id → 200 + kitap",
-			url:        "/api/books/1",
-			fake:       fakeBooks{book: db.Book{ID: 1, Title: "Clean Code", Slug: "clean-code"}},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "olmayan id → 404",
-			url:        "/api/books/999",
-			fake:       fakeBooks{err: books.ErrNotFound},
-			wantStatus: http.StatusNotFound,
-			wantCode:   "not_found",
-		},
-		{
-			name:       "sayı olmayan id → 400 (sorguya hiç gitmeden)",
-			url:        "/api/books/abc",
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "invalid_id",
-		},
-		{
-			name:       "sıfır/negatif id → 400",
-			url:        "/api/books/0",
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "invalid_id",
-		},
-		{
-			name:       "beklenmeyen repo hatası → 500, detay SIZMAZ",
-			url:        "/api/books/1",
-			fake:       fakeBooks{err: errors.New("bağlantı koptu: çok gizli detay")},
-			wantStatus: http.StatusInternalServerError,
-			wantCode:   "internal",
-		},
+		{name: "geçerli id → 200", url: "/api/books/1", fake: fakeBooks{book: db.Book{ID: 1, Title: "Clean Code"}}, wantStatus: http.StatusOK},
+		{name: "olmayan id → 404", url: "/api/books/999", fake: fakeBooks{err: books.ErrNotFound}, wantStatus: http.StatusNotFound, wantCode: "not_found"},
+		{name: "sayı olmayan id → 400 (sorguya gitmeden)", url: "/api/books/abc", wantStatus: http.StatusBadRequest, wantCode: "invalid_id"},
+		{name: "sıfır id → 400", url: "/api/books/0", wantStatus: http.StatusBadRequest, wantCode: "invalid_id"},
+		{name: "repo hatası → 500", url: "/api/books/1", fake: fakeBooks{err: errors.New("x")}, wantStatus: http.StatusInternalServerError, wantCode: "internal"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
-			rec := httptest.NewRecorder()
-
-			// Handler'ı ÇIPLAK çağırmıyoruz: chi.URLParam(r, "id") ancak istek
-			// router'dan geçerse dolar. Router'a sahte repo'yu enjekte ediyoruz.
-			newRouter(deps{books: tt.fake}).ServeHTTP(rec, req)
-
+			rec := do(t, newRouter(deps{books: tt.fake}), http.MethodGet, tt.url, "")
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("durum kodu: istenen %d, gelen %d (gövde: %s)", tt.wantStatus, rec.Code, rec.Body)
 			}
-
 			if tt.wantCode != "" {
-				// Hata bekleniyor → tutarlı zarfı doğrula.
-				var body errorBody
-				if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-					t.Fatalf("hata cevabı geçerli JSON değil: %v", err)
-				}
-				if body.Error.Code != tt.wantCode {
-					t.Errorf("error.code: istenen %q, gelen %q", tt.wantCode, body.Error.Code)
+				if got := errorCode(t, rec); got != tt.wantCode {
+					t.Errorf("error.code: istenen %q, gelen %q", tt.wantCode, got)
 				}
 				return
 			}
-
-			// Başarı bekleniyor → kitabı doğrula.
-			var got db.Book
-			if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+			var got bookResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 				t.Fatalf("kitap cevabı geçerli JSON değil: %v", err)
 			}
 			if got.ID != tt.fake.book.ID || got.Title != tt.fake.book.Title {
@@ -118,240 +96,176 @@ func TestHandleGetBook(t *testing.T) {
 	}
 }
 
-// TestHandleGetBook_500DetaySizdirmaz, 500 yolunun "detay SIZMAZ" iddiasını
-// GÖVDE ÜZERİNDEN kanıtlar: error.code'un "internal" olması yetmez — sürücü/şema
-// bilgisi taşıyan hata metninin cevabın HİÇBİR yerinde geçmemesi gerekir.
-// (Detay operatör için log'a gider; istemciye gitmesi bilgi sızıntısıdır.)
-func TestHandleGetBook_500DetaySizdirmaz(t *testing.T) {
-	// Gerçekçi bir iç hata: repository'nin %w ile sardığı sürücü mesajı.
-	const surucuDetayi = `ERROR: relation "books" does not exist (SQLSTATE 42P01) @ 10.0.0.7:5432`
-	fake := fakeBooks{err: fmt.Errorf("kitap sorgusu (id=1): %w", errors.New(surucuDetayi))}
+// TestHandlersDoNotLeakInternalErrors, "detay log'a, istemciye değil" kuralını ÜÇ uç
+// için GÖVDE üzerinden kanıtlar: error.code'un "internal" olması yetmez — sürücü/şema
+// bilgisi taşıyan metnin cevabın hiçbir yerinde geçmemesi gerekir.
+func TestHandlersDoNotLeakInternalErrors(t *testing.T) {
+	const driverDetail = `ERROR: relation "books" does not exist (SQLSTATE 42P01) @ 10.0.0.7:5432`
+	fake := fakeBooks{err: fmt.Errorf("kitap sorgusu (id=1): %w", errors.New(driverDetail))}
+	router := newRouter(deps{books: fake})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/books/1", nil)
-	rec := httptest.NewRecorder()
-
-	newRouter(deps{books: fake}).ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("durum kodu: istenen %d, gelen %d", http.StatusInternalServerError, rec.Code)
+	for _, c := range []struct{ method, url, body string }{
+		{http.MethodGet, "/api/books/1", ""},
+		{http.MethodGet, "/api/books", ""},
+		{http.MethodPost, "/api/admin/books", `{"title":"T","slug":"t","author":"A"}`},
+	} {
+		t.Run(c.method+" "+c.url, func(t *testing.T) {
+			rec := do(t, router, c.method, c.url, c.body)
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("durum kodu: istenen 500, gelen %d", rec.Code)
+			}
+			body := rec.Body.String()
+			for _, leak := range []string{"relation", "SQLSTATE", "42P01", "10.0.0.7", "5432", "kitap sorgusu"} {
+				if strings.Contains(body, leak) {
+					t.Errorf("iç detay gövdeye sızdı (%q): %s", leak, body)
+				}
+			}
+		})
 	}
-
-	govde := rec.Body.String()
-	// Tam metin + tek tek sızıntı işaretleri: biri bile geçerse cevap detay taşıyor.
-	for _, sizinti := range []string{surucuDetayi, "relation", "SQLSTATE", "42P01", "5432", "kitap sorgusu"} {
-		if strings.Contains(govde, sizinti) {
-			t.Errorf("iç detay gövdeye sızdı (%q): %s", sizinti, govde)
-		}
-	}
 }
 
-// capturingBooks, Create'e GEÇİLEN params'ı kaydeden sahte. fakeBooks'tan farkı
-// pointer receiver: handler'ın DB'ye ne yazdığını doğrulayabilmek için duruma
-// yazması gerekiyor. "Statüyü sunucu belirler" iddiası ancak böyle kanıtlanır.
-type capturingBooks struct {
-	got  db.CreateBookParams
-	book db.Book
-	err  error
-}
-
-func (f *capturingBooks) Get(_ context.Context, _ int64) (db.Book, error) { return f.book, f.err }
-func (f *capturingBooks) List(_ context.Context) ([]db.Book, error)       { return nil, f.err }
-func (f *capturingBooks) Create(_ context.Context, p db.CreateBookParams) (db.Book, error) {
-	f.got = p
-	return f.book, f.err
-}
-
-// TestHandleListBooks, liste ucunun üç yolunu doğrular. En kritik senaryo boş liste:
-// repository nil slice döndüğünde gövde "null" DEĞİL "[]" olmalı — aradaki fark
-// istemcide books.map(...) çağrısını patlatır.
+// TestHandleListBooks: boş liste "[]" (null DEĞİL), dolu listede İÇERİK ve SIRA
+// korunur (yalnızca eleman sayısına bakmak, boş kayıtlar dönen bir hatayı kaçırırdı).
 func TestHandleListBooks(t *testing.T) {
-	tests := []struct {
-		name       string
-		fake       fakeBooks
-		wantStatus int
-		wantBody   string // "" = gövde kontrolü yapma
-		wantCount  int
-	}{
-		{
-			name:       "boş liste → JSON null DEĞİL, [] olmalı",
-			fake:       fakeBooks{list: nil},
-			wantStatus: http.StatusOK,
-			wantBody:   "[]",
-		},
-		{
-			name: "dolu liste → 200 + kitaplar",
-			fake: fakeBooks{list: []db.Book{
-				{ID: 1, Title: "Clean Code"},
-				{ID: 2, Title: "The Go Programming Language"},
-			}},
-			wantStatus: http.StatusOK,
-			wantCount:  2,
-		},
-		{
-			name:       "repo hatası → 500",
-			fake:       fakeBooks{err: errors.New("bağlantı koptu")},
-			wantStatus: http.StatusInternalServerError,
-		},
-	}
+	t.Run("boş liste → [] (null değil)", func(t *testing.T) {
+		rec := do(t, newRouter(deps{books: fakeBooks{list: nil}}), http.MethodGet, "/api/books", "")
+		if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
+			t.Fatalf("istenen 200 + [], gelen %d %q", rec.Code, rec.Body.String())
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/books", nil)
-			rec := httptest.NewRecorder()
-
-			newRouter(deps{books: tt.fake}).ServeHTTP(rec, req)
-
-			if rec.Code != tt.wantStatus {
-				t.Fatalf("durum kodu: istenen %d, gelen %d (gövde: %s)", tt.wantStatus, rec.Code, rec.Body)
-			}
-			if tt.wantBody != "" && strings.TrimSpace(rec.Body.String()) != tt.wantBody {
-				t.Errorf("gövde: istenen %q, gelen %q", tt.wantBody, strings.TrimSpace(rec.Body.String()))
-			}
-			if tt.wantCount > 0 {
-				var got []db.Book
-				if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-					t.Fatalf("cevap geçerli JSON değil: %v", err)
-				}
-				if len(got) != tt.wantCount {
-					t.Errorf("kitap sayısı: istenen %d, gelen %d", tt.wantCount, len(got))
-				}
-			}
-		})
-	}
+	t.Run("dolu liste → içerik ve sıra korunur", func(t *testing.T) {
+		fake := fakeBooks{list: []db.Book{
+			{ID: 7, Title: "The Go Programming Language"},
+			{ID: 3, Title: "Clean Code"},
+		}}
+		rec := do(t, newRouter(deps{books: fake}), http.MethodGet, "/api/books", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("durum kodu: istenen 200, gelen %d", rec.Code)
+		}
+		var got []bookResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("cevap geçerli JSON değil: %v", err)
+		}
+		if len(got) != 2 || got[0].ID != 7 || got[0].Title != "The Go Programming Language" || got[1].ID != 3 {
+			t.Errorf("liste içeriği/sırası bozuldu: %+v", got)
+		}
+	})
 }
 
-// TestHandleCreateBook, create ucunun girdi doğrulaması ve hata haritalamasını
-// table-driven doğrular. "status gönderilirse 400" senaryosu bir REGRESYON testidir:
-// bu uç bir ara istemcinin status yollamasına izin veriyordu (mass-assignment) ve
-// gönderen kitabını kendi yayına alabiliyordu.
+// TestHandleCreateBook, create ucunun girdi doğrulamasını ve hata haritalamasını doğrular.
+// "status gönderilirse 400" bir REGRESYON testidir: bu uç bir ara istemcinin status
+// yollayıp kitabını kendi yayına almasına izin veriyordu (mass-assignment).
 func TestHandleCreateBook(t *testing.T) {
-	const gecerliGovde = `{"title":"The Go Programming Language","slug":"gopl","author":"Donovan"}`
+	const valid = `{"title":"The Go Programming Language","slug":"gopl","author":"Donovan"}`
+	long := strings.Repeat("ş", maxTitleLen+1) // rune sayar: "ş" 2 bayt ama 1 karakter
 
 	tests := []struct {
 		name       string
-		govde      string
+		body       string
 		fake       fakeBooks
 		wantStatus int
-		wantCode   string // hata zarfındaki error.code ("" = başarı beklenir)
+		wantCode   string // "" = başarı
 	}{
-		{
-			name:       "geçerli gövde → 201",
-			govde:      gecerliGovde,
-			fake:       fakeBooks{book: db.Book{ID: 7, Title: "The Go Programming Language"}},
-			wantStatus: http.StatusCreated,
-		},
-		{
-			name:       "REGRESYON: istemci status yollarsa → 400 (kendi kitabını yayına alamaz)",
-			govde:      `{"title":"Sızma","slug":"sizma","author":"X","status":"APPROVED"}`,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "invalid_json",
-		},
-		{
-			name:       "bilinmeyen alan (typo) → 400",
-			govde:      `{"titel":"Yanlış","slug":"y","author":"X"}`,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "invalid_json",
-		},
-		{
-			name:       "bozuk JSON → 400",
-			govde:      `{"title": "yarım`,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "invalid_json",
-		},
-		{
-			name:       "boş gövde → 400",
-			govde:      ``,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "invalid_json",
-		},
-		{
-			name:       "zorunlu alanlar eksik → 400",
-			govde:      `{"description":"sadece açıklama"}`,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "validation_error",
-		},
-		{
-			name:       "sadece boşluktan ibaret başlık → 400 (trim sonrası boş)",
-			govde:      `{"title":"   ","slug":"s","author":"a"}`,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "validation_error",
-		},
-		{
-			name:       "page_count sıfır → 400",
-			govde:      `{"title":"T","slug":"s","author":"a","page_count":0}`,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "validation_error",
-		},
-		{
-			name:       "publication_year aralık dışı → 400",
-			govde:      `{"title":"T","slug":"s","author":"a","publication_year":1200}`,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   "validation_error",
-		},
-		{
-			name:       "aynı slug → 409 (500 DEĞİL: istemcinin düzeltebileceği bir çakışma)",
-			govde:      gecerliGovde,
-			fake:       fakeBooks{err: books.ErrDuplicateSlug},
-			wantStatus: http.StatusConflict,
-			wantCode:   "slug_conflict",
-		},
-		{
-			name:       "beklenmeyen repo hatası → 500",
-			govde:      gecerliGovde,
-			fake:       fakeBooks{err: errors.New("bağlantı koptu: gizli detay")},
-			wantStatus: http.StatusInternalServerError,
-			wantCode:   "internal",
-		},
-	}
+		{name: "geçerli gövde → 201", body: valid, fake: fakeBooks{book: db.Book{ID: 7}}, wantStatus: http.StatusCreated},
+		{name: "yayın yılı alt sınırı 1450 kabul", body: `{"title":"T","slug":"t","author":"a","publication_year":1450}`, wantStatus: http.StatusCreated},
+		{name: "tam sınırda başlık (300 karakter) kabul", body: `{"title":"` + strings.Repeat("ş", maxTitleLen) + `","slug":"t","author":"a"}`, wantStatus: http.StatusCreated},
 
+		{name: "REGRESYON: istemci status yollarsa → 400", body: `{"title":"S","slug":"s","author":"X","status":"APPROVED"}`, wantStatus: http.StatusBadRequest, wantCode: "invalid_json"},
+		{name: "bilinmeyen alan (typo) → 400", body: `{"titel":"Y","slug":"y","author":"X"}`, wantStatus: http.StatusBadRequest, wantCode: "invalid_json"},
+		{name: "yarım JSON → 400", body: `{"title": "yarım`, wantStatus: http.StatusBadRequest, wantCode: "invalid_json"},
+		{name: "söz dizimi hatası → 400", body: `{"title":,}`, wantStatus: http.StatusBadRequest, wantCode: "invalid_json"},
+		{name: "yanlış tip → 400", body: `{"title":123,"slug":"s","author":"a"}`, wantStatus: http.StatusBadRequest, wantCode: "invalid_json"},
+		{name: "boş gövde → 400", body: ``, wantStatus: http.StatusBadRequest, wantCode: "invalid_json"},
+		{name: "iki JSON nesnesi → 400", body: valid + `{"title":"ikinci"}`, wantStatus: http.StatusBadRequest, wantCode: "invalid_json"},
+
+		{name: "zorunlu alanlar eksik → 400", body: `{"description":"x"}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		{name: "yalnız boşluk başlık → 400", body: `{"title":"   ","slug":"s","author":"a"}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		{name: "301 karakterlik başlık → 400", body: `{"title":"` + long + `","slug":"s","author":"a"}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		{name: "geçersiz slug → 400", body: `{"title":"T","slug":"Kötü Slug!","author":"a"}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		{name: "javascript: kapak URL'si → 400 (XSS)", body: `{"title":"T","slug":"t","author":"a","cover_url":"javascript:alert(1)"}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		{name: "geçersiz dil kodu → 400", body: `{"title":"T","slug":"t","author":"a","language":"türkçe"}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		{name: "page_count 0 → 400", body: `{"title":"T","slug":"t","author":"a","page_count":0}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		{name: "yayın yılı 1449 → 400", body: `{"title":"T","slug":"t","author":"a","publication_year":1449}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		{name: "yayın yılı 9999 → 400", body: `{"title":"T","slug":"t","author":"a","publication_year":9999}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+
+		{name: "aynı slug → 409 (500 değil)", body: valid, fake: fakeBooks{err: books.ErrDuplicateSlug}, wantStatus: http.StatusConflict, wantCode: "slug_conflict"},
+		{name: "repo hatası → 500", body: valid, fake: fakeBooks{err: errors.New("x")}, wantStatus: http.StatusInternalServerError, wantCode: "internal"},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/api/admin/books", strings.NewReader(tt.govde))
-			rec := httptest.NewRecorder()
-
-			newRouter(deps{books: tt.fake}).ServeHTTP(rec, req)
-
+			rec := do(t, newRouter(deps{books: tt.fake}), http.MethodPost, "/api/admin/books", tt.body)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("durum kodu: istenen %d, gelen %d (gövde: %s)", tt.wantStatus, rec.Code, rec.Body)
 			}
-			if tt.wantCode == "" {
-				return
-			}
-			var body errorBody
-			if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-				t.Fatalf("hata cevabı geçerli JSON değil: %v", err)
-			}
-			if body.Error.Code != tt.wantCode {
-				t.Errorf("error.code: istenen %q, gelen %q", tt.wantCode, body.Error.Code)
+			if tt.wantCode != "" {
+				if got := errorCode(t, rec); got != tt.wantCode {
+					t.Errorf("error.code: istenen %q, gelen %q", tt.wantCode, got)
+				}
 			}
 		})
 	}
 }
 
-// TestHandleCreateBook_SunucuKararlari, handler'ın DB'ye NE YAZDIĞINI doğrular —
-// cevaba değil, parametrelere bakar. İki iddia:
-//  1. Statüyü sunucu belirler (istemci gönderemez, gönderirse zaten 400 alır).
-//  2. language boş gelirse "tr"ye düşer — migration'daki DEFAULT devreye girmediği için
-//     (sqlc parametreyi hep açıkça yazar) bu varsayılanı uygulama koymak zorunda.
-func TestHandleCreateBook_SunucuKararlari(t *testing.T) {
-	fake := &capturingBooks{book: db.Book{ID: 1}}
+// TestHandleCreateBookWritesExactParams, handler'ın DB'ye NE YAZDIĞINI alan alan
+// doğrular (cevaba değil). Bir alanı karıştırmak (slug↔author), düşürmek (yıl=nil)
+// ya da istemcinin değerini ezmek (language hep "tr") bu testi kırar.
+func TestHandleCreateBookWritesExactParams(t *testing.T) {
+	year, pages := int32(2015), int32(380)
 
-	govde := `{"title":"  Boşluklu Başlık  ","slug":"bosluklu","author":"Yazar"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/books", strings.NewReader(govde))
-	rec := httptest.NewRecorder()
+	t.Run("tüm alanlar aynen, trim uygulanmış, statü sunucudan", func(t *testing.T) {
+		fake := &capturingBooks{fakeBooks: fakeBooks{book: db.Book{ID: 1}}}
+		body := `{"title":"  The Go Programming Language  ","slug":"gopl","author":" Donovan ",
+			"description":" Go'nun kutsal kitabı ","cover_url":"https://example.test/gopl.jpg",
+			"publication_year":2015,"page_count":380,"language":"en"}`
+		rec := do(t, newRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("durum kodu: istenen 201, gelen %d (gövde: %s)", rec.Code, rec.Body)
+		}
+		want := db.CreateBookParams{
+			Title: "The Go Programming Language", Slug: "gopl", Author: "Donovan",
+			Description: "Go'nun kutsal kitabı", CoverUrl: "https://example.test/gopl.jpg",
+			PublicationYear: &year, PageCount: &pages, Language: "en", Status: books.StatusApproved,
+		}
+		assertParams(t, fake.got, want)
+	})
 
-	newRouter(deps{books: fake}).ServeHTTP(rec, req)
+	t.Run("language gönderilmezse varsayılan tr (DB DEFAULT devreye girmez)", func(t *testing.T) {
+		fake := &capturingBooks{fakeBooks: fakeBooks{book: db.Book{ID: 1}}}
+		rec := do(t, newRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", `{"title":"T","slug":"t","author":"a"}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("durum kodu: istenen 201, gelen %d", rec.Code)
+		}
+		if fake.got.Language != defaultLanguage || fake.got.PublicationYear != nil || fake.got.PageCount != nil {
+			t.Errorf("varsayılanlar yanlış: %+v", fake.got)
+		}
+	})
+}
 
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("durum kodu: istenen %d, gelen %d (gövde: %s)", http.StatusCreated, rec.Code, rec.Body)
+// assertParams, pointer alanlar yüzünden struct'lar == ile karşılaştırılamadığı için
+// alan alan kıyaslar.
+func assertParams(t *testing.T, got, want db.CreateBookParams) {
+	t.Helper()
+	deref := func(p *int32) string {
+		if p == nil {
+			return "nil"
+		}
+		return fmt.Sprint(*p)
 	}
-	if fake.got.Status != books.StatusApproved {
-		t.Errorf("statüyü sunucu belirlemeliydi: istenen %q, gelen %q", books.StatusApproved, fake.got.Status)
-	}
-	if fake.got.Language != "tr" {
-		t.Errorf("language varsayılanı: istenen \"tr\", gelen %q", fake.got.Language)
-	}
-	if fake.got.Title != "Boşluklu Başlık" {
-		t.Errorf("başlık kırpılmalıydı: gelen %q", fake.got.Title)
+	type row struct{ field, got, want string }
+	for _, r := range []row{
+		{"Title", got.Title, want.Title},
+		{"Slug", got.Slug, want.Slug},
+		{"Author", got.Author, want.Author},
+		{"Description", got.Description, want.Description},
+		{"CoverUrl", got.CoverUrl, want.CoverUrl},
+		{"PublicationYear", deref(got.PublicationYear), deref(want.PublicationYear)},
+		{"PageCount", deref(got.PageCount), deref(want.PageCount)},
+		{"Language", got.Language, want.Language},
+		{"Status", got.Status, want.Status},
+	} {
+		if r.got != r.want {
+			t.Errorf("%s: istenen %q, gelen %q", r.field, r.want, r.got)
+		}
 	}
 }

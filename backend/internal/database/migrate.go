@@ -25,7 +25,9 @@ func Migrate(ctx context.Context, dsn string) error {
 	if err != nil {
 		return fmt.Errorf("migration bağlantısı açılamadı: %w", err)
 	}
-	defer db.Close()
+	// Kapanış hatası burada eyleme dönüştürülemez (bağlantı yalnızca migration için
+	// açıldı ve iş bitti); yine de bilinçli olarak yok saydığımızı açıkça yazıyoruz.
+	defer func() { _ = db.Close() }()
 
 	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.FS)
 	if err != nil {

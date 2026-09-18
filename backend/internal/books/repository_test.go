@@ -63,13 +63,13 @@ func (f fakeDBTX) QueryRow(context.Context, string, ...interface{}) pgx.Row {
 	return f.row
 }
 
-// TestRepositoryGet_HataCevirisi, Get'in SÜRÜCÜ hatasını domain sınırından
+// TestRepositoryGetErrorTranslation, Get'in SÜRÜCÜ hatasını domain sınırından
 // geçirmediğini doğrular: pgx.ErrNoRows → ErrNotFound (sarılmadan, tanınabilir),
 // diğer hatalar ise %w ile bağlam eklenerek sarılır (zincir korunur, ErrNotFound'a
 // dönüşmez). Görünürlük sınırının (status='APPROVED') kendisi SQL'de yaşıyor;
 // onu repository_integration_test.go gerçek DB'ye karşı kanıtlar.
-func TestRepositoryGet_HataCevirisi(t *testing.T) {
-	errBaglanti := errors.New("bağlantı koptu: çok gizli sürücü detayı")
+func TestRepositoryGetErrorTranslation(t *testing.T) {
+	errConn := errors.New("bağlantı koptu: çok gizli sürücü detayı")
 
 	tests := []struct {
 		name            string
@@ -87,8 +87,8 @@ func TestRepositoryGet_HataCevirisi(t *testing.T) {
 		},
 		{
 			name:            "beklenmeyen hata → %w ile sarılır, ErrNotFound'a dönüşmez",
-			row:             fakeRow{err: errBaglanti},
-			wantErrIs:       errBaglanti,
+			row:             fakeRow{err: errConn},
+			wantErrIs:       errConn,
 			notErrIs:        ErrNotFound,
 			wantErrContains: "id=42",
 		},
@@ -128,23 +128,23 @@ func TestRepositoryGet_HataCevirisi(t *testing.T) {
 	}
 }
 
-// TestRepositoryList_HataSarmalama, List'in hata yolunu doğrular. Get'ten
+// TestRepositoryListErrorWrapping, List'in hata yolunu doğrular. Get'ten
 // KASITLI farkı: burada ErrNotFound çevirisi YOKTUR — ":many" sorgusu satır
 // bulamazsa bu bir hata değil, boş listedir. Dolayısıyla List'ten dönen her hata
 // GERÇEK bir hatadır ve sarılarak (%w) yukarı verilir; ErrNotFound'a dönüşmez.
 // Ayrıca hata yolunda slice'ın nil dönmesi beklenir (zero value; çağıran zaten
 // önce err'e bakar — boş slice döndürmek "sonuç var ama boş" yanılgısı yaratırdı).
-func TestRepositoryList_HataSarmalama(t *testing.T) {
-	errBaglanti := errors.New("bağlantı koptu: çok gizli sürücü detayı")
+func TestRepositoryListErrorWrapping(t *testing.T) {
+	errConn := errors.New("bağlantı koptu: çok gizli sürücü detayı")
 
-	repo := NewRepository(fakeDBTX{queryErr: errBaglanti})
+	repo := NewRepository(fakeDBTX{queryErr: errConn})
 
 	got, err := repo.List(context.Background())
 
 	if err == nil {
 		t.Fatalf("hata bekleniyordu ama gelmedi (gelen liste: %+v)", got)
 	}
-	if !errors.Is(err, errBaglanti) {
+	if !errors.Is(err, errConn) {
 		t.Errorf("hata zinciri kopmuş: alttaki sürücü hatası taşınmalıydı, gelen %v", err)
 	}
 	if errors.Is(err, ErrNotFound) {
@@ -158,27 +158,47 @@ func TestRepositoryList_HataSarmalama(t *testing.T) {
 	}
 }
 
-// TestRepositoryCreate_HataSarmalama, Create'in hata yolunu doğrular.
-// En önemli iddia sondaki senaryo: pgx.ErrNoRows Create'te ErrNotFound'a
-// ÇEVRİLMEZ. Çeviri Get'e özgü bir domain kararıdır ("aradığın kayıt yok");
-// bir INSERT'ten satır dönmemesi ise beklenmeyen bir durumdur ve öyle raporlanmalı.
-func TestRepositoryCreate_HataSarmalama(t *testing.T) {
-	errKisit := errors.New("duplicate key value violates unique constraint \"books_slug_key\"")
+// TestRepositoryCreateErrors, Create'in hata çevirisini doğrular. Kritik iki iddia:
+//
+//  1. Postgres 23505 (unique_violation) → ErrDuplicateSlug, SARILMADAN. Handler bunu
+//     409'a çevirir; bu çeviri kırılırsa istemci hatası 500 olarak görünür.
+//     DİKKAT: düz bir errors.New("duplicate key ...") bu dalı TETİKLEMEZ — repository
+//     errors.As ile *pgconn.PgError arar. Gerçek sürücü hatası tipini kurmak şart;
+//     aksi halde test kapsıyormuş gibi görünür ama eski dalı çalıştırır.
+//  2. pgx.ErrNoRows Create'te ErrNotFound'a ÇEVRİLMEZ: o çeviri Get'e özgü bir domain
+//     kararıdır ("aradığın yok"); bir INSERT'ten satır dönmemesi beklenmeyen bir durumdur.
+func TestRepositoryCreateErrors(t *testing.T) {
+	errConn := errors.New("bağlantı koptu")
 
 	tests := []struct {
-		name      string
-		rowErr    error
-		wantErrIs error // errors.Is ile YAKALANMALI
+		name          string
+		rowErr        error
+		wantErrIs     error
+		wantDuplicate bool
+		wantWrapped   bool // "kitap ekleme sorgusu" bağlamıyla sarılmış olmalı
 	}{
 		{
-			name:      "sürücü hatası → %w ile sarılır, zincir korunur",
-			rowErr:    errKisit,
-			wantErrIs: errKisit,
+			name:          "gerçek 23505 PgError → ErrDuplicateSlug (sarılmadan)",
+			rowErr:        &pgconn.PgError{Code: "23505", ConstraintName: "books_slug_key"},
+			wantErrIs:     ErrDuplicateSlug,
+			wantDuplicate: true,
 		},
 		{
-			name:      "pgx.ErrNoRows → ErrNotFound'a DÖNÜŞMEZ (çeviri Get'e özgü)",
-			rowErr:    pgx.ErrNoRows,
-			wantErrIs: pgx.ErrNoRows,
+			name:        "başka bir PgError (23503 FK ihlali) → çakışma DEĞİL, sarılır",
+			rowErr:      &pgconn.PgError{Code: "23503"},
+			wantWrapped: true,
+		},
+		{
+			name:        "sürücü hatası → %w ile sarılır, zincir korunur",
+			rowErr:      errConn,
+			wantErrIs:   errConn,
+			wantWrapped: true,
+		},
+		{
+			name:        "pgx.ErrNoRows → ErrNotFound'a DÖNÜŞMEZ",
+			rowErr:      pgx.ErrNoRows,
+			wantErrIs:   pgx.ErrNoRows,
+			wantWrapped: true,
 		},
 	}
 
@@ -187,23 +207,23 @@ func TestRepositoryCreate_HataSarmalama(t *testing.T) {
 			repo := NewRepository(fakeDBTX{row: fakeRow{err: tt.rowErr}})
 
 			got, err := repo.Create(context.Background(), db.CreateBookParams{
-				Title:  "Yeni Kitap",
-				Slug:   "yeni-kitap",
-				Author: "Yazar",
-				Status: "APPROVED",
+				Title: "Yeni Kitap", Slug: "yeni-kitap", Author: "Yazar", Status: StatusApproved,
 			})
 
 			if err == nil {
 				t.Fatalf("hata bekleniyordu ama gelmedi (gelen kitap: %+v)", got)
 			}
-			if !errors.Is(err, tt.wantErrIs) {
+			if tt.wantErrIs != nil && !errors.Is(err, tt.wantErrIs) {
 				t.Errorf("hata zinciri: %v taşınmalıydı, gelen %v", tt.wantErrIs, err)
+			}
+			if errors.Is(err, ErrDuplicateSlug) != tt.wantDuplicate {
+				t.Errorf("ErrDuplicateSlug: istenen %v, gelen hata %v", tt.wantDuplicate, err)
 			}
 			if errors.Is(err, ErrNotFound) {
 				t.Errorf("Create hatası ErrNotFound'a çözülmemeli, gelen %v", err)
 			}
-			if !strings.Contains(err.Error(), "kitap ekleme sorgusu") {
-				t.Errorf("hata metni bağlam içermeliydi (\"kitap ekleme sorgusu\"), gelen %q", err.Error())
+			if strings.Contains(err.Error(), "kitap ekleme sorgusu") != tt.wantWrapped {
+				t.Errorf("bağlam sarması: istenen %v, gelen %q", tt.wantWrapped, err.Error())
 			}
 			if got != (db.Book{}) {
 				t.Errorf("hata yolunda zero-value Book dönmeliydi, gelen %+v", got)
