@@ -5,8 +5,10 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -35,6 +37,10 @@ type Config struct {
 
 	// LogFormat: "text" (dev, okunur) ya da "json" (konteyner/prod, makine-okur).
 	LogFormat string
+
+	// TrustedProxies: X-Real-IP başlığına güvenilecek reverse proxy adresleri (CIDR ya da
+	// tek IP, virgülle). Boş (varsayılan) → başlık hiçbir zaman dikkate alınmaz.
+	TrustedProxies []netip.Prefix
 
 	// RatingMinVotes: ağırlıklı puandaki m ("güvenilir sayılmak için gereken oy sayısı").
 	// Veri büyüdükçe artırılır; küçük başlar (bkz. ratings.DefaultMinVotes).
@@ -69,6 +75,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("geçersiz config: %w", err)
 	}
+	proxies, err := parsePrefixes(os.Getenv("TRUSTED_PROXIES"))
+	if err != nil {
+		return Config{}, fmt.Errorf("geçersiz config: %w", err)
+	}
 
 	// Config{...} = "struct literal" (JS'teki nesne literali { } gibi).
 	cfg := Config{
@@ -83,6 +93,7 @@ func Load() (Config, error) {
 		RedisURL:        os.Getenv("REDIS_URL"),
 		AuthRateLimit:   authLimit,
 		LogFormat:       getenv("LOG_FORMAT", "text"),
+		TrustedProxies:  proxies,
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -181,4 +192,27 @@ func getenvInt(key string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s tam sayı olmalı, gelen %q", key, v)
 	}
 	return n, nil
+}
+
+// parsePrefixes, "10.0.0.0/8, 172.28.0.10" gibi bir listeyi ayrıştırır; tek IP /32 (ya da
+// /128) olur. Geçersiz bir girdi HATA — yanlış yazılmış bir proxy adresi sessizce yok
+// sayılsaydı, NGINX arkasında tüm istemciler tek IP'ye çökerdi ve kimse fark etmezdi.
+func parsePrefixes(v string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, part := range strings.Split(v, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(part); err == nil {
+			out = append(out, p.Masked())
+			continue
+		}
+		a, err := netip.ParseAddr(part)
+		if err != nil {
+			return nil, fmt.Errorf("TRUSTED_PROXIES geçersiz girdi %q (CIDR ya da IP olmalı)", part)
+		}
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	return out, nil
 }

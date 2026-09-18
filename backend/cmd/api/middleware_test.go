@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -195,10 +196,56 @@ func TestRateLimitFailsOpen(t *testing.T) {
 }
 
 func TestClientIP(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.RemoteAddr = "[2001:db8::1]:443"
-	req.Header.Set("X-Forwarded-For", "6.6.6.6") // istemci yazabilir → YOK SAYILMALI
-	if got := clientIP(req); got != "2001:db8::1" {
-		t.Errorf("IPv6 host bekleniyordu, gelen %q", got)
+	trusted := []netip.Prefix{netip.MustParsePrefix("172.28.0.10/32")}
+	tests := []struct {
+		name, remote, realIP, want string
+	}{
+		{"doğrudan istek, başlık yok", "203.0.113.5:4000", "", "203.0.113.5"},
+		// İstemcinin kendisi yazdığı başlık YOK SAYILMALI — yoksa her istekte sahte IP ile
+		// rate limit atlatılırdı.
+		{"doğrudan istek, sahte X-Real-IP", "203.0.113.5:4000", "6.6.6.6", "203.0.113.5"},
+		{"güvenilen proxy'den, X-Real-IP kullanılır", "172.28.0.10:5000", "198.51.100.7", "198.51.100.7"},
+		{"güvenilen proxy'den, bozuk başlık → proxy IP'si", "172.28.0.10:5000", "bozuk", "172.28.0.10"},
+		{"güvenilmeyen iç adres", "172.28.0.11:5000", "198.51.100.7", "172.28.0.11"},
+		{"IPv6", "[2001:db8::1]:443", "", "2001:db8::1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got string
+			h := resolveClientIP(trusted)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = clientIP(r) }))
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remote
+			if tt.realIP != "" {
+				req.Header.Set("X-Real-IP", tt.realIP)
+			}
+			h.ServeHTTP(httptest.NewRecorder(), req)
+			if got != tt.want {
+				t.Errorf("istenen %q, gelen %q", tt.want, got)
+			}
+		})
+	}
+}
+
+// TestRateLimitBehindProxy: NGINX arkasında iki farklı istemci AYRI kovalara düşmeli
+// (güvenilen proxy'nin X-Real-IP'si sayesinde); aynı istemci sınıra takılmalı.
+func TestRateLimitBehindProxy(t *testing.T) {
+	h := newRouter(deps{
+		auth: &fakeAuth{err: auth.ErrInvalidCredentials}, tokens: fakeVerifier{},
+		limiter:        ratelimit.NewMemory(1, time.Minute),
+		trustedProxies: []netip.Prefix{netip.MustParsePrefix("172.28.0.10/32")},
+	})
+	login := func(client string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"email":"a@b.co","password":"x"}`))
+		req.RemoteAddr = "172.28.0.10:5000" // hepsi aynı proxy'den gelir
+		req.Header.Set("X-Real-IP", client)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if login("198.51.100.1") != http.StatusUnauthorized || login("198.51.100.2") != http.StatusUnauthorized {
+		t.Fatal("farklı istemciler ayrı kovada olmalı (ilk denemeleri geçmeli)")
+	}
+	if code := login("198.51.100.1"); code != http.StatusTooManyRequests {
+		t.Errorf("aynı istemcinin ikinci denemesi 429 olmalı: %d", code)
 	}
 }

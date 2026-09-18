@@ -6,6 +6,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -102,18 +103,59 @@ func requireAdmin(next http.Handler) http.Handler {
 	})
 }
 
-// clientIP, isteğin geldiği adres (port hariç).
+// clientIPKey, resolveClientIP'in çözdüğü istemci IP'sinin context anahtarı.
+type clientIPKey struct{}
+
+// resolveClientIP, isteğin GERÇEK istemci IP'sini bir kez çözer ve context'e koyar.
 //
-// BİLEREK RemoteAddr: X-Forwarded-For / X-Real-IP başlıklarını İSTEMCİ yazabilir; onlara
-// körü körüne güvenmek, her istekte farklı sahte IP yollayarak rate limit'i atlatmak demek.
-// Bir reverse proxy (NGINX, Faz 11) arkasına geçince yalnız o proxy'nin eklediği başlığa,
-// yalnız proxy'nin adresinden gelen isteklerde güvenilir.
-func clientIP(r *http.Request) string {
+// Varsayılan: RemoteAddr (TCP bağlantısının karşı ucu). Bir reverse proxy (NGINX, Faz 11)
+// arkasında bu HER ZAMAN proxy'nin adresidir — rate limit tüm kullanıcıları tek kovaya
+// atardı. Bu yüzden: bağlantı GÜVENİLEN bir proxy'den geliyorsa, onun koyduğu X-Real-IP
+// başlığı kullanılır.
+//
+// Neden yalnız güvenilen proxy'den: X-Real-IP / X-Forwarded-For'u İSTEMCİ de yazabilir.
+// Her istekte sahte bir IP yollayıp rate limit'i atlatmasın diye, doğrudan gelen isteklerde
+// bu başlıklar YOK SAYILIR. NGINX yapılandırması başlığı kendi $remote_addr'ıyla EZER
+// (istemcinin gönderdiği değer proxy'den geçemez).
+// X-Forwarded-For yerine X-Real-IP: XFF bir listedir ve istemci başına ekleme yapabilir;
+// doğru okumak "sağdan ilk güvenilmeyen" mantığı ister. Tek hop'lu yapımızda gerek yok.
+func resolveClientIP(trusted []netip.Prefix) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := remoteHost(r)
+			if addr, err := netip.ParseAddr(ip); err == nil && isTrusted(addr, trusted) {
+				if real, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("X-Real-IP"))); err == nil {
+					ip = real.String()
+				}
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientIPKey{}, ip)))
+		})
+	}
+}
+
+func isTrusted(addr netip.Addr, trusted []netip.Prefix) bool {
+	for _, p := range trusted {
+		if p.Contains(addr.Unmap()) {
+			return true
+		}
+	}
+	return false
+}
+
+func remoteHost(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// clientIP, resolveClientIP'in çözdüğü adres; middleware zincirde yoksa RemoteAddr.
+func clientIP(r *http.Request) string {
+	if ip, ok := r.Context().Value(clientIPKey{}).(string); ok {
+		return ip
+	}
+	return remoteHost(r)
 }
 
 // rateLimit, kaba kuvvet (brute force) ve toplu hesap açmaya karşı IP başına sınır koyar.

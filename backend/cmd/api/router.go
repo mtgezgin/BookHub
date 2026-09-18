@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/netip"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -24,6 +25,8 @@ type deps struct {
 	auth       authService
 	tokens     tokenVerifier
 	limiter    ratelimit.Limiter // nil → sınırsız (yalnız bir alanı dolduran testler)
+	// trustedProxies: X-Real-IP başlığına güvenilecek proxy adresleri (NGINX). Boş → hiçbiri.
+	trustedProxies []netip.Prefix
 }
 
 // newRouter, uygulamanın HTTP router'ını (yönlendiricisini) kurar.
@@ -32,9 +35,10 @@ func newRouter(d deps) http.Handler {
 	r := chi.NewRouter()
 
 	// Middleware: her isteğe, yukarıdan aşağı SIRAYLA uygulanan ara katmanlar.
-	r.Use(middleware.RequestID) // her isteğe benzersiz bir ID ekle (log korelasyonu)
-	r.Use(requestLogger)        // her istek için tek yapılandırılmış log satırı + X-Request-Id (12-factor XI)
-	r.Use(middleware.Recoverer) // bir handler panik ederse 500 dön, sunucu çökmesin
+	r.Use(middleware.RequestID)              // her isteğe benzersiz bir ID ekle (log korelasyonu)
+	r.Use(resolveClientIP(d.trustedProxies)) // gerçek istemci IP'si (proxy arkasında da)
+	r.Use(requestLogger)                     // her istek için tek yapılandırılmış log satırı + X-Request-Id (12-factor XI)
+	r.Use(middleware.Recoverer)              // bir handler panik ederse 500 dön, sunucu çökmesin
 
 	// Bilinmeyen yol / desteklenmeyen method'ta da DÜZ HTML değil, tutarlı JSON zarfı dön.
 	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {

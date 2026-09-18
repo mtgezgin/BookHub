@@ -109,6 +109,8 @@ func run() int {
 		auth:       auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL),
 		tokens:     tokens,
 		limiter:    limiter,
+
+		trustedProxies: cfg.TrustedProxies,
 	}
 
 	// http.Server'ı elle kuruyoruz: timeout'lar + Shutdown() erişimi.

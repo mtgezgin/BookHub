@@ -212,3 +212,25 @@ func TestLoadLogFormat(t *testing.T) {
 		})
 	}
 }
+
+func TestParsePrefixes(t *testing.T) {
+	got, err := parsePrefixes(" 172.28.0.10 , 10.0.0.0/8,,::1")
+	if err != nil {
+		t.Fatalf("beklenmeyen hata: %v", err)
+	}
+	want := []string{"172.28.0.10/32", "10.0.0.0/8", "::1/128"}
+	if len(got) != len(want) {
+		t.Fatalf("istenen %v, gelen %v", want, got)
+	}
+	for i := range want {
+		if got[i].String() != want[i] {
+			t.Errorf("%d: istenen %s, gelen %s", i, want[i], got[i])
+		}
+	}
+	if _, err := parsePrefixes("nginx"); err == nil {
+		t.Error("geçersiz girdi reddedilmeli")
+	}
+	if got, err := parsePrefixes(""); err != nil || len(got) != 0 {
+		t.Errorf("boş liste: %v %v", got, err)
+	}
+}
