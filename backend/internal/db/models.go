@@ -36,6 +36,8 @@ type Book struct {
 	RejectionReason *string    `json:"rejection_reason"`
 	ModeratedBy     *int64     `json:"moderated_by"`
 	ModeratedAt     *time.Time `json:"moderated_at"`
+	AverageRating   *float64   `json:"average_rating"`
+	RatingCount     int32      `json:"rating_count"`
 }
 
 type BookGenre struct {
@@ -43,11 +45,30 @@ type BookGenre struct {
 	GenreID int64 `json:"genre_id"`
 }
 
+type Comment struct {
+	ID        int64      `json:"id"`
+	BookID    int64      `json:"book_id"`
+	UserID    *int64     `json:"user_id"`
+	Content   string     `json:"content"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at"`
+	DeletedBy *int64     `json:"deleted_by"`
+}
+
 type Genre struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
 	Slug      string    `json:"slug"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type Rating struct {
+	UserID    int64     `json:"user_id"`
+	BookID    int64     `json:"book_id"`
+	Score     int16     `json:"score"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type RefreshToken struct {
@@ -66,4 +87,15 @@ type User struct {
 	Role         string    `json:"role"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type VisibleComment struct {
+	ID        int64      `json:"id"`
+	BookID    int64      `json:"book_id"`
+	UserID    *int64     `json:"user_id"`
+	Content   string     `json:"content"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at"`
+	DeletedBy *int64     `json:"deleted_by"`
 }

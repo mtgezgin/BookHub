@@ -51,7 +51,7 @@ INSERT INTO books (
     page_count, language, status, submitted_by
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at
+) RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count
 `
 
 type CreateBookParams struct {
@@ -99,13 +99,15 @@ func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (Book, e
 		&i.RejectionReason,
 		&i.ModeratedBy,
 		&i.ModeratedAt,
+		&i.AverageRating,
+		&i.RatingCount,
 	)
 	return i, err
 }
 
 const getApprovedBook = `-- name: GetApprovedBook :one
 
-SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at FROM books
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM books
 WHERE id = $1
   AND status = 'APPROVED'
 `
@@ -150,12 +152,14 @@ func (q *Queries) GetApprovedBook(ctx context.Context, id int64) (Book, error) {
 		&i.RejectionReason,
 		&i.ModeratedBy,
 		&i.ModeratedAt,
+		&i.AverageRating,
+		&i.RatingCount,
 	)
 	return i, err
 }
 
 const getBook = `-- name: GetBook :one
-SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at FROM books WHERE id = $1
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM books WHERE id = $1
 `
 
 // ADMIN tekil okuma: statüden bağımsız. Public GetApprovedBook'un ayrı kalması bilinçli —
@@ -181,12 +185,14 @@ func (q *Queries) GetBook(ctx context.Context, id int64) (Book, error) {
 		&i.RejectionReason,
 		&i.ModeratedBy,
 		&i.ModeratedAt,
+		&i.AverageRating,
+		&i.RatingCount,
 	)
 	return i, err
 }
 
 const listBooks = `-- name: ListBooks :many
-SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at FROM books b
+SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count FROM books b
 WHERE b.status = 'APPROVED'
   AND ($1::text IS NULL OR EXISTS (
         SELECT 1 FROM book_genres bg
@@ -251,6 +257,8 @@ func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]Book, e
 			&i.RejectionReason,
 			&i.ModeratedBy,
 			&i.ModeratedAt,
+			&i.AverageRating,
+			&i.RatingCount,
 		); err != nil {
 			return nil, err
 		}
@@ -263,7 +271,7 @@ func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]Book, e
 }
 
 const listBooksByStatus = `-- name: ListBooksByStatus :many
-SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at FROM books
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM books
 WHERE status = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $3 OFFSET $2
@@ -302,6 +310,8 @@ func (q *Queries) ListBooksByStatus(ctx context.Context, arg ListBooksByStatusPa
 			&i.RejectionReason,
 			&i.ModeratedBy,
 			&i.ModeratedAt,
+			&i.AverageRating,
+			&i.RatingCount,
 		); err != nil {
 			return nil, err
 		}
@@ -314,7 +324,7 @@ func (q *Queries) ListBooksByStatus(ctx context.Context, arg ListBooksByStatusPa
 }
 
 const lockBookForModeration = `-- name: LockBookForModeration :one
-SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at FROM books WHERE id = $1 FOR UPDATE
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM books WHERE id = $1 FOR UPDATE
 `
 
 // Moderasyon için kilitli okuma: statü kontrolü + güncelleme arasına başka bir admin
@@ -339,6 +349,8 @@ func (q *Queries) LockBookForModeration(ctx context.Context, id int64) (Book, er
 		&i.RejectionReason,
 		&i.ModeratedBy,
 		&i.ModeratedAt,
+		&i.AverageRating,
+		&i.RatingCount,
 	)
 	return i, err
 }
@@ -351,7 +363,7 @@ SET status           = $1,
     moderated_at     = now(),
     updated_at       = now()
 WHERE id = $4
-RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at
+RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count
 `
 
 type SetBookStatusParams struct {
@@ -386,6 +398,8 @@ func (q *Queries) SetBookStatus(ctx context.Context, arg SetBookStatusParams) (B
 		&i.RejectionReason,
 		&i.ModeratedBy,
 		&i.ModeratedAt,
+		&i.AverageRating,
+		&i.RatingCount,
 	)
 	return i, err
 }
@@ -402,7 +416,7 @@ SET title            = COALESCE($1, title),
     language         = COALESCE($8, language),
     updated_at       = now()
 WHERE id = $9
-RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at
+RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count
 `
 
 type UpdateBookDetailsParams struct {
@@ -450,6 +464,8 @@ func (q *Queries) UpdateBookDetails(ctx context.Context, arg UpdateBookDetailsPa
 		&i.RejectionReason,
 		&i.ModeratedBy,
 		&i.ModeratedAt,
+		&i.AverageRating,
+		&i.RatingCount,
 	)
 	return i, err
 }

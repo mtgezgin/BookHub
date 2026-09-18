@@ -58,6 +58,31 @@ sql:
             go_type:
               type: "int64"
               pointer: true
+          # Faz 5: NUMERIC ortalama → *float64 (NULL = henüz puan yok). Saklama ve SIRALAMA
+          # DB'de NUMERIC ile kesin; Go tarafı yalnızca gösterim için okuyor. Override olmasa
+          # pgtype.Numeric üretirdi (JSON'da {"Int":…,"Exp":…} gibi okunmaz bir nesne).
+          - column: "books.average_rating"
+            go_type:
+              type: "float64"
+              pointer: true
+          - db_type: "pg_catalog.numeric"
+            nullable: true
+            go_type:
+              type: "float64"
+              pointer: true
+          # NULL olabilen her zaman damgası (moderated_at, deleted_at) → *time.Time.
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+          # NULL olabilen her bigint (FK'ler, VIEW kolonları) → *int64.
+          - db_type: "pg_catalog.int8"
+            nullable: true
+            go_type:
+              type: "int64"
+              pointer: true
           # jsonb → json.RawMessage: DB'deki JSON, cevaba yeniden kodlanmadan AYNEN gömülür
           # ([]byte olsaydı encoding/json onu base64 string'e çevirirdi).
           - db_type: "jsonb"
