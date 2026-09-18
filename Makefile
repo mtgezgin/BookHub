@@ -19,7 +19,7 @@ up: ## Altyapıyı kaldır (Postgres + Redis)
 down: ## Tüm konteynerleri durdur (veri volume'da kalır)
 	docker compose --profile app down
 
-app-up: ## Tüm uygulamayı konteynerde çalıştır (API imajını da derler)
+app-up: ## Tüm uygulama konteynerde: http://localhost:3000 (NGINX + frontend + API + DB + Redis)
 	docker compose --profile app up -d --build
 
 app-down: ## Yalnız API konteynerini durdur

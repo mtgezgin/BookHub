@@ -1,4 +1,4 @@
-# docker-compose.yml — DEV stack'i (Faz 2: Postgres; Faz 7: Redis; Faz 8: API imajı).
+# docker-compose.yml — DEV stack'i (Faz 2: Postgres; Faz 7: Redis; Faz 8: API; Faz 11: NGINX).
 #
 # NE İŞE YARAR: "docker compose up -d" tek komutla dev veritabanını ayağa kaldırır.
 # API bu fazda hâlâ host'ta "go run" ile çalışır (hızlı feedback döngüsü);
@@ -89,6 +89,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET gerekli - .env.example'i .env olarak kopyala}
       AUTO_MIGRATE: "true"
       LOG_FORMAT: json
+      # X-Real-IP'ye YALNIZCA NGINX konteynerinin sabit adresinden gelen isteklerde güven.
+      TRUSTED_PROXIES: 172.28.0.10
     ports:
       - "127.0.0.1:8080:8080"
     # "container başladı" değil "Postgres bağlantı kabul ediyor" + "Redis PONG" bekle.
@@ -98,6 +100,32 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+
+  # Web (Faz 11): NGINX — derlenmiş frontend + /api reverse proxy, TEK origin.
+  # Tüm uygulama: http://localhost:3000
+  web:
+    profiles: ["app"]
+    build: ./frontend
+    image: bookhub-web:dev
+    container_name: bookhub-web
+    ports:
+      - "127.0.0.1:3000:80"
+    # Sabit adres: API, X-Real-IP başlığına yalnızca bu adresten gelen isteklerde güvenir.
+    networks:
+      default:
+        ipv4_address: 172.28.0.10
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+# Varsayılan ağ için SABİT alt ağ: NGINX'e sabit IP verebilmek (ve API'nin güveneceği adresi
+# yapılandırmada yazabilmek) için gerekli. Bu aralık Docker'ın iç ağıdır, dışarıya açık değil.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 # Named volume'ların bildirimi. Veriyi sıfırlamak istersen:
 # "docker compose down -v" (-v volume'u da siler → taze DB).
