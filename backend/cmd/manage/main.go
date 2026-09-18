@@ -86,7 +86,17 @@ func createAdmin(ctx context.Context, args []string, stdin io.Reader, stdout io.
 	}
 
 	// API ile aynı kural: AUTO_MIGRATE=true ise şemayı güncelle (taze DB'de de çalışsın).
-	if migrate, _ := strconv.ParseBool(getenv("AUTO_MIGRATE")); migrate {
+	// Geçersiz değer ("yes", "on") HATA: sessizce false saymak migration'ı atlatır ve
+	// operatör anlamsız bir "relation users does not exist" görür (config.getenvBool ile aynı).
+	migrate := false
+	if raw := getenv("AUTO_MIGRATE"); raw != "" {
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			return fmt.Errorf("AUTO_MIGRATE true/false olmalı, gelen %q", raw)
+		}
+		migrate = b
+	}
+	if migrate {
 		if err := database.Migrate(ctx, dsn); err != nil {
 			return fmt.Errorf("migration başarısız: %w", err)
 		}

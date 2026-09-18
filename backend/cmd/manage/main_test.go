@@ -42,10 +42,17 @@ func TestRunArgumentErrors(t *testing.T) {
 		{"e-posta yok", []string{"create-admin"}, "-email zorunlu"},
 		{"DB yok", []string{"create-admin", "-email", "a@b.co"}, "DATABASE_URL zorunlu"},
 		{"bilinmeyen bayrak", []string{"create-admin", "-password", "x"}, "create-admin"},
+		{"geçersiz AUTO_MIGRATE", []string{"create-admin", "-email", "a@b.co"}, "AUTO_MIGRATE true/false"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := run(context.Background(), tt.args, strings.NewReader(""), &bytes.Buffer{}, env)
+			env := env
+			if tt.name == "geçersiz AUTO_MIGRATE" {
+				env = func(k string) string {
+					return map[string]string{"DATABASE_URL": "postgres://x", "AUTO_MIGRATE": "yes"}[k]
+				}
+			}
+			err := run(context.Background(), tt.args, strings.NewReader("gizli-parola\n"), &bytes.Buffer{}, env)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("%q içeren hata bekleniyordu, gelen %v", tt.want, err)
 			}
