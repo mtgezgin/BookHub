@@ -17,9 +17,11 @@ const TopRatedCacheKey = "books:top-rated:v1"
 // ağı: kaçan bir invalidation (ya da aşağıdaki yarış) en çok bu kadar bayatlık üretir.
 const TopRatedCacheTTL = 60 * time.Second
 
-// maxCachedTopRated: cache HER ZAMAN en iyi 50'yi tutar; istenen limit bundan dilimlenir.
-// Böylece limit=10 ve limit=20 için ayrı anahtarlar (ve ayrı invalidation) gerekmez.
-const maxCachedTopRated = 50
+// MaxTopRated: top-rated'ın en büyük limiti — hem HTTP doğrulaması hem cache'in yüklediği
+// liste boyu BU sabit. İkisi ayrı sabit olsaydı API sınırını 100'e çıkarmak, cache hep 50
+// yüklediği için sessizce eksik liste döndürürdü (review bulgusu R7).
+// Cache her zaman en iyi MaxTopRated'ı tutar; istenen limit bundan dilimlenir → tek anahtar.
+const MaxTopRated = 50
 
 // CachedService, Service'i top-rated cache'iyle sarar (cache-aside deseni):
 //
@@ -58,7 +60,7 @@ func (s *CachedService) TopRated(ctx context.Context, limit int32) (TopRated, er
 		slog.Warn("top-rated cache kaydı bozuk, yok sayıldı")
 	}
 
-	t, err := s.load(ctx, maxCachedTopRated)
+	t, err := s.load(ctx, MaxTopRated)
 	if err != nil {
 		return TopRated{}, err
 	}
@@ -90,8 +92,13 @@ func (s *CachedService) Remove(ctx context.Context, userID, bookID int64) (Stats
 
 // InvalidateTopRated, listeyi etkileyen başka yazımlar (onay, arşiv, başlık düzeltme) için de
 // dışarı açık — moderasyon servisi bunu kanca (hook) olarak çağırır.
+//
+// context.WithoutCancel: çağrı yazım COMMIT edildikten SONRA geliyor. İstemci tam o anda
+// bağlantıyı keserse istek ctx'i iptal olur ve DEL de iptal edilirdi — veri değişmiş ama
+// cache 60 sn eski kalırdı (review bulgusu R5). Silme, isteğin kaderinden bağımsız
+// tamamlanmalı; Redis istemcisinin kendi 500 ms zaman aşımı sınırı korur.
 func (s *CachedService) InvalidateTopRated(ctx context.Context) {
-	if err := s.cache.Delete(ctx, TopRatedCacheKey); err != nil {
+	if err := s.cache.Delete(context.WithoutCancel(ctx), TopRatedCacheKey); err != nil {
 		slog.Warn("top-rated cache silinemedi", "err", err, "max_staleness", s.ttl)
 	}
 }

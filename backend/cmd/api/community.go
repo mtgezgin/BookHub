@@ -302,10 +302,8 @@ func handleRatingSummary(svc ratingService) http.HandlerFunc {
 	}
 }
 
-const (
-	defaultTopRatedLimit = 10
-	maxTopRatedLimit     = 50
-)
+// En büyük limit ratings.MaxTopRated: cache'in yüklediği liste boyuyla TEK kaynak.
+const defaultTopRatedLimit = 10
 
 type topRatedItem struct {
 	bookResponse
@@ -330,7 +328,7 @@ func handleTopRated(store bookStore, svc ratingService) http.HandlerFunc {
 		if raw := r.URL.Query().Get("limit"); raw != "" {
 			n, err := strconv.Atoi(raw)
 			var v validator
-			v.check(err == nil && n >= 1 && n <= maxTopRatedLimit, "limit 1-%d arasında bir sayı olmalı", maxTopRatedLimit)
+			v.check(err == nil && n >= 1 && n <= ratings.MaxTopRated, "limit 1-%d arasında bir sayı olmalı", ratings.MaxTopRated)
 			if err := v.err(); err != nil {
 				writeRequestError(w, err)
 				return

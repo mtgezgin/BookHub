@@ -50,7 +50,7 @@ func cachedWithLoader(c *memCache, loads *int) *CachedService {
 	s := NewCached(&Service{}, c)
 	s.load = func(_ context.Context, limit int32) (TopRated, error) {
 		*loads++
-		if limit != maxCachedTopRated {
+		if limit != MaxTopRated {
 			return TopRated{}, errors.New("cache her zaman en iyi 50'yi yüklemeli")
 		}
 		books := make([]TopRatedBook, 0, 30)
@@ -99,5 +99,32 @@ func TestCachedTopRatedDegradesGracefully(t *testing.T) {
 	c.data[TopRatedCacheKey] = []byte("{bozuk json")
 	if _, err := s.TopRated(ctx, 5); err != nil || loads != 2 {
 		t.Errorf("bozuk kayıt yok sayılıp yeniden yüklenmeli: loads=%d err=%v", loads, err)
+	}
+}
+
+// ctxRecordingCache, Delete'e gelen context'in iptal durumunu kaydeder.
+type ctxRecordingCache struct {
+	memCache
+	deleteCtxErr error
+}
+
+func (c *ctxRecordingCache) Delete(ctx context.Context, keys ...string) error {
+	c.deleteCtxErr = ctx.Err()
+	return c.memCache.Delete(ctx, keys...)
+}
+
+// TestInvalidateSurvivesCanceledRequest (review bulgusu R5): yazım commit edildikten sonra
+// istemci koparsa (istek ctx'i iptal) cache silme yine de İPTAL EDİLMEMİŞ bir ctx'le yapılmalı.
+func TestInvalidateSurvivesCanceledRequest(t *testing.T) {
+	c := &ctxRecordingCache{memCache: memCache{data: map[string][]byte{TopRatedCacheKey: []byte("{}")}}}
+	s := NewCached(&Service{}, c)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.InvalidateTopRated(ctx)
+	if c.deleteCtxErr != nil {
+		t.Errorf("silme iptal edilmiş ctx ile yapıldı: %v", c.deleteCtxErr)
+	}
+	if _, ok := c.data[TopRatedCacheKey]; ok {
+		t.Error("anahtar silinmeliydi")
 	}
 }

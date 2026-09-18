@@ -55,7 +55,9 @@ admin: ## İlk admin'i oluştur: make admin EMAIL=sen@ornek.com (parola gizli so
 demo-seed: ## Arayüz için örnek katalog (türler, klasikler, puanlar, yorumlar) — tekrar çalıştırılabilir
 	docker exec -i bookhub-postgres psql -U bookhub -d bookhub < backend/scripts/demo_seed.sql
 	@# Seed uygulamayı atlayıp DB'ye doğrudan yazdı → top-rated cache'i bayat; sil (TTL'i beklemeden).
-	docker exec bookhub-redis redis-cli del books:top-rated:v1 >/dev/null || true
+	@# Desenle siliyoruz (ratings.TopRatedCacheKey'in sürüm eki v1→v2 olsa da çalışsın).
+	@# "|| true": Redis kapalıysa seed yine de tamamlansın (cache 60 sn'de kendiliğinden tazelenir).
+	docker exec bookhub-redis sh -c "redis-cli --scan --pattern 'books:top-rated:*' | xargs -r redis-cli del" >/dev/null || true
 
 smoke: ## MVP Definition of Done'ı çalışan API'ye karşı doğrula (API=... ile değiştirilebilir)
 	$(ENV); API=$${API:-http://localhost:8080} backend/scripts/mvp_smoke.sh

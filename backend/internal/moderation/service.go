@@ -45,9 +45,11 @@ func NewService(conn db.DBTX, opts ...Option) *Service {
 
 // publicChanged, kancayı (varsa) çağırır. Yalnız BAŞARILI commit'ten sonra: başarısız bir
 // geçiş hiçbir şeyi değiştirmedi, cache'i boşaltmak için sebep yok.
+// ctx iptalden bağımsızlaştırılır: yazım zaten commit edildi, istemcinin kopması kancayı
+// (cache silmeyi) yarıda bırakmamalı.
 func (s *Service) publicChanged(ctx context.Context, err error) {
 	if err == nil && s.onPublicChange != nil {
-		s.onPublicChange(ctx)
+		s.onPublicChange(context.WithoutCancel(ctx))
 	}
 }
 
