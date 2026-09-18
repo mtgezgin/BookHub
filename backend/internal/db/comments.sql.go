@@ -23,10 +23,15 @@ func (q *Queries) CountComments(ctx context.Context, bookID int64) (int64, error
 
 const createComment = `-- name: CreateComment :one
 
-INSERT INTO comments (book_id, user_id, content)
-SELECT $1, $2, $3
-WHERE EXISTS (SELECT 1 FROM books WHERE id = $1 AND status = 'APPROVED')
-RETURNING id, book_id, user_id, content, created_at, updated_at, deleted_at, deleted_by
+WITH ins AS (
+    INSERT INTO comments (book_id, user_id, content)
+    SELECT $1, $2, $3
+    WHERE EXISTS (SELECT 1 FROM books WHERE id = $1 AND status = 'APPROVED')
+    RETURNING id, book_id, user_id, content, created_at
+)
+SELECT ins.id, ins.book_id, ins.user_id, u.display_name AS author_name, ins.content, ins.created_at
+FROM ins
+LEFT JOIN users u ON u.id = ins.user_id
 `
 
 type CreateCommentParams struct {
@@ -35,21 +40,30 @@ type CreateCommentParams struct {
 	Content string `json:"content"`
 }
 
+type CreateCommentRow struct {
+	ID         int64     `json:"id"`
+	BookID     int64     `json:"book_id"`
+	UserID     *int64    `json:"user_id"`
+	AuthorName *string   `json:"author_name"`
+	Content    string    `json:"content"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // comments.sql — yorum sorguları (Faz 5). Okumalar visible_comments VIEW'undan.
 // Yalnızca ONAYLI kitaba yorum: kontrol ve ekleme TEK deyimde (INSERT ... SELECT ... WHERE
 // EXISTS). Kitap onaylı değilse hiç satır eklenmez → ErrNoRows → 404.
-func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (Comment, error) {
+// Veri değiştiren CTE (WITH ... INSERT ... RETURNING): eklenen satırı AYNI deyimde yazar
+// adıyla birleştirip döndürür — cevap, liste ucuyla aynı biçimde, ekstra sorgu yok.
+func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (CreateCommentRow, error) {
 	row := q.db.QueryRow(ctx, createComment, arg.BookID, arg.UserID, arg.Content)
-	var i Comment
+	var i CreateCommentRow
 	err := row.Scan(
 		&i.ID,
 		&i.BookID,
 		&i.UserID,
+		&i.AuthorName,
 		&i.Content,
 		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-		&i.DeletedBy,
 	)
 	return i, err
 }

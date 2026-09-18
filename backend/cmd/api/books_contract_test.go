@@ -33,6 +33,8 @@ func TestGetBookResponseContract(t *testing.T) {
 		"page_count",
 		"language",
 		"genres",
+		"average_rating", // Faz 5: türetilmiş puan istatistiği (bilinçli ekleme)
+		"rating_count",
 		"created_at",
 		"updated_at",
 	}

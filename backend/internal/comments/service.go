@@ -36,13 +36,13 @@ func NewService(conn db.DBTX) *Service {
 // XSS NOTU: içerik HAM saklanır. Kaçışlama (escape) gösterim anında yapılır — React bunu
 // varsayılan olarak yapar. Sunucuda HTML'e çevirip saklamak, veriyi tek bir çıktı
 // biçimine kilitlerdi ve çift kaçışlama hatalarına kapı açardı.
-func (s *Service) Create(ctx context.Context, userID, bookID int64, content string) (db.Comment, error) {
+func (s *Service) Create(ctx context.Context, userID, bookID int64, content string) (db.CreateCommentRow, error) {
 	c, err := s.q.CreateComment(ctx, db.CreateCommentParams{BookID: bookID, UserID: &userID, Content: content})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return db.Comment{}, books.ErrNotFound
+		return db.CreateCommentRow{}, books.ErrNotFound
 	}
 	if err != nil {
-		return db.Comment{}, fmt.Errorf("yorum yazılamadı: %w", err)
+		return db.CreateCommentRow{}, fmt.Errorf("yorum yazılamadı: %w", err)
 	}
 	return c, nil
 }

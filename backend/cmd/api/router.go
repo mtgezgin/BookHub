@@ -17,6 +17,8 @@ type deps struct {
 	books      bookStore
 	genres     genreStore
 	moderation moderationService
+	comments   commentService
+	ratings    ratingService
 	auth       authService
 	tokens     tokenVerifier
 }
@@ -50,6 +52,19 @@ func newRouter(d deps) http.Handler {
 	// Statik "suggestions" segmenti Chi'de {id}'den önce eşleşir.
 	r.With(requireAuth(d.tokens)).Post("/api/books/suggestions", handleSuggestBook(d.moderation))
 
+	// Yorumlar ve puanlar (Faz 5). Okuma herkese açık; yazma giriş ister. Puan uçlarında
+	// URL'de KULLANICI YOK: "benim puanım" = token'daki kullanıcı → başkasının puanına
+	// dokunmak ifade bile edilemez (IDOR'a yapısal kapı kapatma).
+	r.Get("/api/books/{id}/comments", handleListComments(d.books, d.comments))
+	r.Get("/api/books/{id}/ratings/summary", handleRatingSummary(d.ratings))
+	r.Group(func(r chi.Router) {
+		r.Use(requireAuth(d.tokens))
+		r.Post("/api/books/{id}/comments", handleCreateComment(d.comments))
+		r.Get("/api/books/{id}/rating", handleMyRating(d.ratings))
+		r.Put("/api/books/{id}/rating", handleRateBook(d.ratings))
+		r.Delete("/api/books/{id}/rating", handleRemoveRating(d.ratings))
+	})
+
 	// Kimlik uçları. /me dışındakiler bilerek açık: token'ı zaten bunlar veriyor.
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/register", handleRegister(d.auth))
@@ -79,6 +94,8 @@ func newRouter(d deps) http.Handler {
 		r.Post("/books/{id}/restore", handleTransition("RestoreBook", d.moderation, moderationService.Restore, d.books))
 		r.Get("/books/{id}/audit", handleBookHistory(d.moderation))
 		r.Put("/books/{id}/genres", handleSetBookGenres(d.books))
+
+		r.Delete("/comments/{id}", handleDeleteComment(d.comments))
 
 		r.Post("/genres", handleCreateGenre(d.genres))
 		r.Patch("/genres/{id}", handleUpdateGenre(d.genres))

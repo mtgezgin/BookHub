@@ -1,0 +1,214 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/mtgezgin/bookhub/backend/internal/books"
+	"github.com/mtgezgin/bookhub/backend/internal/comments"
+	"github.com/mtgezgin/bookhub/backend/internal/db"
+	"github.com/mtgezgin/bookhub/backend/internal/ratings"
+)
+
+type fakeComments struct {
+	created db.CreateCommentRow
+	rows    []db.ListCommentsRow
+	total   int64
+	err     error
+
+	gotUser, gotBook int64
+	gotContent       string
+	deleteCalled     bool
+}
+
+func (f *fakeComments) Create(_ context.Context, user, book int64, content string) (db.CreateCommentRow, error) {
+	f.gotUser, f.gotBook, f.gotContent = user, book, content
+	return f.created, f.err
+}
+func (f *fakeComments) List(_ context.Context, book int64, _, _ int32) ([]db.ListCommentsRow, int64, error) {
+	f.gotBook = book
+	return f.rows, f.total, f.err
+}
+func (f *fakeComments) Delete(_ context.Context, admin, id int64) error {
+	f.deleteCalled, f.gotUser, f.gotBook = true, admin, id
+	return f.err
+}
+
+type fakeRatings struct {
+	result  ratings.Result
+	stats   ratings.Stats
+	mine    db.GetUserRatingRow
+	summary ratings.Summary
+	err     error
+
+	gotUser, gotBook int64
+	gotScore         int
+	calls            int
+}
+
+func (f *fakeRatings) Rate(_ context.Context, user, book int64, score int) (ratings.Result, error) {
+	f.calls++
+	f.gotUser, f.gotBook, f.gotScore = user, book, score
+	return f.result, f.err
+}
+func (f *fakeRatings) Remove(_ context.Context, user, book int64) (ratings.Stats, error) {
+	f.calls++
+	f.gotUser, f.gotBook = user, book
+	return f.stats, f.err
+}
+func (f *fakeRatings) Mine(_ context.Context, user, book int64) (db.GetUserRatingRow, error) {
+	f.calls++
+	f.gotUser, f.gotBook = user, book
+	return f.mine, f.err
+}
+func (f *fakeRatings) Summary(_ context.Context, book int64) (ratings.Summary, error) {
+	f.calls++
+	f.gotBook = book
+	return f.summary, f.err
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func TestListComments(t *testing.T) {
+	now := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	fake := &fakeComments{total: 2, rows: []db.ListCommentsRow{
+		{ID: 2, BookID: 5, UserID: ptr(int64(7)), AuthorName: ptr("Ayşe"), Content: "<b>güzel</b>", CreatedAt: now},
+		{ID: 1, BookID: 5, Content: "yazarı silinmiş", CreatedAt: now}, // user_id NULL
+	}}
+	rec := do(t, newRouter(deps{books: fakeBooks{book: db.Book{ID: 5}}, comments: fake}), http.MethodGet, "/api/books/5/comments", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d (%s)", rec.Code, rec.Body)
+	}
+	var page commentPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	if page.Total != 2 || page.Items[0].Author == nil || page.Items[0].Author.DisplayName != "Ayşe" || page.Items[1].Author != nil {
+		t.Errorf("sayfa/yazar yanlış: %+v", page)
+	}
+	if strings.Contains(rec.Body.String(), "email") {
+		t.Error("yorum listesinde e-posta olmamalı")
+	}
+
+	missing := do(t, newRouter(deps{books: fakeBooks{err: books.ErrNotFound}, comments: &fakeComments{}}), http.MethodGet, "/api/books/5/comments", "")
+	if missing.Code != http.StatusNotFound {
+		t.Errorf("onaysız/olmayan kitap 404 olmalı: %d", missing.Code)
+	}
+}
+
+func TestCreateComment(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		svcErr     error
+		wantStatus int
+	}{
+		{"geçerli → 201", `{"content":"  Çok iyi  "}`, nil, http.StatusCreated},
+		{"boş → 400", `{"content":"   "}`, nil, http.StatusBadRequest},
+		{"çok uzun → 400", `{"content":"` + strings.Repeat("ğ", comments.MaxContentLen+1) + `"}`, nil, http.StatusBadRequest},
+		{"onaysız kitap → 404", `{"content":"x"}`, books.ErrNotFound, http.StatusNotFound},
+		{"beklenmeyen → 500", `{"content":"x"}`, errors.New("db"), http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &fakeComments{err: tt.svcErr, created: db.CreateCommentRow{ID: 1, BookID: 5, UserID: ptr(int64(7)), AuthorName: ptr("Ali"), Content: "Çok iyi"}}
+			rec := do(t, userRouter(deps{comments: fake}), http.MethodPost, "/api/books/5/comments", tt.body)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status: istenen %d, gelen %d (%s)", tt.wantStatus, rec.Code, rec.Body)
+			}
+			if tt.wantStatus == http.StatusCreated && (fake.gotUser != 7 || fake.gotBook != 5 || fake.gotContent != "Çok iyi") {
+				t.Errorf("servise kırpılmış içerik + token kullanıcısı gitmeli: %+v", fake)
+			}
+		})
+	}
+
+	rec := do(t, newRouter(deps{comments: &fakeComments{}, tokens: fakeVerifier{}}), http.MethodPost, "/api/books/5/comments", `{"content":"x"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("token'sız yorum 401 olmalı: %d", rec.Code)
+	}
+}
+
+func TestDeleteComment(t *testing.T) {
+	fake := &fakeComments{}
+	rec := do(t, adminRouter(deps{comments: fake}), http.MethodDelete, "/api/admin/comments/9", "")
+	if rec.Code != http.StatusNoContent || !fake.deleteCalled || fake.gotUser != 1 || fake.gotBook != 9 {
+		t.Errorf("204 + admin(1) ile silme bekleniyordu: %d %+v", rec.Code, fake)
+	}
+	missing := do(t, adminRouter(deps{comments: &fakeComments{err: comments.ErrNotFound}}), http.MethodDelete, "/api/admin/comments/9", "")
+	if missing.Code != http.StatusNotFound {
+		t.Errorf("olmayan yorum 404: %d", missing.Code)
+	}
+}
+
+func TestRateBook(t *testing.T) {
+	avg := 7.5
+	tests := []struct {
+		name       string
+		body       string
+		result     ratings.Result
+		svcErr     error
+		wantStatus int
+		wantCalls  int
+	}{
+		{"ilk puan → 201", `{"score":8}`, ratings.Result{Score: 8, Created: true, Stats: ratings.Stats{Average: &avg, Count: 2}}, nil, http.StatusCreated, 1},
+		{"güncelleme → 200", `{"score":8}`, ratings.Result{Score: 8}, nil, http.StatusOK, 1},
+		{"score yok → 400", `{}`, ratings.Result{}, nil, http.StatusBadRequest, 0},
+		{"score 0 → 400", `{"score":0}`, ratings.Result{}, nil, http.StatusBadRequest, 0},
+		{"score 11 → 400", `{"score":11}`, ratings.Result{}, nil, http.StatusBadRequest, 0},
+		{"ondalık → 400", `{"score":7.5}`, ratings.Result{}, nil, http.StatusBadRequest, 0},
+		{"başkası adına user_id → 400", `{"score":5,"user_id":99}`, ratings.Result{}, nil, http.StatusBadRequest, 0},
+		{"onaysız kitap → 404", `{"score":5}`, ratings.Result{}, books.ErrNotFound, http.StatusNotFound, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &fakeRatings{result: tt.result, err: tt.svcErr}
+			rec := do(t, userRouter(deps{ratings: fake}), http.MethodPut, "/api/books/5/rating", tt.body)
+			if rec.Code != tt.wantStatus || fake.calls != tt.wantCalls {
+				t.Fatalf("status %d (istenen %d), çağrı %d (istenen %d): %s", rec.Code, tt.wantStatus, fake.calls, tt.wantCalls, rec.Body)
+			}
+			if tt.wantCalls == 1 && (fake.gotUser != 7 || fake.gotBook != 5) {
+				t.Errorf("puan token kullanıcısı (7) adına verilmeli: user=%d book=%d", fake.gotUser, fake.gotBook)
+			}
+		})
+	}
+}
+
+func TestRatingReadAndRemove(t *testing.T) {
+	t.Run("puanım yok → 404 not_rated", func(t *testing.T) {
+		rec := do(t, userRouter(deps{ratings: &fakeRatings{err: ratings.ErrNotRated}}), http.MethodGet, "/api/books/5/rating", "")
+		if rec.Code != http.StatusNotFound || errorCode(t, rec) != "not_rated" {
+			t.Errorf("404 not_rated: %d %s", rec.Code, rec.Body)
+		}
+	})
+	t.Run("puanı sil → 200 + istatistik", func(t *testing.T) {
+		rec := do(t, userRouter(deps{ratings: &fakeRatings{stats: ratings.Stats{Count: 0}}}), http.MethodDelete, "/api/books/5/rating", "")
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"average_rating":null`) {
+			t.Errorf("200 + null ortalama: %d %s", rec.Code, rec.Body)
+		}
+	})
+	t.Run("özet herkese açık, 10 satırlık dağılım", func(t *testing.T) {
+		sum := ratings.Summary{Stats: ratings.Stats{Count: 3}}
+		sum.Distribution[9] = 3
+		rec := do(t, newRouter(deps{ratings: &fakeRatings{summary: sum}}), http.MethodGet, "/api/books/5/ratings/summary", "")
+		var got summaryResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("%d %v", rec.Code, err)
+		}
+		if len(got.Distribution) != 10 || got.Distribution[0].Score != 1 || got.Distribution[9].Score != 10 || got.Distribution[9].Votes != 3 {
+			t.Errorf("dağılım: %+v", got.Distribution)
+		}
+	})
+	t.Run("yazma uçları token ister", func(t *testing.T) {
+		h := newRouter(deps{ratings: &fakeRatings{}, tokens: fakeVerifier{}})
+		for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+			if rec := do(t, h, m, "/api/books/5/rating", `{"score":5}`); rec.Code != http.StatusUnauthorized {
+				t.Errorf("%s token'sız 401 olmalı: %d", m, rec.Code)
+			}
+		}
+	})
+}

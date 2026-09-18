@@ -33,6 +33,7 @@ var adminRoutes = []struct{ method, path string }{
 	{http.MethodPost, "/api/admin/books/1/restore"},
 	{http.MethodGet, "/api/admin/books/1/audit"},
 	{http.MethodPut, "/api/admin/books/1/genres"},
+	{http.MethodDelete, "/api/admin/comments/1"},
 	{http.MethodPost, "/api/admin/genres"},
 	{http.MethodPatch, "/api/admin/genres/1"},
 	{http.MethodDelete, "/api/admin/genres/1"},

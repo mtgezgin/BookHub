@@ -2,11 +2,18 @@
 
 -- Yalnızca ONAYLI kitaba yorum: kontrol ve ekleme TEK deyimde (INSERT ... SELECT ... WHERE
 -- EXISTS). Kitap onaylı değilse hiç satır eklenmez → ErrNoRows → 404.
+-- Veri değiştiren CTE (WITH ... INSERT ... RETURNING): eklenen satırı AYNI deyimde yazar
+-- adıyla birleştirip döndürür — cevap, liste ucuyla aynı biçimde, ekstra sorgu yok.
 -- name: CreateComment :one
-INSERT INTO comments (book_id, user_id, content)
-SELECT sqlc.arg('book_id'), sqlc.arg('user_id'), sqlc.arg('content')
-WHERE EXISTS (SELECT 1 FROM books WHERE id = sqlc.arg('book_id') AND status = 'APPROVED')
-RETURNING *;
+WITH ins AS (
+    INSERT INTO comments (book_id, user_id, content)
+    SELECT sqlc.arg('book_id'), sqlc.arg('user_id'), sqlc.arg('content')
+    WHERE EXISTS (SELECT 1 FROM books WHERE id = sqlc.arg('book_id') AND status = 'APPROVED')
+    RETURNING id, book_id, user_id, content, created_at
+)
+SELECT ins.id, ins.book_id, ins.user_id, u.display_name AS author_name, ins.content, ins.created_at
+FROM ins
+LEFT JOIN users u ON u.id = ins.user_id;
 
 -- Yazarın görünen adıyla birlikte (LEFT JOIN: yazarı silinmiş yorum da gelsin, adı NULL).
 -- name: ListComments :many

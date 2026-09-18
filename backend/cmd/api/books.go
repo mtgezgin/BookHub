@@ -48,6 +48,8 @@ type bookResponse struct {
 	PageCount       *int32          `json:"page_count"`
 	Language        string          `json:"language"`
 	Genres          []genreResponse `json:"genres"`
+	AverageRating   *float64        `json:"average_rating"` // null = henüz puan yok
+	RatingCount     int32           `json:"rating_count"`
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
 }
@@ -66,6 +68,8 @@ func toBookResponse(b db.Book, genreList []db.Genre) bookResponse {
 		PageCount:       b.PageCount,
 		Language:        b.Language,
 		Genres:          toGenreResponses(genreList),
+		AverageRating:   b.AverageRating,
+		RatingCount:     b.RatingCount,
 		CreatedAt:       b.CreatedAt,
 		UpdatedAt:       b.UpdatedAt,
 	}

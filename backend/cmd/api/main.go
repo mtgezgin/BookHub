@@ -12,10 +12,12 @@ import (
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
 	"github.com/mtgezgin/bookhub/backend/internal/books"
+	"github.com/mtgezgin/bookhub/backend/internal/comments"
 	"github.com/mtgezgin/bookhub/backend/internal/config"
 	"github.com/mtgezgin/bookhub/backend/internal/database"
 	"github.com/mtgezgin/bookhub/backend/internal/genres"
 	"github.com/mtgezgin/bookhub/backend/internal/moderation"
+	"github.com/mtgezgin/bookhub/backend/internal/ratings"
 )
 
 func main() {
@@ -57,6 +59,8 @@ func main() {
 		books:      books.NewRepository(pool),
 		genres:     genres.NewRepository(pool),
 		moderation: moderation.NewService(pool),
+		comments:   comments.NewService(pool),
+		ratings:    ratings.NewService(pool),
 		auth:       auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL),
 		tokens:     tokens,
 	}

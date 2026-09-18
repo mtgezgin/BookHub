@@ -150,7 +150,11 @@ func TestConcurrentRatingsRealDB(t *testing.T) {
 		t.Fatalf("Summary: %v", err)
 	}
 	want := math.Round(float64(sum)/n*100) / 100
-	if got.Count != n || got.Average == nil || *got.Average != want {
-		t.Errorf("kayıp güncelleme: istenen count=%d avg=%.2f, gelen count=%d avg=%v", n, want, got.Count, got.Average)
+	gotAvg := -1.0
+	if got.Average != nil {
+		gotAvg = *got.Average
+	}
+	if got.Count != n || gotAvg != want {
+		t.Errorf("kayıp güncelleme: istenen count=%d avg=%.2f, gelen count=%d avg=%.2f", n, want, got.Count, gotAvg)
 	}
 }
