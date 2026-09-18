@@ -14,7 +14,7 @@ func TestRouter_NotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	// Bu test kitap rotasına hiç girmiyor → repository yerine nil geçmek güvenli.
-	newRouter(nil).ServeHTTP(rec, req) // router'ı gerçek bir istekle çağır
+	newRouter(deps{}).ServeHTTP(rec, req) // router'ı gerçek bir istekle çağır
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("durum kodu: istenen %d, gelen %d", http.StatusNotFound, rec.Code)
@@ -40,7 +40,7 @@ func TestRouter_MethodNotAllowed(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	// Handler'a hiç girilmiyor (router method'u önce eliyor) → repository nil güvenli.
-	newRouter(nil).ServeHTTP(rec, req)
+	newRouter(deps{}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("durum kodu: istenen %d, gelen %d (gövde: %s)", http.StatusMethodNotAllowed, rec.Code, rec.Body)

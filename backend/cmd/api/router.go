@@ -7,11 +7,19 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// deps, HTTP katmanının ihtiyaç duyduğu tüm bağımlılıklar.
+//
+// Neden struct: router büyüdükçe newRouter(books, genres, auth, ...) gibi uzayan bir
+// parametre listesi hem okunmaz hem de her yeni bağımlılıkta TÜM test çağrılarını kırar.
+// Struct ile testler yalnızca ihtiyaç duydukları alanı doldurur: deps{books: fake}.
+// Yine de elle DI: grafın tamamı main.go'da tek yerde kuruluyor (GO_CONVENTIONS §3).
+type deps struct {
+	books bookStore
+}
+
 // newRouter, uygulamanın HTTP router'ını (yönlendiricisini) kurar.
 // Chi, net/http ile uyumludur: handler imzaları aynı, sadece daha zengin.
-// Bağımlılıklar (şimdilik: kitap repository'si) PARAMETRE olarak gelir —
-// elle DI: kim neye muhtaç, imzadan okunur (GO_CONVENTIONS §5).
-func newRouter(bookRepo bookGetter) http.Handler {
+func newRouter(d deps) http.Handler {
 	r := chi.NewRouter()
 
 	// Middleware: her isteğe, yukarıdan aşağı SIRAYLA uygulanan ara katmanlar.
@@ -27,9 +35,18 @@ func newRouter(bookRepo bookGetter) http.Handler {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "bu method desteklenmiyor")
 	})
 
-	// Rotalar. İleride buraya /api/admin/... grupları eklenecek.
 	r.Get("/health", handleHealth)
-	r.Get("/api/books/{id}", handleGetBook(bookRepo)) // {id} = Chi URL parametresi
+
+	// Herkese açık okuma uçları.
+	r.Get("/api/books", handleListBooks(d.books))
+	r.Get("/api/books/{id}", handleGetBook(d.books)) // {id} = Chi URL parametresi
+
+	// /api/admin altı Faz 3'te auth middleware'iyle korunacak — şimdilik açık.
+	// Ayrı yol öneki bilinçli: yetki kararı routing tablosunda görünsün, handler
+	// içindeki bir "if user.IsAdmin" dalında değil.
+	r.Route("/api/admin", func(r chi.Router) {
+		r.Post("/books", handleCreateBook(d.books))
+	})
 
 	return r
 }

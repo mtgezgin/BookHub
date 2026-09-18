@@ -34,14 +34,16 @@ func main() {
 	}
 	defer pool.Close() // kapanışta havuzdaki bağlantıları düzgün bırak
 
-	// ELLE DI ZİNCİRİ (GO_CONVENTIONS §5): pool → repository → router.
-	// Framework yok; bağımlılık grafiğinin tamamı şu üç satırda okunuyor.
-	bookRepo := books.NewRepository(pool)
+	// ELLE DI ZİNCİRİ (GO_CONVENTIONS §3): pool → repository'ler → router.
+	// Framework yok; bağımlılık grafiğinin tamamı burada, tek yerde okunuyor.
+	d := deps{
+		books: books.NewRepository(pool),
+	}
 
 	// http.Server'ı elle kuruyoruz: timeout'lar + Shutdown() erişimi.
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      newRouter(bookRepo),
+		Handler:      newRouter(d),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

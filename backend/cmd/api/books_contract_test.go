@@ -14,12 +14,11 @@ import (
 // TestHandleGetBook_CevapAlanlari, GET /api/books/{id}'nin GÖVDE SÖZLEŞMESİNİ
 // (public JSON şeklini) izin listesiyle (allow-list) sabitler.
 //
-// Neden gerekli: handler şu an ham `db.Book`'u — yani sqlc'nin tablodan ÜRETTİĞİ
-// struct'ı — doğrudan serileştiriyor (GO_CONVENTIONS §11: DTO ile domain modeli
-// ayrı olmalı). Bu haliyle şemaya eklenen HER yeni kolon, kimse karar vermeden
-// public API'ye sızar. Bu test o sızıntıyı derleme değil ÇALIŞMA zamanında yakalar:
-// yeni bir alan çıkarsa "izin listesinde olmayan alan" diye kırılır ve alanı
-// bilinçli olarak listeye eklemek (ya da bir DTO'ya geçmek) gerekir.
+// Handler artık bookResponse DTO'su dönüyor (GO_CONVENTIONS §11), yani yeni DB
+// kolonları kendiliğinden sızmıyor. Bu test yine de sözleşmenin İKİ yönünü sabitler:
+// fazladan alan çıkarsa (DTO'ya dikkatsizce alan eklendi) ve bir alan düşerse
+// (istemciyi kıran değişiklik) kırılır. `status` bilerek yok: public uçlar yalnızca
+// APPROVED döndürdüğü için bilgi taşımaz.
 func TestHandleGetBook_CevapAlanlari(t *testing.T) {
 	// İzin verilen ÜST DÜZEY alanlar = bugünkü public sözleşme.
 	// Yeni alan buraya ancak "istemciye gitmesi kasıtlı" kararıyla eklenmeli.
@@ -33,7 +32,6 @@ func TestHandleGetBook_CevapAlanlari(t *testing.T) {
 		"publication_year",
 		"page_count",
 		"language",
-		"status",
 		"created_at",
 		"updated_at",
 	}
@@ -58,7 +56,7 @@ func TestHandleGetBook_CevapAlanlari(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/books/1", nil)
 	rec := httptest.NewRecorder()
 
-	newRouter(fake).ServeHTTP(rec, req)
+	newRouter(deps{books: fake}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("durum kodu: istenen %d, gelen %d (gövde: %s)", http.StatusOK, rec.Code, rec.Body)

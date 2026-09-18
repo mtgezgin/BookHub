@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mtgezgin/bookhub/backend/internal/db"
 )
@@ -15,6 +16,21 @@ import (
 // Amaç: üst katman (handler) pgx'in iç hatası yerine bunu tanısın —
 // "hangi sürücüyü kullanıyoruz" bilgisi bu paketin içinde hapsolsun.
 var ErrNotFound = errors.New("kitap bulunamadı")
+
+// ErrDuplicateSlug, aynı slug ile ikinci kez kitap eklenmeye çalışıldığında döner.
+// Bu bir SUNUCU hatası değil, istemcinin düzeltebileceği bir çakışmadır — handler
+// bunu 409 Conflict'e çevirir (500 değil).
+var ErrDuplicateSlug = errors.New("bu slug zaten kullanılıyor")
+
+// Kitap statüleri — migration'daki CHECK kısıtının Go tarafındaki karşılığı
+// (bkz. migrations/0001_books_genres.sql). Sabit olarak durmalarının sebebi:
+// "APPROVED" gibi bir dizgiyi handler'lara serpiştirmek, yazım hatasını derleme
+// zamanında değil ancak DB kısıtı reddedince fark ettirir.
+const (
+	StatusPending  = "PENDING"
+	StatusApproved = "APPROVED"
+	StatusRejected = "REJECTED"
+)
 
 // Repository, kitap verisine erişimin tek kapısı. sqlc'nin ürettiği Queries'i
 // sarar; katma değeri ŞU AN iki şey: (1) sürücü hatalarını domain hatasına
@@ -53,12 +69,18 @@ func (r *Repository) Get(ctx context.Context, id int64) (db.Book, error) {
 
 // Create, yeni kitabı ekler ve DB'nin ürettiği hâlini (id + zaman damgaları dolu)
 // geri döner — sorgudaki RETURNING * bunun için var.
-//
-// TODO(faz2-adım7): slug UNIQUE ihlali (Postgres 23505) burada domain hatasına
-// çevrilmeli; şu an ham hata sarıldığı için handler 409 yerine 500 üretir.
+// Slug çakışmasını (Postgres 23505) ErrDuplicateSlug'a çevirir; diğer hatalar sarılır.
 func (r *Repository) Create(ctx context.Context, params db.CreateBookParams) (db.Book, error) {
 	book, err := r.q.CreateBook(ctx, params)
 	if err != nil {
+		// Postgres 23505 = unique_violation. books tablosunda istemcinin
+		// ihlal EDEBİLECEĞİ tek benzersizlik kısıtı slug'dır (id'yi DB üretiyor),
+		// bu yüzden kodu doğrudan slug çakışmasına eşliyoruz. İleride ikinci bir
+		// UNIQUE kolon eklenirse burası pgErr.ConstraintName'e bakmalı.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return db.Book{}, ErrDuplicateSlug
+		}
 		return db.Book{}, fmt.Errorf("kitap ekleme sorgusu: %w", err)
 	}
 	return book, nil

@@ -51,7 +51,7 @@ func TestGetBookEndpoint_GercekDB(t *testing.T) {
 
 	// Sahte değil GERÇEK repository — testin bütün amacı bu dikiş.
 	repo := books.NewRepository(pool)
-	router := newRouter(repo)
+	router := newRouter(deps{books: repo})
 
 	// slug UNIQUE olduğu için benzersiz ek şart: test tekrar tekrar koşabilsin.
 	benzersiz := time.Now().UnixNano()
