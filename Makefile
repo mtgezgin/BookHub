@@ -96,8 +96,15 @@ k8s-up: ## Yerel kind kümesinde tüm uygulama (küme yoksa oluşturur)
 	@# Sırlar dosyada değil: ilk kurulumda rastgele üretilir, sonra korunur.
 	$(KCTL) -n bookhub get secret bookhub-secrets >/dev/null 2>&1 || $(KCTL) -n bookhub create secret generic bookhub-secrets \
 		--from-literal=POSTGRES_PASSWORD="$$(openssl rand -hex 24)" --from-literal=JWT_SECRET="$$(openssl rand -base64 48)"
+	@# Tekrar çalıştırmada iki sessiz tuzak (review bulgusu F2):
+	@#  1) Job şablonu DEĞİŞTİRİLEMEZ ve tamamlanmış Job 10 dk yaşar → apply hiçbir şey yapmaz,
+	@#     wait eski Job'ın "complete"ine takılır, YENİ migration'lar koşmaz. → önce sil.
+	@#  2) İmaj etiketi hep ":dev" → pod şablonu bayt bayt aynı → apply rollout TETİKLEMEZ,
+	@#     eski binary çalışmaya devam eder. → rollout restart ile yeni imajı zorla.
+	$(KCTL) -n bookhub delete job migrate --ignore-not-found
 	$(KCTL) apply -k deploy/k8s
 	$(KCTL) -n bookhub wait --for=condition=complete job/migrate --timeout=240s
+	$(KCTL) -n bookhub rollout restart deploy/api deploy/web
 	$(KCTL) -n bookhub rollout status deploy/api --timeout=180s
 	$(KCTL) -n bookhub rollout status deploy/web --timeout=180s
 
