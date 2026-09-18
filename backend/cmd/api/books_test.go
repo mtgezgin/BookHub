@@ -291,14 +291,14 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 	// REGRESYON (review bulgusu F4): 300 karakterlik GEÇERLİ bir başlıktan türetilen slug
 	// 120 sınırını aşıp isteği reddettiriyordu — istemci slug göndermemişken.
 	t.Run("uzun başlıktan türetilen slug sınıra kesilir", func(t *testing.T) {
-		fake := &capturingBooks{fakeBooks: fakeBooks{book: db.Book{ID: 1}}}
+		fake := &fakeModeration{book: db.Book{ID: 1}}
 		title := strings.TrimSpace(strings.Repeat("Çok Uzun Bir Başlık ", 15)) // ~300 karakter
-		rec := do(t, adminRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", `{"title":"`+title+`","author":"a"}`)
+		rec := do(t, adminRouter(deps{moderation: fake}), http.MethodPost, "/api/admin/books", `{"title":"`+title+`","author":"a"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("durum kodu: istenen 201, gelen %d (%s)", rec.Code, rec.Body)
 		}
-		if n := len(fake.got.Slug); n == 0 || n > maxSlugLen || strings.HasSuffix(fake.got.Slug, "-") {
-			t.Errorf("slug 1-%d karakter ve tiresiz bitmeli: %d %q", maxSlugLen, n, fake.got.Slug)
+		if n := len(fake.gotCreate.Slug); n == 0 || n > maxSlugLen || strings.HasSuffix(fake.gotCreate.Slug, "-") {
+			t.Errorf("slug 1-%d karakter ve tiresiz bitmeli: %d %q", maxSlugLen, n, fake.gotCreate.Slug)
 		}
 	})
 
