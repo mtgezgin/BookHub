@@ -1,0 +1,92 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/mtgezgin/bookhub/backend/internal/auth"
+	"github.com/mtgezgin/bookhub/backend/internal/testdb"
+)
+
+func TestReadPasswordFromPipe(t *testing.T) {
+	tests := []struct {
+		in, want string
+		wantErr  bool
+	}{
+		{in: "gizli-parola\n", want: "gizli-parola"},
+		{in: "gizli-parola\r\n", want: "gizli-parola"},
+		{in: "sonsatirsiz", want: "sonsatirsiz"},
+		{in: "", wantErr: true},
+		{in: "\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		got, err := readPassword(strings.NewReader(tt.in), &bytes.Buffer{})
+		if (err != nil) != tt.wantErr || got != tt.want {
+			t.Errorf("%q: istenen (%q, hata=%v), gelen (%q, %v)", tt.in, tt.want, tt.wantErr, got, err)
+		}
+	}
+}
+
+func TestRunArgumentErrors(t *testing.T) {
+	env := func(string) string { return "" }
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"komut yok", nil, "kullanım"},
+		{"bilinmeyen komut", []string{"drop-db"}, "bilinmeyen komut"},
+		{"e-posta yok", []string{"create-admin"}, "-email zorunlu"},
+		{"DB yok", []string{"create-admin", "-email", "a@b.co"}, "DATABASE_URL zorunlu"},
+		{"bilinmeyen bayrak", []string{"create-admin", "-password", "x"}, "create-admin"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := run(context.Background(), tt.args, strings.NewReader(""), &bytes.Buffer{}, env)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("%q içeren hata bekleniyordu, gelen %v", tt.want, err)
+			}
+		})
+	}
+}
+
+// TestCreateAdminRealDB: komut gerçek DB'de admin açar; ikinci çalıştırma idempotent.
+func TestCreateAdminRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	email := testdb.Unique("admin") + "@example.com"
+	t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM users WHERE email = $1", email) })
+	env := func(k string) string {
+		if k == "DATABASE_URL" {
+			return os.Getenv("TEST_DATABASE_URL")
+		}
+		return ""
+	}
+
+	var out bytes.Buffer
+	args := []string{"create-admin", "-email", email, "-name", "Kurucu"}
+	if err := run(context.Background(), args, strings.NewReader("yeterince-uzun-parola\n"), &out, env); err != nil {
+		t.Fatalf("create-admin: %v", err)
+	}
+	if !strings.Contains(out.String(), "admin oluşturuldu") {
+		t.Errorf("çıktı: %q", out.String())
+	}
+
+	var role string
+	if err := pool.QueryRow(context.Background(), "SELECT role FROM users WHERE email = $1", email).Scan(&role); err != nil {
+		t.Fatalf("kullanıcı okunamadı: %v", err)
+	}
+	if role != auth.RoleAdmin {
+		t.Errorf("rol ADMIN olmalı, gelen %q", role)
+	}
+
+	out.Reset()
+	if err := run(context.Background(), args, strings.NewReader("baska-bir-parola\n"), &out, env); err != nil {
+		t.Fatalf("ikinci çalıştırma: %v", err)
+	}
+	if !strings.Contains(out.String(), "DEĞİŞMEDİ") {
+		t.Errorf("ikinci çalıştırma var olanı yükseltmeli: %q", out.String())
+	}
+}
