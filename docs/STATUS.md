@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme:** Faz 7 ✅ — **MVP TAMAM** 🎉 (brief §15, `backend/scripts/mvp_smoke.sh` 21/21). Sırada opsiyonel altyapı rayı: **Faz 8 — Docker**.
+**Son güncelleme:** Faz 7 ✅ — **MVP TAMAM** 🎉 (brief §15, `backend/scripts/mvp_smoke.sh` 21/21). Faz 8 (Docker) ✅. Sırada **Faz 9 — Frontend**.
 **Hedef (kullanıcı talebi, 2026-09):** projeyi baştan sona bitir — MVP (Faz 1–7) + opsiyonel
 altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push.
 

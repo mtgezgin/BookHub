@@ -28,7 +28,7 @@ altta). Girdi formatı:
 | [tooling-and-workflow.md](tooling-and-workflow.md) | Claude Code (skill/memory/hook), git, pre-commit gate'ler, commit ritmi, geliştirme aracı kavramları | aktif |
 | [database.md](database.md) | Postgres, SQL, sqlc, migration, transaction, index | aktif |
 | [security-and-auth.md](security-and-auth.md) | auth, JWT, parola hash, IDOR, rate limit, sır yönetimi | aktif |
-| `infra-and-devops.md` | Docker, Redis hosting, deploy, CI/CD, K8s | sırası gelince |
+| [infra-and-devops.md](infra-and-devops.md) | Docker, Redis hosting, deploy, CI/CD, K8s | aktif |
 
 > "Sırası gelince" kategoriler **boş oluşturulmaz** — ilgili ilk girdi gelince dosyası açılır
 > (boş scaffold yok). Yeni bir konu mevcut hiçbir kategoriye uymuyorsa yeni bir dosya açıp bu

@@ -346,7 +346,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 11. Single static binary & container footprint
 
-**Status:** `HYPOTHESIS` / `UNVERIFIED-PERF` · **Illustration:** `[Phase 8 — backend/Dockerfile + measured sizes — TBD]`, `[Phase 12 — k8s/ image-pull/cold-start notes — TBD]`
+**Status:** `PARTIAL-MEASURED` (Faz 8) · **Illustration:** `backend/Dockerfile` (multi-stage → `distroless/static:nonroot`), `[Phase 12 — k8s/ image-pull/cold-start notes — TBD]`
+>
+> **🟡 Faz 8 — ölçüldü:** imaj **38 MB** (api + manage statik binary'leri 23.6 MB, `-s -w` ile; debug sembollü yerel binary 19.5 MB tek başına). Konteyner açılıştan `healthy`'ye ~5 sn (çoğu migration + Redis/DB bağlantısı; sürecin kendisi ms'ler). Shell ve paket yöneticisi yok, root değil. Dürüst sınır: aynı API'nin Node sürümünü inşa edip ÖLÇMEDİK — "node:22-alpine + node_modules genelde 150 MB+" bir genel bilgi, bu projenin ölçümü değil. Karşılaştırmalı iddia bu yüzden hâlâ PARTIAL.
 
 - **Hypothesis:** A single statically-linked binary on `scratch`/`distroless` yields a much
   smaller image, faster cold start, and lower idle RSS than a Node image carrying
@@ -525,6 +527,11 @@ Seed entries:
 23. **Cache/rate limit (§12):** `ioredis` + `express-rate-limit` + `rate-limit-redis` ile Node'da
     aynı mimari birkaç satırda kurulur ve olgun paketler hazır. Go'da sınırlayıcıyı kendimiz
     yazdık (öğretici ama daha çok kod). Bu uçta ekosistem hazırlığında TS önde.
+
+**Faz 8'de eklenen dürüst gözlemler:**
+24. **Konteyner (§11):** Node de `node:alpine` + multi-stage + `npm ci --omit=dev` ile makul
+    küçülür; Bun/Deno tek dosya derleme de sunar. Go'nun avantajı "varsayılan olarak statik
+    tek binary" — ekstra araç gerekmiyor. Fark gerçek ama "Node imajı şişkindir" kaderi değil.
 
 > **Refleksiyon (TR):** Buraya her Go bölümü doldurduğunda en az bir dürüst "TS/JS kazanırdı"
 > girdisi ekle. Bu bölüm büyümüyorsa, doküman Go reklamına kaymış demektir.

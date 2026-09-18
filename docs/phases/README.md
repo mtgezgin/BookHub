@@ -24,14 +24,18 @@ Tek seferde bir kavram. **Hiçbir soru fazla basit değil.** Takıldığın an "
 | Faz | Ne kuracağız | Yeni kavram | Durum |
 | --- | --- | --- | --- |
 | 0 | Repo + git | versiyon kontrolü, .gitignore | ✅ bitti |
-| [1](phase-01-minimal-go-api.md) | Minimal Go API (`/health`) | Go yapısı, HTTP handler, JSON, config, test | 📖 detaylı |
-| [2](phase-02-postgres-books-genres.md) | Postgres + kitap/tür CRUD | SQL şema, migration, sqlc, repository | 📖 detaylı |
-| [3](phase-03-auth-roles.md) | Auth + roller | parola hash, JWT, middleware | 📝 taslak |
-| [4](phase-04-suggestions-moderation.md) | Öneri + moderasyon | status state machine, admin aksiyon, audit | 📝 taslak |
-| [5](phase-05-comments-ratings.md) | Yorum + puan | ilişkiler, UNIQUE+ON CONFLICT, soft-delete | 📝 taslak |
-| [6](phase-06-weighted-rating.md) | Ağırlıklı puan | aggregation, pure fonksiyon, EXPLAIN ANALYZE | 📝 taslak |
-| [7](phase-07-redis-cache.md) | Redis cache + rate limit | cache/TTL, "önce ölç sonra ekle" | 📝 taslak |
-| 8–12 | Docker / CI / NGINX / K8s | dağıtım altyapısı | ⏭️ MVP sonrası |
+| [1](phase-01-minimal-go-api.md) | Minimal Go API (`/health`) | Go yapısı, HTTP handler, JSON, config, test | ✅ bitti |
+| [2](phase-02-postgres-books-genres.md) | Postgres + kitap/tür CRUD | SQL şema, migration, sqlc, repository | ✅ bitti |
+| [3](phase-03-auth-roles.md) | Auth + roller | parola hash, JWT, middleware | ✅ bitti |
+| [4](phase-04-suggestions-moderation.md) | Öneri + moderasyon | status state machine, admin aksiyon, audit | ✅ bitti |
+| [5](phase-05-comments-ratings.md) | Yorum + puan | ilişkiler, UNIQUE+ON CONFLICT, soft-delete | ✅ bitti |
+| [6](phase-06-weighted-rating.md) | Ağırlıklı puan | aggregation, pure fonksiyon, EXPLAIN ANALYZE | ✅ bitti |
+| [7](phase-07-redis-cache.md) | Redis cache + rate limit | cache/TTL, "önce ölç sonra ekle" | ✅ bitti — **MVP** |
+| [8](phase-08-docker.md) | Docker imajı + compose | multi-stage, distroless, servis DNS | ✅ bitti |
+| 9 | Frontend (React + Vite) | SPA, token yönetimi, proxy | ⏭️ |
+| 10 | CI/CD | GitHub Actions, imaj build | ⏭️ |
+| 11 | NGINX | reverse proxy, güvenilir IP başlığı | ⏭️ |
+| 12 | Kubernetes | Deployment/Service/probe'lar | ⏭️ |
 
 **Durum işaretleri:** ✅ bitti · 📖 detaylı (hazır) · 📝 taslak (sırası gelince birlikte
 detaylandırılacak) · ⏭️ ileride.
