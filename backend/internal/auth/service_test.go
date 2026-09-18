@@ -510,3 +510,104 @@ func TestMe(t *testing.T) {
 		}
 	})
 }
+
+// errStore, memStore'u sarar ve seçilen metotlarda ALTYAPI hatası döndürür (DB kesintisi).
+// Bu hataların hiçbiri "kimlik bilgisi yanlış" ya da "token geçersiz"e dönüşmemeli:
+// aksi hâlde bir DB kesintisi kullanıcıya 401 olarak görünür ve oturumlar düşer.
+type errStore struct {
+	*memStore
+	byEmailErr, byIDErr, consumeErr, saveErr error
+}
+
+func (s *errStore) UserByEmail(ctx context.Context, email string) (db.User, error) {
+	if s.byEmailErr != nil {
+		return db.User{}, s.byEmailErr
+	}
+	return s.memStore.UserByEmail(ctx, email)
+}
+
+func (s *errStore) UserByID(ctx context.Context, id int64) (db.User, error) {
+	if s.byIDErr != nil {
+		return db.User{}, s.byIDErr
+	}
+	return s.memStore.UserByID(ctx, id)
+}
+
+func (s *errStore) ConsumeRefreshToken(ctx context.Context, h []byte) (int64, time.Time, error) {
+	if s.consumeErr != nil {
+		return 0, time.Time{}, s.consumeErr
+	}
+	return s.memStore.ConsumeRefreshToken(ctx, h)
+}
+
+func (s *errStore) SaveRefreshToken(ctx context.Context, userID int64, h []byte, exp time.Time) error {
+	if s.saveErr != nil {
+		return s.saveErr
+	}
+	return s.memStore.SaveRefreshToken(ctx, userID, h, exp)
+}
+
+// TestInfraErrorsAreNotAuthErrors: altyapı hatası olduğu gibi (sarılı) yukarı çıkar;
+// ErrInvalidCredentials / ErrInvalidToken olarak MASKELENMEZ ve oturum üretilmez.
+func TestInfraErrorsAreNotAuthErrors(t *testing.T) {
+	ctx := context.Background()
+	dbDown := errors.New("db down")
+
+	setup := func(t *testing.T) (*Service, *errStore, Session) {
+		t.Helper()
+		s, st, _ := newTestService(t)
+		if _, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		sess, err := s.Login(ctx, "ali@example.com", goodPassword)
+		if err != nil {
+			t.Fatalf("Login: %v", err)
+		}
+		es := &errStore{memStore: st}
+		s.store = es
+		return s, es, sess
+	}
+	assertInfra := func(t *testing.T, sess Session, err error, masked error) {
+		t.Helper()
+		if !errors.Is(err, dbDown) {
+			t.Errorf("altyapı hatası olduğu gibi dönmeli, gelen %v", err)
+		}
+		if errors.Is(err, masked) {
+			t.Errorf("altyapı hatası %v olarak maskelenmemeli", masked)
+		}
+		if sess.AccessToken != "" || sess.RefreshToken != "" {
+			t.Errorf("hata durumunda oturum dönmemeli: %+v", sess)
+		}
+	}
+
+	t.Run("Login: UserByEmail kesintisi", func(t *testing.T) {
+		s, es, _ := setup(t)
+		es.byEmailErr = dbDown
+		sess, err := s.Login(ctx, "ali@example.com", goodPassword)
+		assertInfra(t, sess, err, ErrInvalidCredentials)
+	})
+	t.Run("Login: refresh token kaydedilemedi", func(t *testing.T) {
+		s, es, _ := setup(t)
+		es.saveErr = dbDown
+		sess, err := s.Login(ctx, "ali@example.com", goodPassword)
+		assertInfra(t, sess, err, ErrInvalidCredentials)
+	})
+	t.Run("Refresh: tüketme kesintisi", func(t *testing.T) {
+		s, es, old := setup(t)
+		es.consumeErr = dbDown
+		sess, err := s.Refresh(ctx, old.RefreshToken)
+		assertInfra(t, sess, err, ErrInvalidToken)
+	})
+	t.Run("Refresh: kullanıcı okunamadı", func(t *testing.T) {
+		s, es, old := setup(t)
+		es.byIDErr = dbDown
+		sess, err := s.Refresh(ctx, old.RefreshToken)
+		assertInfra(t, sess, err, ErrInvalidToken)
+	})
+	t.Run("Refresh: yeni token kaydedilemedi", func(t *testing.T) {
+		s, es, old := setup(t)
+		es.saveErr = dbDown
+		sess, err := s.Refresh(ctx, old.RefreshToken)
+		assertInfra(t, sess, err, ErrInvalidToken)
+	})
+}

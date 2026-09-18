@@ -117,6 +117,8 @@ func TestLoadJWT(t *testing.T) {
 		{name: "geçersiz refresh süresi → hata", secret: testJWTSecret, refresh: "bir-hafta", wantErr: true},
 		{name: "negatif süre → hata", secret: testJWTSecret, access: "-1m", wantErr: true},
 		{name: "access ≥ refresh → hata", secret: testJWTSecret, access: "2h", refresh: "1h", wantErr: true},
+		// Sınır: EŞİTLİK de reddedilir (>=) — refresh, access'ten uzun yaşamalı.
+		{name: "access = refresh → hata", secret: testJWTSecret, access: "1h", refresh: "1h", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
