@@ -314,7 +314,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 10. Data-race detection & concurrent correctness (`go test -race` + DB transactions)
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 5 — backend/internal/ratings/service_test.go with -race — TBD]`
+**Status:** `CONFIRMED` (Faz 2–5, bir düzeltmeyle) · **Illustration:** `backend/internal/ratings/service.go:Rate`, `backend/internal/ratings/service_integration_test.go:TestConcurrentRatingsRealDB`
+>
+> **✅ Faz 5 (düzeltmeli):** Hipotezin İKİNCİ yarısı güçlü biçimde doğrulandı: doğru çözüm DB'de. Kitap satırı `FOR UPDATE` ile kilitlenmeden, 25 eşzamanlı oy sonunda `rating_count` 16–19 çıktı (3 deneme) — klasik kayıp güncelleme; kilitle her seferinde 25. Ama hipotezin İLK yarısı ("`-race` gerçek hataları bedavaya yakalar") burada **yanlış çıktı**: bu hata Go belleğinde değil, iki Postgres transaction'ı arasındaydı; race detector hiçbir şey görmedi (paylaşılan Go değişkeni yok). `-race` bellekteki yarışlar içindir; veri yarışlarını ancak **eşzamanlı entegrasyon testi + mutation** yakalar. Aynı desen dört kez tekrarlandı: tür değiştirme (Faz 2), refresh token tüketme (Faz 3), moderasyon kararı (Faz 4), puan agregatı (Faz 5) — hepsinde çözüm dil değil, SQL (kilit ya da tek atımlık deyim).
 
 - **Hypothesis:** `go test -race` surfaces real concurrency bugs for free, while the *correct
   fix* lives in the DB: derive aggregates inside the **same transaction** as the rating write,
@@ -490,6 +492,11 @@ Seed entries:
     enum'u bunu yapamıyor; biz aynı güvenceyi bir tablo testiyle (4×4) sağlıyoruz. TS kazanır.
 19. **Admin/public DTO (§5):** iki ayrı DTO'nun (ve gömülü struct'ın) faydası dil-bağımsız bir
     disiplin; NestJS'te `@Exclude()`/serializer grupları aynısını yapar.
+
+**Faz 5'te eklenen dürüst gözlemler:**
+20. **Kayıp güncelleme (§10):** Node'da aynı hata aynı biçimde olur (iki istek, iki transaction);
+    çözüm de aynı SQL. Go'nun goroutine'leri testi YAZMAYI kolaylaştırdı (25 eşzamanlı istemci,
+    `sync.WaitGroup` + başlangıç kanalı), ama hatayı bulan şey dil değil, test tasarımıydı.
 
 > **Refleksiyon (TR):** Buraya her Go bölümü doldurduğunda en az bir dürüst "TS/JS kazanırdı"
 > girdisi ekle. Bu bölüm büyümüyorsa, doküman Go reklamına kaymış demektir.

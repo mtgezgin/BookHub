@@ -11,6 +11,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 4. [DSN (Data Source Name) nedir?](#4-dsn-data-source-name-nedir)
 5. [sqlc + parametreli INSERT: DB DEFAULT'u neden devreye girmez?](#5-sqlc--parametreli-insert-db-defaultu-neden-devreye-girmez)
 6. [Durum makinesi + denetim kaydı: kural nerede yaşamalı?](#6-durum-makinesi--denetim-kaydı-kural-nerede-yaşamalı)
+7. [Kayıp güncelleme (lost update): neden kilit, neden türetilmiş veri?](#7-kayıp-güncelleme-lost-update-neden-kilit-neden-türetilmiş-veri)
 
 ---
 
@@ -296,3 +297,55 @@ Kilitle, ikinci admin birincinin commit'ini bekliyor, kitabı artık `APPROVED` 
 - [backend/migrations/0003_moderation.sql](../../backend/migrations/0003_moderation.sql)
 - [backend/internal/moderation/](../../backend/internal/moderation/) — `transitions.go`, `service.go`
 - [security-and-auth.md](security-and-auth.md) — Girdi 7 (aynı "check-then-act" yarışının token hâli)
+
+---
+
+## 7. Kayıp güncelleme (lost update): neden kilit, neden türetilmiş veri?
+
+**🗓️ Bağlam:** Faz 5'te puan ortalamasını yazarken — brief'in "#1 doğruluk dersi". Kilidi
+kaldırıp 25 eşzamanlı oyla ölçtük.
+
+**⚡ Kısa cevap:** İki transaction aynı anda "oku → hesapla → yaz" yaparsa, ikisi de diğerinin
+**henüz commit edilmemiş** değişikliğini göremez; sonra yazan öncekini ezer. Çözüm: kaynağı
+(`ratings`) tek doğruluk kaynağı tut, agregatı her seferinde oradan SQL ile türet ve bu işlemi
+kitap satırını **kilitleyerek** sıraya sok.
+
+**📖 Açıklama:**
+
+Postgres'in varsayılan izolasyonu **READ COMMITTED**: her deyim, başladığı andaki commit edilmiş
+veriyi görür.
+
+```
+T1: INSERT oy(Ali, 8)            T2: INSERT oy(Ayşe, 5)
+T1: AVG/COUNT → (8, 1)           T2: AVG/COUNT → (5, 1)   ← T1'in oyu commit edilmedi, görünmez
+T1: UPDATE books SET (8, 1)      T2: UPDATE books ... (T1'in satır kilidini bekler)
+T1: COMMIT                       T2: ... sonra (5, 1) YAZAR  ← T1'in oyu istatistikten silindi
+```
+
+Sonuç: `ratings` tablosunda 2 oy var, `books.rating_count` = 1. Ölçtüğümüz: 25 oyda 16–19.
+
+**Düzeltme:** transaction'ın EN BAŞINDA `SELECT ... FROM books WHERE id=$1 FOR UPDATE`. İkinci
+işlem kilidi bekler; birinci commit edince, ikincinin SONRAKİ deyimleri yeni bir anlık görüntüyle
+çalışır ve birinci oyu görür. Test: 25/25, her seferinde.
+
+**Neden "sayacı +1 yap" değil de "baştan hesapla":** `rating_count = rating_count + 1` tek başına
+atomik olsa da ortalama için ayrıca toplam gerekir ve bir hata/kaçan güncelleme sonsuza dek kalır.
+Kaynaktan yeniden hesaplamak **kendini düzeltir**: bir sonraki yazım doğru değeri üretir.
+
+**Neden `-race` bunu yakalamadı:** race detector Go belleğindeki paylaşılan değişkenlere bakar.
+Burada paylaşılan şey Postgres'teki bir satırdı; iki goroutine hiçbir Go değişkenini paylaşmadı.
+Veri yarışını yalnızca eşzamanlı entegrasyon testi (ve kilidi silip düşmesini görmek) kanıtlar.
+
+**Bu projede aynı desenin dört yüzü:**
+
+| Faz | Yarış | Çözüm |
+|---|---|---|
+| 2 | eşzamanlı tür değiştirme → iki listenin birleşimi | `FOR UPDATE` |
+| 3 | aynı refresh token'la iki yenileme | tek atımlık `DELETE ... RETURNING` |
+| 4 | iki admin aynı öneriye onay + red | `FOR UPDATE` |
+| 5 | eşzamanlı puanlar → kayıp sayım | `FOR UPDATE` + kaynaktan yeniden hesap |
+
+**🔗 İlgili:**
+- [backend/sql/queries/ratings.sql](../../backend/sql/queries/ratings.sql) — `LockApprovedBook`, `UpsertRating`, `RefreshBookRatingStats`
+- [backend/internal/ratings/service.go](../../backend/internal/ratings/service.go)
+- [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §10

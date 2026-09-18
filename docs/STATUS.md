@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme:** Faz 4 ✅ TAMAM. Sırada **Faz 5 — Yorum + puan**.
+**Son güncelleme:** Faz 5 ✅ TAMAM. Sırada **Faz 6 — Ağırlıklı puan**.
 **Hedef (kullanıcı talebi, 2026-09):** projeyi baştan sona bitir — MVP (Faz 1–7) + opsiyonel
 altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push.
 
@@ -21,8 +21,8 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
 | 2 | Postgres + kitap/tür CRUD + many-to-many | ✅ |
 | 3 | Auth + roller (JWT, bcrypt, refresh token, admin guard) | ✅ |
 | 4 | Öneri + moderasyon (state machine, audit log) | ✅ |
-| 5 | Yorum + puan (ON CONFLICT, tx-içi agregat, eşzamanlılık) | ⏭️ sırada |
-| 6 | Ağırlıklı puan (Bayesian, top-rated) | ⏳ |
+| 5 | Yorum + puan (ON CONFLICT, tx-içi agregat, eşzamanlılık) | ✅ |
+| 6 | Ağırlıklı puan (Bayesian, top-rated) | ⏭️ sırada |
 | 7 | Redis cache + rate limit + yük testi — **MVP sonu** | ⏳ |
 | 8–12 | Docker imajı · Frontend · CI/CD · NGINX · Kubernetes | ⏳ |
 
@@ -62,15 +62,20 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
   denetim kaydı, tek tx; `audit_logs` DB trigger'ıyla append-only (TRUNCATE dahil).
 - **Commit'ler:** `0455a70` çekirdek · `16310ab` uçlar · (docs).
 
-## Sıradaki: Faz 5 — Yorum + puan (plan)
+## Faz 5'te ne oldu (özet)
 
-1. Migration `0004`: `comments` (soft-delete: `deleted_at`/`deleted_by`, `(book_id, created_at)` index),
-   `ratings` (`UNIQUE(user_id, book_id)`, `score SMALLINT CHECK 1-10`), `books.average_rating NUMERIC(4,2)`
-   + `rating_count`.
-2. Puan yazımı: `INSERT ... ON CONFLICT DO UPDATE` + aynı tx'te `AVG/COUNT` ile agregat yeniden
-   hesabı (`FOR UPDATE` kitap satırı). Eşzamanlı oy testi `-race` ile.
-3. Uçlar: `GET/POST /api/books/{id}/comments`, `DELETE /api/admin/comments/{id}`,
-   `PUT/DELETE /api/books/{id}/ratings` (sahiplik = token'daki kullanıcı), `GET .../ratings/summary`.
+- **Uçlar:** yorumlar (`GET/POST /api/books/{id}/comments`, admin `DELETE /api/admin/comments/{id}`),
+  puan (`GET/PUT/DELETE /api/books/{id}/rating`, `GET .../ratings/summary`).
+- **Doğruluk:** `(user_id, book_id)` PK + `ON CONFLICT`; agregat aynı tx'te `AVG/COUNT`; kitap
+  satırı `FOR UPDATE`. Kilitsiz 25 eşzamanlı oyda sayım 16–19'a düşüyordu.
+- **Commit'ler:** `69d44f8` audit refactor · `73bcb97` şema+servis · `cc18495` uçlar · (docs).
+
+## Sıradaki: Faz 6 — Ağırlıklı puan (plan)
+
+1. `internal/ratings/score.go`: saf `WeightedScore(R, v, m, C)` + brief'teki örnek değerlerle tablo testi.
+2. `C` = tüm puanların ortalaması (SQL `AVG`), puan yoksa cold-start fallback; `m` config (`RATING_MIN_VOTES`, ~10).
+3. `GET /api/books/top-rated?limit=` — query-time `ORDER BY` ağırlıklı skor (saklanan kolon yok);
+   `EXPLAIN ANALYZE` gözlemi WHY §12'ye.
 
 ## Ortam / gerçekler
 
