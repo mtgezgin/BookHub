@@ -55,10 +55,14 @@ func newRouter(d deps) http.Handler {
 		r.With(requireAuth(d.tokens)).Get("/me", handleMe(d.auth))
 	})
 
-	// /api/admin altı Faz 3'te auth middleware'iyle korunacak — şimdilik açık.
+	// /api/admin altındaki HER rota: önce kimlik (401), sonra rol (403).
+	// r.Use grubun TAMAMINA uygulanır — yeni bir admin rotası eklemek onu otomatik
+	// korur; tek tek "bunu da korudum mu?" diye hatırlamak gerekmez.
 	// Ayrı yol öneki bilinçli: yetki kararı routing tablosunda görünsün, handler
 	// içindeki bir "if user.IsAdmin" dalında değil.
 	r.Route("/api/admin", func(r chi.Router) {
+		r.Use(requireAuth(d.tokens), requireAdmin)
+
 		r.Post("/books", handleCreateBook(d.books))
 		r.Put("/books/{id}/genres", handleSetBookGenres(d.books))
 

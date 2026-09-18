@@ -101,7 +101,7 @@ func TestHandleSetBookGenres(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := do(t, newRouter(deps{books: tt.store}), http.MethodPut, tt.url, tt.body)
+			rec := do(t, adminRouter(deps{books: tt.store}), http.MethodPut, tt.url, tt.body)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("durum kodu: istenen %d, gelen %d (%s)", tt.wantStatus, rec.Code, rec.Body)
 			}

@@ -74,3 +74,22 @@ func requireAuth(v tokenVerifier) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// requireAdmin, requireAuth'tan SONRA zincirlenir: kimlik belli, şimdi rol kontrolü.
+// Kaba (rol bazlı) yetki burada, routing tablosunda görünür yerde yaşar; kaynak
+// SAHİPLİĞİ kontrolleri (bu puan senin mi?) servis katmanında (GO_CONVENTIONS §12).
+func requireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, ok := principalFrom(r.Context())
+		if !ok {
+			// requireAuth'suz zincirlenmiş = yanlış kurulum. AÇIK değil KAPALI başarısız ol.
+			unauthorized(w, "missing_token", "kimlik doğrulaması gerekli")
+			return
+		}
+		if !p.IsAdmin() {
+			writeError(w, http.StatusForbidden, "forbidden", "bu işlem için admin yetkisi gerekli")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

@@ -73,7 +73,7 @@ func TestHandleCreateGenre(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := &fakeGenres{genre: db.Genre{ID: 1}, err: tt.err}
-			rec := do(t, newRouter(deps{genres: fake}), http.MethodPost, "/api/admin/genres", tt.body)
+			rec := do(t, adminRouter(deps{genres: fake}), http.MethodPost, "/api/admin/genres", tt.body)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("durum kodu: istenen %d, gelen %d (gövde: %s)", tt.wantStatus, rec.Code, rec.Body)
 			}
@@ -92,7 +92,7 @@ func TestHandleCreateGenre(t *testing.T) {
 func TestHandleUpdateGenre(t *testing.T) {
 	t.Run("yalnız ad gönderilir → slug nil (dokunulmaz)", func(t *testing.T) {
 		fake := &fakeGenres{genre: db.Genre{ID: 3}}
-		rec := do(t, newRouter(deps{genres: fake}), http.MethodPatch, "/api/admin/genres/3", `{"name":" Yeni Ad "}`)
+		rec := do(t, adminRouter(deps{genres: fake}), http.MethodPatch, "/api/admin/genres/3", `{"name":" Yeni Ad "}`)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("durum kodu: istenen 200, gelen %d (%s)", rec.Code, rec.Body)
 		}
@@ -111,7 +111,7 @@ func TestHandleUpdateGenre(t *testing.T) {
 		{"olmayan tür → 404", "/api/admin/genres/9", `{"name":"a"}`, genres.ErrNotFound, http.StatusNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := do(t, newRouter(deps{genres: &fakeGenres{err: tc.err}}), http.MethodPatch, tc.url, tc.body)
+			rec := do(t, adminRouter(deps{genres: &fakeGenres{err: tc.err}}), http.MethodPatch, tc.url, tc.body)
 			if rec.Code != tc.wantStatus {
 				t.Errorf("durum kodu: istenen %d, gelen %d (%s)", tc.wantStatus, rec.Code, rec.Body)
 			}
@@ -120,11 +120,11 @@ func TestHandleUpdateGenre(t *testing.T) {
 }
 
 func TestHandleDeleteGenre(t *testing.T) {
-	ok := do(t, newRouter(deps{genres: &fakeGenres{}}), http.MethodDelete, "/api/admin/genres/3", "")
+	ok := do(t, adminRouter(deps{genres: &fakeGenres{}}), http.MethodDelete, "/api/admin/genres/3", "")
 	if ok.Code != http.StatusNoContent || ok.Body.Len() != 0 {
 		t.Errorf("istenen 204 + boş gövde, gelen %d %q", ok.Code, ok.Body.String())
 	}
-	missing := do(t, newRouter(deps{genres: &fakeGenres{err: genres.ErrNotFound}}), http.MethodDelete, "/api/admin/genres/3", "")
+	missing := do(t, adminRouter(deps{genres: &fakeGenres{err: genres.ErrNotFound}}), http.MethodDelete, "/api/admin/genres/3", "")
 	if missing.Code != http.StatusNotFound {
 		t.Errorf("olmayan tür: istenen 404, gelen %d", missing.Code)
 	}

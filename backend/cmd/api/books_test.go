@@ -119,7 +119,7 @@ func TestHandleGetBook(t *testing.T) {
 func TestHandlersDoNotLeakInternalErrors(t *testing.T) {
 	const driverDetail = `ERROR: relation "books" does not exist (SQLSTATE 42P01) @ 10.0.0.7:5432`
 	fake := fakeBooks{err: fmt.Errorf("kitap sorgusu (id=1): %w", errors.New(driverDetail))}
-	router := newRouter(deps{books: fake})
+	router := adminRouter(deps{books: fake}) // admin token'ı public uçlarda etkisiz, admin ucunda gerekli
 
 	for _, c := range []struct{ method, url, body string }{
 		{http.MethodGet, "/api/books/1", ""},
@@ -250,7 +250,7 @@ func TestHandleCreateBook(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := do(t, newRouter(deps{books: tt.fake}), http.MethodPost, "/api/admin/books", tt.body)
+			rec := do(t, adminRouter(deps{books: tt.fake}), http.MethodPost, "/api/admin/books", tt.body)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("durum kodu: istenen %d, gelen %d (gövde: %s)", tt.wantStatus, rec.Code, rec.Body)
 			}
@@ -274,7 +274,7 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 		body := `{"title":"  The Go Programming Language  ","slug":"gopl","author":" Donovan ",
 			"description":" Go'nun kutsal kitabı ","cover_url":"https://example.test/gopl.jpg",
 			"publication_year":2015,"page_count":380,"language":"en"}`
-		rec := do(t, newRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", body)
+		rec := do(t, adminRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", body)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("durum kodu: istenen 201, gelen %d (gövde: %s)", rec.Code, rec.Body)
 		}
@@ -288,7 +288,7 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 
 	t.Run("slug gönderilmezse başlıktan türetilir (Türkçe karakterler dahil)", func(t *testing.T) {
 		fake := &capturingBooks{fakeBooks: fakeBooks{book: db.Book{ID: 1}}}
-		rec := do(t, newRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", `{"title":"Şeker Portakalı","author":"José Mauro"}`)
+		rec := do(t, adminRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", `{"title":"Şeker Portakalı","author":"José Mauro"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("durum kodu: istenen 201, gelen %d (%s)", rec.Code, rec.Body)
 		}
@@ -299,7 +299,7 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 
 	t.Run("language gönderilmezse varsayılan tr (DB DEFAULT devreye girmez)", func(t *testing.T) {
 		fake := &capturingBooks{fakeBooks: fakeBooks{book: db.Book{ID: 1}}}
-		rec := do(t, newRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", `{"title":"T","slug":"t","author":"a"}`)
+		rec := do(t, adminRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", `{"title":"T","slug":"t","author":"a"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("durum kodu: istenen 201, gelen %d", rec.Code)
 		}
