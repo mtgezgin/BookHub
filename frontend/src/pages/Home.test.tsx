@@ -155,6 +155,14 @@ describe("Home", () => {
     expect(el.querySelector("[role=alert]")!.textContent).toBe(msg);
   });
 
+  it("kitap listesi hatası ErrorBox'ta gösterilir ve liste çizilmez", async () => {
+    stub({ books: () => Promise.reject(new ApiError(500, "internal", "arama başarısız")) });
+    const { el } = await render("/?q=tolstoy");
+    expect(el.querySelector("[role=alert]")!.textContent).toBe("arama başarısız");
+    expect(el.querySelector(".grid")).toBeNull();
+    expect(el.querySelector(".pager")).toBeNull();
+  });
+
   it("boş sonuç \"Sonuç yok.\" ve \"0 kitap\" gösterir", async () => {
     stub({ books: async (p: { offset: number }) => ({ items: [], total: 0, limit: 12, offset: p.offset }) });
     const { el } = await render("/?q=yok");

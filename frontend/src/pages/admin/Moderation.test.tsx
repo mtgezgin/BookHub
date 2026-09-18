@@ -131,6 +131,16 @@ describe("Moderation", () => {
     expect(calls.adminBooks.length).toBe(before + 1);
   });
 
+  it("\"Arşivle\" api.archive'ı çağırır ve listeyi yeniden yükler", async () => {
+    stub({ adminBooks: async () => pageOf([book(2, "APPROVED")]), archive: async () => book(2, "ARCHIVED") });
+    const el = await render();
+    const before = calls.adminBooks.length;
+    await act(async () => button(el, "Arşivle")!.click());
+    await flush();
+    expect(calls.archive).toEqual([[2]]);
+    expect(calls.adminBooks.length).toBe(before + 1);
+  });
+
   it("red gerekçesi olan kitapta \"Red gerekçesi: …\" satırı çizilir", async () => {
     stub({ adminBooks: async () => pageOf([{ ...book(4, "REJECTED"), rejection_reason: "kopya içerik" }, book(5, "REJECTED")]) });
     const el = await render();

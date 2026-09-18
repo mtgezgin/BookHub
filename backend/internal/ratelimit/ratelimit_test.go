@@ -2,8 +2,10 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,5 +113,29 @@ func TestRedisSharedAcrossInstances(t *testing.T) {
 	}
 	if memAllowed != 6 {
 		t.Errorf("bellek içi sayaçlar instance başına: 6 bekleniyordu, %d", memAllowed)
+	}
+}
+
+// TestRedisAllowExecError: pipeline Exec başarısız olursa (burada kapatılmış istemci —
+// gerçek Redis gerekmez) Allow boş bir Decision ve "rate limit sayacı" ile sarılmış
+// hatayı döndürmeli; hata asla izin olarak yorumlanmamalı.
+func TestRedisAllowExecError(t *testing.T) {
+	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:0"})
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	d, err := NewRedis(client, 3, time.Minute).Allow(context.Background(), "closed")
+	if err == nil {
+		t.Fatal("kapalı istemcide hata bekleniyordu")
+	}
+	if !errors.Is(err, redis.ErrClosed) {
+		t.Errorf("asıl hata sarılmalı (errors.Is ErrClosed), gelen %v", err)
+	}
+	if !strings.HasPrefix(err.Error(), "rate limit sayacı: ") {
+		t.Errorf("hata 'rate limit sayacı' ile sarılmalı, gelen %q", err)
+	}
+	if d != (Decision{}) {
+		t.Errorf("hata durumunda boş Decision dönmeli, gelen %+v", d)
 	}
 }

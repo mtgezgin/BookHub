@@ -326,3 +326,46 @@ func TestListByStatusRealDB(t *testing.T) {
 		}
 	}
 }
+
+// TestCreateDuplicateSlugRollsBackRealDB: create içindeki books.Repository.Create hatası
+// (burada slug çakışması) ErrDuplicateSlug olarak dönmeli ve transaction geri alınmalı —
+// ikinci bir kitap satırı da, başarısız denemeye ait bir denetim kaydı da kalmamalı.
+func TestCreateDuplicateSlugRollsBackRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	s := NewService(pool)
+	ctx := context.Background()
+	admin := createUser(t, pool)
+
+	p := params(t)
+	first, err := s.CreateApproved(ctx, admin, p)
+	if err != nil {
+		t.Fatalf("CreateApproved: %v", err)
+	}
+	cleanupBook(t, pool, first.ID)
+
+	dup := p
+	dup.Title = "Başka Başlık " + p.Slug
+	got, err := s.CreateApproved(ctx, admin, dup)
+	if !errors.Is(err, books.ErrDuplicateSlug) {
+		t.Fatalf("aynı slug: istenen ErrDuplicateSlug, gelen %v", err)
+	}
+	if got.ID != 0 {
+		t.Errorf("hata durumunda boş kitap dönmeli: %+v", got)
+	}
+
+	var bookRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM books WHERE slug = $1`, p.Slug).Scan(&bookRows); err != nil {
+		t.Fatalf("kitap sayımı: %v", err)
+	}
+	if bookRows != 1 {
+		t.Errorf("ikinci kitap satırı kalmamalı: %d satır", bookRows)
+	}
+
+	var auditRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM audit_logs WHERE actor_id = $1`, admin).Scan(&auditRows); err != nil {
+		t.Fatalf("denetim sayımı: %v", err)
+	}
+	if auditRows != 1 {
+		t.Errorf("yalnız ilk eklemenin denetim kaydı olmalı: %d kayıt", auditRows)
+	}
+}
