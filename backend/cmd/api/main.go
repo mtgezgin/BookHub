@@ -4,8 +4,9 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -22,12 +23,29 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/ratings"
 )
 
+// main yalnızca çıkış kodunu işletim sistemine iletir; asıl iş run()'da.
+//
+// NEDEN BU AYRIM: os.Exit ve log.Fatal ERTELENMİŞ (defer) fonksiyonları ÇALIŞTIRMAZ.
+// Eskiden sunucu goroutine'indeki bir log.Fatalf, pool.Close()'u atlayarak süreci
+// öldürürdü. Şimdi her hata run()'dan normal bir dönüşle çıkar → bütün defer'lar
+// (havuz, Redis, sinyal) sırayla çalışır → sonra main os.Exit'i çağırır.
 func main() {
+	// Konteyner sağlık kontrolü: distroless imajda curl/wget yok; binary kendini yoklar
+	// (Dockerfile HEALTHCHECK ve compose healthcheck bunu çağırır).
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck("http://127.0.0.1:" + envOr("PORT", "8080") + "/health"))
+	}
+	os.Exit(run())
+}
+
+func run() int {
 	// Ayarları env'den yükle ve doğrula (fail-fast).
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config yüklenemedi: %v", err)
+		slog.Error("config yüklenemedi", "err", err)
+		return 1
 	}
+	setupLogging(cfg.LogFormat)
 
 	// [context + defer] SIGINT/SIGTERM gelince ctx iptal olur.
 	// (Havuzdan ÖNCE kuruldu ki açılış işlemleri de sinyalle iptal edilebilsin.)
@@ -37,15 +55,17 @@ func main() {
 	// Şemayı güncelle (yalnızca AUTO_MIGRATE=true ise — prod'da bilinçli olarak kapalı).
 	if cfg.AutoMigrate {
 		if err := database.Migrate(ctx, cfg.DatabaseURL); err != nil {
-			log.Fatalf("migration başarısız: %v", err)
+			slog.Error("migration başarısız", "err", err)
+			return 1
 		}
-		log.Println("migration'lar güncel")
+		slog.Info("migration'lar güncel")
 	}
 
-	// Veritabanı havuzunu aç (içinde Ping var → bağlantı yoksa BURADA ölürüz).
+	// Veritabanı havuzunu aç (içinde Ping var → bağlantı yoksa BURADA dururuz).
 	pool, err := database.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("veritabanı hazır değil: %v", err)
+		slog.Error("veritabanı hazır değil", "err", err)
+		return 1
 	}
 	defer pool.Close() // kapanışta havuzdaki bağlantıları düzgün bırak
 
@@ -57,17 +77,19 @@ func main() {
 	if cfg.RedisURL != "" {
 		rc, err := cache.NewRedis(ctx, cfg.RedisURL)
 		if err != nil {
-			log.Fatalf("redis hazır değil: %v", err)
+			slog.Error("redis hazır değil", "err", err)
+			return 1
 		}
 		defer func() { _ = rc.Close() }()
 		appCache = rc
 		limiter = ratelimit.NewRedis(rc.Client(), cfg.AuthRateLimit, time.Minute)
-		log.Println("redis açık: cache + paylaşılan rate limit")
+		slog.Info("redis açık: cache + paylaşılan rate limit")
 	}
 
 	tokens, err := auth.NewTokenManager([]byte(cfg.JWTSecret), cfg.AccessTokenTTL)
 	if err != nil {
-		log.Fatalf("token yöneticisi kurulamadı: %v", err)
+		slog.Error("token yöneticisi kurulamadı", "err", err)
+		return 1
 	}
 
 	// ELLE DI ZİNCİRİ (GO_CONVENTIONS §3): pool → repository'ler → (servis) → router.
@@ -90,31 +112,77 @@ func main() {
 	}
 
 	// http.Server'ı elle kuruyoruz: timeout'lar + Shutdown() erişimi.
+	//   ReadHeaderTimeout: başlıkları yavaş yavaş gönderip bağlantı tutan (slowloris) istemci
+	//   IdleTimeout: keep-alive bağlantısı boşta en çok bu kadar açık kalır (yoksa sınırsız)
 	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      newRouter(d),
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           newRouter(d),
+		ReadHeaderTimeout: 2 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
-	// [goroutine] Sunucuyu ayrı akışta çalıştır; graceful kapanışta gelen
-	// http.ErrServerClosed beklenen durumdur.
+	// [goroutine + channel] Sunucu ayrı akışta çalışır; açılamazsa (port dolu gibi) hatayı
+	// KANALA yazar — kendisi süreci öldürmez, karar run()'ın.
+	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("BookHub API %s adresinde dinliyor", srv.Addr)
+		slog.Info("BookHub API dinliyor", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("sunucu başlatılamadı: %v", err)
+			serveErr <- err
 		}
 	}()
 
-	// [channel] Sinyal gelene kadar burada bekle.
-	<-ctx.Done()
-	log.Println("kapanış sinyali alındı, nazikçe kapanıyor...")
+	// [select] Hangisi önce gelirse: kapanış sinyali ya da sunucu hatası.
+	exitCode := 0
+	select {
+	case <-ctx.Done():
+		slog.Info("kapanış sinyali alındı, nazikçe kapanıyor")
+	case err := <-serveErr:
+		slog.Error("sunucu başlatılamadı", "err", err)
+		exitCode = 1
+	}
 
 	// [context + defer] Kapanışa 10sn deadline; devam eden istekleri bitir.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Fatalf("graceful shutdown başarısız: %v", err)
+		slog.Error("graceful shutdown başarısız", "err", err)
+		return 1
 	}
-	log.Println("sunucu temiz kapandı")
+	slog.Info("sunucu temiz kapandı")
+	return exitCode
+}
+
+// setupLogging, varsayılan logger'ı kurar: dev'de okunur metin, konteynerde JSON
+// (log toplayıcılar — Loki, CloudWatch, Datadog — alanları ayrıştırabilsin).
+// slog.SetDefault, standart "log" paketini de aynı handler'a yönlendirir: log.Printf
+// kullanan eski satırlar da aynı biçimde çıkar.
+func setupLogging(format string) {
+	var h slog.Handler = slog.NewTextHandler(os.Stdout, nil)
+	if format == "json" {
+		h = slog.NewJSONHandler(os.Stdout, nil)
+	}
+	slog.SetDefault(slog.New(h))
+}
+
+// healthcheck, URL'ye GET atar; 200 → 0, aksi → 1 (konteyner "unhealthy").
+func healthcheck(url string) int {
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return 1
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }

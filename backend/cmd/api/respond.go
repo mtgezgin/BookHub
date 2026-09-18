@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -17,7 +17,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		// Buraya genelde sadece istemci bağlantıyı yarıda keserse düşülür.
-		log.Printf("cevap JSON yazılamadı: %v", err)
+		slog.Warn("cevap JSON yazılamadı", "err", err, "request_id", w.Header().Get(requestIDHeader))
 	}
 }
 
@@ -45,8 +45,12 @@ const internalErrorMessage = "beklenmeyen bir hata oluştu"
 // writeInternalError, beklenmeyen bir hatayı loglar ve istemciye generic 500 döner.
 // Her handler'daki "log + generic mesaj" ikilisini tek yere topluyor: kural tek
 // yerde yaşarsa bir handler'ın unutup detay sızdırma ihtimali ortadan kalkar.
+//
+// request_id: requestLogger her cevaba X-Request-Id başlığını koyar; burada onu cevap
+// başlığından okuyoruz. Böylece imzaya *http.Request eklemeden (30+ çağrı yeri) hata satırı,
+// aynı isteğin erişim log satırıyla eşleşir — "hangi istek patladı?" sorusu cevaplanır.
 func writeInternalError(w http.ResponseWriter, op string, err error) {
-	log.Printf("%s başarısız: %v", op, err)
+	slog.Error("istek başarısız", "op", op, "err", err, "request_id", w.Header().Get(requestIDHeader))
 	writeError(w, http.StatusInternalServerError, "internal", internalErrorMessage)
 }
 
@@ -79,7 +83,7 @@ func writeRequestError(w http.ResponseWriter, err error) {
 		return
 	}
 	if re.cause != nil {
-		log.Printf("istek hatası (%s): %v", re.code, re.cause)
+		slog.Warn("istek hatası", "code", re.code, "err", re.cause, "request_id", w.Header().Get(requestIDHeader))
 	}
 	writeError(w, re.status, re.code, re.message)
 }

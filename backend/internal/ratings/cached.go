@@ -3,7 +3,7 @@ package ratings
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/mtgezgin/bookhub/backend/internal/cache"
@@ -49,13 +49,13 @@ func NewCached(s *Service, c cache.Cache) *CachedService {
 // TopRated, cache-aside okuma. Cache hatası isteği ASLA düşürmez: loglanır, DB'ye düşülür.
 func (s *CachedService) TopRated(ctx context.Context, limit int32) (TopRated, error) {
 	if b, ok, err := s.cache.Get(ctx, TopRatedCacheKey); err != nil {
-		log.Printf("top-rated cache okunamadı (DB'ye düşülüyor): %v", err)
+		slog.Warn("top-rated cache okunamadı, DB'ye düşülüyor", "err", err)
 	} else if ok {
 		var t TopRated
 		if err := json.Unmarshal(b, &t); err == nil {
 			return first(t, limit), nil
 		}
-		log.Printf("top-rated cache kaydı bozuk (yok sayıldı)")
+		slog.Warn("top-rated cache kaydı bozuk, yok sayıldı")
 	}
 
 	t, err := s.load(ctx, maxCachedTopRated)
@@ -64,7 +64,7 @@ func (s *CachedService) TopRated(ctx context.Context, limit int32) (TopRated, er
 	}
 	if b, err := json.Marshal(t); err == nil {
 		if err := s.cache.Set(ctx, TopRatedCacheKey, b, s.ttl); err != nil {
-			log.Printf("top-rated cache yazılamadı: %v", err)
+			slog.Warn("top-rated cache yazılamadı", "err", err)
 		}
 	}
 	return first(t, limit), nil
@@ -92,7 +92,7 @@ func (s *CachedService) Remove(ctx context.Context, userID, bookID int64) (Stats
 // dışarı açık — moderasyon servisi bunu kanca (hook) olarak çağırır.
 func (s *CachedService) InvalidateTopRated(ctx context.Context) {
 	if err := s.cache.Delete(ctx, TopRatedCacheKey); err != nil {
-		log.Printf("top-rated cache silinemedi (en çok %s bayat kalabilir): %v", s.ttl, err)
+		slog.Warn("top-rated cache silinemedi", "err", err, "max_staleness", s.ttl)
 	}
 }
 

@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
 	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
@@ -124,7 +127,7 @@ func rateLimit(l ratelimit.Limiter, name string) func(http.Handler) http.Handler
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			d, err := l.Allow(r.Context(), name+":"+clientIP(r))
 			if err != nil {
-				log.Printf("rate limit kontrol edilemedi (izin veriliyor): %v", err)
+				slog.Warn("rate limit kontrol edilemedi (izin veriliyor)", "err", err, "request_id", w.Header().Get(requestIDHeader))
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -136,4 +139,41 @@ func rateLimit(l ratelimit.Limiter, name string) func(http.Handler) http.Handler
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// requestIDHeader, isteğin kimliğini istemciye de döndürdüğümüz başlık. Kullanıcı bir hata
+// bildirdiğinde bu değeri verirse, log'da o isteğin bütün satırları bulunur.
+const requestIDHeader = "X-Request-Id"
+
+// requestLogger, chi'nin düz metin Logger'ının yerine: her istek için TEK yapılandırılmış
+// satır (slog) — method, yol, status, süre, boyut, request_id. JSON modunda log toplayıcılar
+// "status>=500 olanlar" gibi sorguları metin ayrıştırmadan yapabilir.
+// middleware.RequestID'den SONRA zincirlenmeli (id'yi o üretir).
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		id := middleware.GetReqID(r.Context())
+		w.Header().Set(requestIDHeader, id)
+
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor) // status/boyutu yakalamak için
+		next.ServeHTTP(ww, r)
+
+		status := ww.Status()
+		if status == 0 {
+			status = http.StatusOK // handler hiç WriteHeader çağırmadıysa net/http 200 yazar
+		}
+		level := slog.LevelInfo
+		if status >= 500 {
+			level = slog.LevelError
+		}
+		slog.Log(r.Context(), level, "http",
+			"method", r.Method,
+			"path", r.URL.Path, // query BİLEREK yok: arama terimleri kişisel veri olabilir
+			"status", status,
+			"bytes", ww.BytesWritten(),
+			"duration_ms", float64(time.Since(start).Microseconds())/1000,
+			"remote", clientIP(r),
+			"request_id", id,
+		)
+	})
 }

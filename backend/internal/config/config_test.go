@@ -192,3 +192,23 @@ func TestLoadAuthRateLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadLogFormat(t *testing.T) {
+	for _, tt := range []struct {
+		value, want string
+		wantErr     bool
+	}{{"", "text", false}, {"json", "json", false}, {"yaml", "", true}} {
+		t.Run("LOG_FORMAT="+tt.value, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("JWT_SECRET", testJWTSecret)
+			t.Setenv("LOG_FORMAT", tt.value)
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("hata beklentisi %v, gelen %v", tt.wantErr, err)
+			}
+			if err == nil && cfg.LogFormat != tt.want {
+				t.Errorf("istenen %q, gelen %q", tt.want, cfg.LogFormat)
+			}
+		})
+	}
+}

@@ -33,6 +33,9 @@ type Config struct {
 	// AuthRateLimit: login ve register için IP başına dakikada en çok istek (ayrı ayrı).
 	AuthRateLimit int
 
+	// LogFormat: "text" (dev, okunur) ya da "json" (konteyner/prod, makine-okur).
+	LogFormat string
+
 	// RatingMinVotes: ağırlıklı puandaki m ("güvenilir sayılmak için gereken oy sayısı").
 	// Veri büyüdükçe artırılır; küçük başlar (bkz. ratings.DefaultMinVotes).
 	RatingMinVotes int
@@ -79,6 +82,7 @@ func Load() (Config, error) {
 		RatingMinVotes:  minVotes,
 		RedisURL:        os.Getenv("REDIS_URL"),
 		AuthRateLimit:   authLimit,
+		LogFormat:       getenv("LOG_FORMAT", "text"),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -111,6 +115,9 @@ func (c *Config) validate() error {
 	}
 	if c.AccessTokenTTL <= 0 || c.RefreshTokenTTL <= 0 {
 		return fmt.Errorf("JWT_ACCESS_TTL ve JWT_REFRESH_TTL pozitif olmalı")
+	}
+	if c.LogFormat != "text" && c.LogFormat != "json" {
+		return fmt.Errorf("LOG_FORMAT text ya da json olmalı, gelen %q", c.LogFormat)
 	}
 	if c.AuthRateLimit < 1 {
 		return fmt.Errorf("AUTH_RATE_LIMIT_PER_MIN en az 1 olmalı, gelen %d", c.AuthRateLimit)
