@@ -38,6 +38,7 @@ func TestRunArgumentErrors(t *testing.T) {
 		want string
 	}{
 		{"komut yok", nil, "kullanım"},
+		{"migrate: DB yok", []string{"migrate"}, "DATABASE_URL zorunlu"},
 		{"bilinmeyen komut", []string{"drop-db"}, "bilinmeyen komut"},
 		{"e-posta yok", []string{"create-admin"}, "-email zorunlu"},
 		{"DB yok", []string{"create-admin", "-email", "a@b.co"}, "DATABASE_URL zorunlu"},
@@ -156,5 +157,25 @@ func TestCreateAdminPasswordPolicyRealDB(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("politikaya uymayan parolayla kullanıcı oluşturulmamalıydı, %d kayıt var", n)
+	}
+}
+
+// TestMigrateCommandRealDB: migrate komutu güncel şemada hatasız ve idempotent.
+func TestMigrateCommandRealDB(t *testing.T) {
+	_ = testdb.Pool(t) // TEST_DATABASE_URL yoksa atlar; varsa şemayı hazırlar
+	env := func(k string) string {
+		if k == "DATABASE_URL" {
+			return os.Getenv("TEST_DATABASE_URL")
+		}
+		return ""
+	}
+	for range 2 {
+		var out bytes.Buffer
+		if err := run(context.Background(), []string{"migrate"}, strings.NewReader(""), &out, env); err != nil {
+			t.Fatalf("migrate: %v", err)
+		}
+		if !strings.Contains(out.String(), "güncel") {
+			t.Errorf("çıktı: %q", out.String())
+		}
 	}
 }

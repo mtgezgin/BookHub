@@ -48,6 +48,7 @@ func main() {
 const usage = `kullanım: manage <komut> [bayraklar]
 
 komutlar:
+  migrate                           bekleyen migration'ları uygular (DATABASE_URL)
   create-admin -email E [-name N]   admin oluşturur ya da var olan hesabı admin yapar`
 
 // run, main'in test edilebilir hâli: argümanlar, girdi/çıktı ve env dışarıdan gelir.
@@ -56,11 +57,29 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, 
 		return errors.New(usage)
 	}
 	switch args[0] {
+	case "migrate":
+		return migrate(ctx, stdout, getenv)
 	case "create-admin":
 		return createAdmin(ctx, args[1:], stdin, stdout, getenv)
 	default:
 		return fmt.Errorf("bilinmeyen komut %q\n%s", args[0], usage)
 	}
+}
+
+// migrate, migration'ları AYRI ve BİLİNÇLİ bir adım olarak uygular (Kubernetes'te bir Job,
+// prod'da deploy öncesi). API'nin AUTO_MIGRATE'i dev kolaylığıdır; birden çok API kopyası
+// aynı anda açılırken şemayı değiştirmek yerine önce bu komut koşar, sonra kopyalar açılır.
+// Idempotent: şema güncelse hiçbir şey yapmaz; eşzamanlı çalıştırmaya advisory lock korur.
+func migrate(ctx context.Context, stdout io.Writer, getenv func(string) string) error {
+	dsn := getenv("DATABASE_URL")
+	if dsn == "" {
+		return errors.New("DATABASE_URL zorunlu (set -a; source .env; set +a)")
+	}
+	if err := database.Migrate(ctx, dsn); err != nil {
+		return fmt.Errorf("migration başarısız: %w", err)
+	}
+	_, err := fmt.Fprintln(stdout, "migration'lar güncel")
+	return err
 }
 
 func createAdmin(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, getenv func(string) string) error {
