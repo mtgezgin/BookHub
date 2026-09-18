@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetForTests, api, ApiError, refreshSession, request, subscribeSession } from "./client";
+import type { NewBook } from "./types";
 
 const session = (n: number) => ({
   access_token: `access-${n}`,
@@ -275,5 +276,69 @@ describe("api client — oturum kenar durumları", () => {
     await api.books({ q: "", genre: "roman", offset: undefined });
     expect(fetchMock.mock.calls[0][0]).toBe("/api/books");
     expect(fetchMock.mock.calls[1][0]).toBe("/api/books?genre=roman");
+  });
+});
+
+describe("api client — uç tablosu", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    __resetForTests();
+    fetchMock = vi.fn(async () => json(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const book: NewBook = { title: "T", author: "A", language: "tr" };
+  // Her api.* çağrısının backend rotasıyla (method + yol + gövde) eşleştiğini sabitler:
+  // ör. puan PUT, arşiv DELETE — POST'a dönse backend 405 verirdi.
+  it.each<[string, () => Promise<unknown>, string, string, unknown]>([
+    ["register", () => api.register("a@b.co", "Ali", "parola123"), "POST", "/api/auth/register", { email: "a@b.co", display_name: "Ali", password: "parola123" }],
+    ["book", () => api.book(5), "GET", "/api/books/5", undefined],
+    ["topRated (varsayılan)", () => api.topRated(), "GET", "/api/books/top-rated?limit=10", undefined],
+    ["topRated", () => api.topRated(5), "GET", "/api/books/top-rated?limit=5", undefined],
+    ["genres", () => api.genres(), "GET", "/api/genres", undefined],
+    ["suggest", () => api.suggest(book), "POST", "/api/books/suggestions", book],
+    ["comments", () => api.comments(5), "GET", "/api/books/5/comments?offset=0", undefined],
+    ["comments (offset)", () => api.comments(5, 10), "GET", "/api/books/5/comments?offset=10", undefined],
+    ["addComment", () => api.addComment(5, "güzel"), "POST", "/api/books/5/comments", { content: "güzel" }],
+    ["ratingSummary", () => api.ratingSummary(5), "GET", "/api/books/5/ratings/summary", undefined],
+    ["myRating", () => api.myRating(5), "GET", "/api/books/5/rating", undefined],
+    ["rate", () => api.rate(5, 8), "PUT", "/api/books/5/rating", { score: 8 }],
+    ["removeRating", () => api.removeRating(5), "DELETE", "/api/books/5/rating", undefined],
+    ["adminBooks", () => api.adminBooks("PENDING", 20), "GET", "/api/admin/books?status=PENDING&offset=20", undefined],
+    ["approve", () => api.approve(5), "POST", "/api/admin/books/5/approve", undefined],
+    ["reject", () => api.reject(5, "spam"), "POST", "/api/admin/books/5/reject", { reason: "spam" }],
+    ["archive", () => api.archive(5), "DELETE", "/api/admin/books/5", undefined],
+    ["restoreBook", () => api.restoreBook(5), "POST", "/api/admin/books/5/restore", undefined],
+    ["createGenre", () => api.createGenre("Roman"), "POST", "/api/admin/genres", { name: "Roman" }],
+    ["deleteComment", () => api.deleteComment(9), "DELETE", "/api/admin/comments/9", undefined],
+  ])("%s", async (_name, call, method, path, body) => {
+    await call();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(path);
+    expect(init.method).toBe(method);
+    expect(init.body === undefined ? undefined : JSON.parse(init.body as string)).toEqual(body);
+  });
+
+  it("deleteComment 204'te undefined döner", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    expect(await api.deleteComment(9)).toBeUndefined();
+  });
+
+  it("register 401 alırsa (saklı token olsa bile) /refresh denemez", async () => {
+    localStorage.setItem("bookhub.refresh", "refresh-0");
+    fetchMock.mockResolvedValueOnce(json(401, { error: { code: "unauthorized", message: "yetkisiz" } }));
+    const err = await api.register("a@b.co", "Ali", "parola123").catch((e) => e);
+    expect(err).toMatchObject({ status: 401, code: "unauthorized" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("zarfsız JSON hata gövdesi ({}) ApiError(status, unknown, statusText) olur", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("{}", { status: 503, statusText: "Service Unavailable" }));
+    const err = await api.book(5).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 503, code: "unknown", message: "Service Unavailable" });
   });
 });

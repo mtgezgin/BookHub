@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { ApiError } from "../api/client";
-import { ErrorBox, Rating } from "./ui";
+import { ErrorBox, formatDate, Rating } from "./ui";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -40,5 +40,12 @@ describe("Rating", () => {
 
   it("sayı ★ x.xx (n oy) biçiminde çizilir", () => {
     expect(render(<Rating value={7.5} count={12} />).textContent).toBe("★ 7.50 (12 oy)");
+  });
+});
+
+describe("formatDate", () => {
+  // Öğle saati: hangi saat diliminde çalışırsa çalışsın gün değişmesin.
+  it("ISO tarihi tr-TR uzun biçimde yazar", () => {
+    expect(formatDate("2026-09-01T12:00:00Z")).toBe("1 Eylül 2026");
   });
 });

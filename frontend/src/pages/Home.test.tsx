@@ -11,7 +11,7 @@ vi.mock("../api/client", async (importOriginal) => ({
   api: {},
 }));
 
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import { Home } from "./Home";
 
 const calls: Record<string, unknown[][]> = {};
@@ -128,5 +128,59 @@ describe("Home", () => {
     stub({ topRated: async (): Promise<TopRated> => ({ items: [], m: 10, c: 0 }) });
     const { el } = await render("/");
     expect(el.querySelector("aside")!.textContent).toContain("Henüz puanlanmış kitap yok.");
+  });
+
+  it("top-rated satırı ağırlıklı puanı, oy sayısını, ortalamayı ve C/m açıklamasını gösterir", async () => {
+    stub({
+      topRated: async (): Promise<TopRated> => ({
+        items: [{ ...bookOf(4), average_rating: 9.5, rating_count: 2, weighted_score: 7.456 }],
+        m: 10,
+        c: 6.9,
+      }),
+    });
+    const { el } = await render("/");
+    const aside = el.querySelector("aside")!;
+    expect(aside.textContent).toContain("(C = 6.90, m = 10)");
+    const li = aside.querySelector("ol.top li")!;
+    expect(li.querySelector("a")!.getAttribute("href")).toBe("/books/4");
+    expect(li.textContent).toBe("Kitap 4 — 7.46 (2 oy, ort. 9.50)");
+  });
+
+  it.each([
+    ["genres", () => stub({ genres: () => Promise.reject(new ApiError(500, "internal", "türler yüklenemedi")) }), "türler yüklenemedi"],
+    ["topRated", () => stub({ topRated: () => Promise.reject(new ApiError(500, "internal", "liste yüklenemedi")) }), "liste yüklenemedi"],
+  ])("açılıştaki %s hatası ErrorBox'ta gösterilir", async (_name, fail, msg) => {
+    fail();
+    const { el } = await render("/");
+    expect(el.querySelector("[role=alert]")!.textContent).toBe(msg);
+  });
+
+  it("boş sonuç \"Sonuç yok.\" ve \"0 kitap\" gösterir", async () => {
+    stub({ books: async (p: { offset: number }) => ({ items: [], total: 0, limit: 12, offset: p.offset }) });
+    const { el } = await render("/?q=yok");
+    expect(el.querySelector("section p.muted")!.textContent).toBe("0 kitap");
+    expect(el.querySelector("section")!.textContent).toContain("Sonuç yok.");
+  });
+
+  async function submitSearch(el: HTMLElement, value: string) {
+    setValue(el.querySelector<HTMLInputElement>("form.search input")!, value);
+    await act(async () => {
+      el.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await flush();
+  }
+
+  it("arama baştaki/sondaki boşlukları kırpar", async () => {
+    const { el, params } = await render("/");
+    await submitSearch(el, "  tolstoy  ");
+    expect(params().get("q")).toBe("tolstoy");
+    expect(calls.books.at(-1)).toEqual([{ q: "tolstoy", genre: "", limit: 12, offset: 0 }]);
+  });
+
+  it("boş arama q parametresini siler", async () => {
+    const { el, params } = await render("/?q=eski&genre=roman");
+    await submitSearch(el, "   ");
+    expect(params().has("q")).toBe(false);
+    expect(params().get("genre")).toBe("roman");
   });
 });

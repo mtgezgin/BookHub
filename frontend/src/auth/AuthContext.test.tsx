@@ -96,6 +96,19 @@ describe("AuthProvider", () => {
   });
 });
 
+describe("AuthProvider.login", () => {
+  it("api.login'i çağırır ve dönen kullanıcıyı context'e yazar", async () => {
+    vi.mocked(api.restore).mockResolvedValue(null);
+    vi.mocked(api.login).mockResolvedValue(ali);
+    const box = mount();
+    await act(async () => {});
+    expect(box.current!.user).toBeNull();
+    await act(async () => box.current!.login("ali@example.com", "parola"));
+    expect(api.login).toHaveBeenCalledWith("ali@example.com", "parola");
+    expect(box.current!.user).toEqual(ali);
+  });
+});
+
 describe("useAuth", () => {
   it("AuthProvider dışında fırlatır", () => {
     let err: unknown;

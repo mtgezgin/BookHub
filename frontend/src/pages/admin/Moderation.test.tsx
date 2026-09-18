@@ -109,6 +109,43 @@ describe("Moderation", () => {
     expect(calls.adminBooks.at(-1)).toEqual(["APPROVED", 0]);
   });
 
+  it.each(["spam", ""])("red istemi %j dönerse api.reject o gerekçeyle çağrılır", async (reason) => {
+    stub({ reject: async () => book(1, "REJECTED") });
+    vi.stubGlobal("prompt", () => reason);
+    cleanup.push(() => vi.unstubAllGlobals());
+    const el = await render();
+    const before = calls.adminBooks.length;
+    await act(async () => button(el, "Reddet")!.click());
+    await flush();
+    expect(calls.reject).toEqual([[1, reason]]);
+    expect(calls.adminBooks.length).toBe(before + 1);
+  });
+
+  it("\"Geri yayınla\" api.restoreBook'u çağırır ve listeyi yeniden yükler", async () => {
+    stub({ adminBooks: async () => pageOf([book(3, "ARCHIVED")]), restoreBook: async () => book(3, "APPROVED") });
+    const el = await render();
+    const before = calls.adminBooks.length;
+    await act(async () => button(el, "Geri yayınla")!.click());
+    await flush();
+    expect(calls.restoreBook).toEqual([[3]]);
+    expect(calls.adminBooks.length).toBe(before + 1);
+  });
+
+  it("red gerekçesi olan kitapta \"Red gerekçesi: …\" satırı çizilir", async () => {
+    stub({ adminBooks: async () => pageOf([{ ...book(4, "REJECTED"), rejection_reason: "kopya içerik" }, book(5, "REJECTED")]) });
+    const el = await render();
+    const items = Array.from(el.querySelectorAll("ul.queue > li"));
+    expect(items[0].querySelector("p")!.textContent).toBe("Red gerekçesi: kopya içerik");
+    expect(items[1].querySelector("p")).toBeNull();
+  });
+
+  it("boş kuyruk \"Bu listede kitap yok.\" gösterir", async () => {
+    stub({ adminBooks: async () => pageOf([]) });
+    const el = await render();
+    expect(el.textContent).toContain("Bu listede kitap yok.");
+    expect(el.querySelectorAll("ul.queue > li")).toHaveLength(0);
+  });
+
   async function submitGenre(el: HTMLElement, name: string) {
     const input = el.querySelector<HTMLInputElement>("form.search input")!;
     act(() => {

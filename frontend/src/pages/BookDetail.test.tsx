@@ -146,7 +146,28 @@ describe("BookDetail — yorum gönderme", () => {
   });
 });
 
+describe("BookDetail — başarısız yorum", () => {
+  it("addComment reddedilirse hata gösterilir, metin korunur, yorumlar yeniden yüklenmez", async () => {
+    stub({ addComment: () => Promise.reject(new ApiError(429, "rate_limited", "çok fazla istek")) });
+    const { el } = await render();
+    const before = calls.comments.length;
+    await postComment(el, "kaybolmasın");
+    expect(alertText(el)).toBe("çok fazla istek");
+    expect(el.querySelector("textarea")!.value).toBe("kaybolmasın");
+    expect(calls.comments.length).toBe(before);
+  });
+});
+
 describe("BookDetail — admin yorum silme", () => {
+  it("\"sil\" düğmesi yalnız ADMIN'e görünür", async () => {
+    const asUser = await render();
+    expect(button(asUser.el, "sil")).toBeUndefined();
+    cleanup.splice(0).forEach((f) => f());
+    h.user = ADMIN;
+    const asAdmin = await render();
+    expect(button(asAdmin.el, "sil")).toBeDefined();
+  });
+
   it("başarısız silme gösterilir ve liste yine yeniden yüklenir", async () => {
     h.user = ADMIN;
     stub({ deleteComment: () => Promise.reject(new ApiError(500, "internal", "silinemedi")) });
@@ -231,6 +252,13 @@ describe("BookDetail — yükleme ve şablon", () => {
     stub({ ratingSummary: async () => summaryOf(3) });
     const second = await render();
     expect(second.el.querySelector(".histogram")).not.toBeNull();
+  });
+
+  it("puan özeti hatası sayfayı düşürmez: kitap çizilir, hata ErrorBox'ta", async () => {
+    stub({ ratingSummary: () => Promise.reject(new ApiError(500, "internal", "özet yüklenemedi")) });
+    const { el } = await render();
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap 1");
+    expect(alertText(el)).toBe("özet yüklenemedi");
   });
 
   it("yazarı olmayan yorum \"silinmiş kullanıcı\" gösterir", async () => {
