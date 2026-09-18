@@ -19,7 +19,7 @@ gerçek bir problem doğunca eklendi; kodun içi Türkçe "neden böyle" yorumla
 - **Kapsam:** MVP (Faz 1–7) + altyapı rayı (Faz 8–12) tamam. Buluta deploy rehberi hazır, deploy
   edilmedi (hesap gerektirir).
 - **Boyut:** ~6.5k satır Go (+ ~6k satır test, 151 test fonksiyonu), ~1k satır TypeScript,
-  5 migration, 41 öğrenme notu.
+  6 migration, 41 öğrenme notu.
 
 ---
 
@@ -133,6 +133,7 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `0003` | ARCHIVED, moderasyon kolonları, `audit_logs` (trigger ile append-only) |
 | `0004` | ratings (`(user_id, book_id)` PK), comments (+ `visible_comments` VIEW), avg/count kolonları |
 | `0005` | liste index'leri `(created_at DESC, id DESC)` — EXPLAIN ANALYZE bulgusu |
+| `0006` | puan silinince (CASCADE dahil) kitap istatistiklerini yenileyen trigger |
 
 `sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
 
@@ -188,7 +189,6 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 ## 7. Bilinen borçlar
 
 - Refresh token `localStorage`'da → httpOnly + `SameSite=Strict` çerez daha güçlü (backend değişikliği ister).
-- Kullanıcı silme ucu yok; eklenirse puan agregatları yeniden hesaplanmalı (CASCADE hesaplamaz).
 - Token "aile" iptali (eski refresh token tekrar gelirse tüm aileyi düşür) yok.
 - Arayüzün giriş gerektiren akışları tarayıcıda otomatik test edilmedi (API seviyesinde smoke ile kapsanıyor).
 - Buluta deploy yapılmadı — [DEPLOYMENT.md](DEPLOYMENT.md).

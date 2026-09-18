@@ -246,3 +246,36 @@ func TestCachedInvalidationRealDB(t *testing.T) {
 		t.Error("başarılı puan yazımı top-rated cache'ini silmeli")
 	}
 }
+
+// TestUserDeletionRefreshesStatsRealDB (review bulgusu F4): kullanıcı silinince puanları
+// CASCADE ile gider; kitabın istatistikleri de (trigger ile) yeniden hesaplanmalı —
+// "sayım 2, satır 0" gibi hayalet oylar kalmamalı.
+func TestUserDeletionRefreshesStatsRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	s := NewService(pool, DefaultMinVotes)
+	ctx := context.Background()
+	book := createBook(t, pool, books.StatusApproved)
+	stays, leaves := createUser(t, pool), createUser(t, pool)
+
+	if _, err := s.Rate(ctx, stays, book, 8); err != nil {
+		t.Fatalf("Rate: %v", err)
+	}
+	if _, err := s.Rate(ctx, leaves, book, 2); err != nil {
+		t.Fatalf("Rate: %v", err)
+	}
+	testdb.Exec(t, pool, "DELETE FROM users WHERE id = $1", leaves)
+
+	sum, err := s.Summary(ctx, book)
+	if err != nil {
+		t.Fatalf("Summary: %v", err)
+	}
+	if sum.Count != 1 || sum.Average == nil || *sum.Average != 8 {
+		t.Errorf("silinen kullanıcının oyu istatistikten düşmeli: count=%d avg=%v", sum.Count, sum.Average)
+	}
+
+	testdb.Exec(t, pool, "DELETE FROM users WHERE id = $1", stays)
+	sum, err = s.Summary(ctx, book)
+	if err != nil || sum.Count != 0 || sum.Average != nil {
+		t.Errorf("son oy da gidince count=0, ortalama NULL olmalı: %+v %v", sum.Stats, err)
+	}
+}

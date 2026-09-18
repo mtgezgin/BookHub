@@ -39,9 +39,10 @@ güncellensin.
 | `73bcb97` | Migration 0004 + `ratings`/`comments` servisleri |
 | `cc18495` | 7 HTTP ucu, public DTO'ya `average_rating`/`rating_count` |
 
-**Bilinen sınır:** kullanıcı hesabı silinirse `ratings` CASCADE ile gider ama kitap agregatı
-yeniden hesaplanmaz (bir sonraki puan yazımında kendini düzeltir). Şu an kullanıcı silme ucu
-yok; eklenirse servis etkilenen kitapları yeniden hesaplamalı.
+**Sonradan kapatılan sınır:** kullanıcı silinince `ratings` CASCADE ile gidiyor ama kitap
+agregatı yeniden hesaplanmıyordu — smoke betiğinin temizliği dev DB'de 10 kitapta "hayalet oy"
+bırakmıştı (review bulgusu). Migration `0006`: puan satırı hangi yoldan silinirse silinsin
+istatistikleri kaynaktan yenileyen `AFTER DELETE` trigger'ı + mevcut bayat değerlerin tek seferlik düzeltmesi.
 
 ## 📒 WHY_GO_VS_TS güncellemesi
 
