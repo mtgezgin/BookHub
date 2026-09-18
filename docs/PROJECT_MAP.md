@@ -5,7 +5,7 @@
 > **[STATUS.md](STATUS.md) ise "NEREDEYİZ" sorusunun cevabı:** o oturum-devir dosyası, her
 > oturumda güncellenir. İkisi kardeş: harita + imleç.
 >
-> Bu haritanın içindeki tüm durum bilgisi **2026-08-01'de kod/komut çalıştırılarak
+> Bu haritanın içindeki tüm durum bilgisi **2026-09-10'da kod/komut çalıştırılarak
 > doğrulandı** (dosya envanteri, git durumu, testler, canlı ortam).
 
 ---
@@ -20,9 +20,9 @@ yorumlarıyla dolu** — kaynak dosyalar aynı zamanda ders notu.
 
 - **Yığın:** Go 1.26 + Chi (router) + pgx/v5 (Postgres sürücüsü) + sqlc (kod üreteci) + goose
   (migration) + Docker Compose (dev Postgres). **ORM yok** — bilinçli karar.
-- **Nerede:** Faz 2 (Postgres) — 8 adımın 6'sı bitti, 7. adım yarım (kullanıcı egzersizi).
-- **Çalışan:** `GET /health` ve `GET /api/books/{id}` (uçtan uca, gerçek DB'den, testli).
-- **Öğrenme günlüğü:** [learning-notes/](learning-notes/) altında **22 kayıtlı kavram**.
+- **Nerede:** Faz 2 (Postgres) — kitap tarafı bitti; kalan tek iş genres + many-to-many.
+- **Çalışan:** `/health`, `GET /api/books`, `GET /api/books/{id}`, `POST /api/admin/books` (uçtan uca, gerçek DB'den, testli).
+- **Öğrenme günlüğü:** [learning-notes/](learning-notes/) altında **27 kayıtlı kavram**.
 
 ---
 
@@ -79,14 +79,12 @@ Diğer sık komutlar:
 |---|---|
 | `GET /health` | ✅ çalışıyor |
 | `GET /api/books/{id}` | ✅ çalışıyor — DB'den gerçek veri, 400/404/500 haritalaması testli |
-| `GET /api/books` (liste) | ❌ **rota yok** — repository hazır, handler yazılmadı |
-| `POST /api/admin/books` | ❌ **rota yok** — repository hazır, handler yazılmadı |
-| Testler | ✅ yeşil: 4 test fonksiyonu / 13 alt-senaryo |
-| Test boşluğu | `internal/books`, `internal/database`, `internal/db` → **hiç test yok** |
-| Kod hijyeni | `go vet` temiz · `gofmt -l` → `internal/books/repository.go` (dosya sonu newline eksik) |
+| `GET /api/books` (liste) | ✅ çalışıyor — onaylılar, en yeniden eskiye; boş listede `[]` (JSON `null` değil) |
+| `POST /api/admin/books` | ✅ çalışıyor — ayrı request DTO (istemci `status` gönderemez), doğrulama, 201/400/409/500 |
+| Testler | ✅ yeşil: 18 test fonksiyonu / 52 senaryo (DB'siz); entegrasyon testleri `TEST_DATABASE_URL` ile |
+| Kod hijyeni | `gofmt`, `go vet`, `golangci-lint` — hepsi temiz |
 
-`Repository.List` ve `Repository.Create` yazılmış **ama HTTP'den erişilemiyor** → şu an teknik
-olarak ölü kod. 7. adım tam olarak bunu bağlıyor.
+Faz 2'de kalan tek iş: **genres CRUD + `book_genres` many-to-many** (ara tablo + JOIN).
 
 ---
 
@@ -101,8 +99,10 @@ Faz 2'nin commit haritası:
 | Commit | İçerik |
 |---|---|
 | `f68e107` | Adım 1–3: docker-compose Postgres, zorunlu `DATABASE_URL`, ilk migration |
-| *(bu commit)* | Adım 4–6: sqlc kurulumu + sorgular + üretilen kod, pgx havuzu, repository, dikey dilim `GET /api/books/{id}` + testi, compose port sıkılaştırması, öğrenme notları, PROJECT_MAP |
-| *(sırada)* | Adım 7–8: liste + create uçları, genres/m2m, integration testi |
+| `7ddc5ed` | Adım 4–6: sqlc, pgx havuzu, repository, dikey dilim `GET /api/books/{id}` + görünürlük sınırı (BOLA düzeltmesi) |
+| `d4f25c7` · `e6d4cb8` · `54ce984` | Test katmanı: repository/havuz birim testleri, entegrasyon testleri, uçtan uca HTTP + sözleşme testi |
+| *(bu commit)* | Kitap uçları: `GET /api/books`, `POST /api/admin/books` (mass-assignment kapatıldı), 409 slug çakışması, öğrenme notları |
+| *(sırada)* | genres CRUD + `book_genres` many-to-many |
 
 > ⚠️ **Commit ≠ push.** Bir şey commit'lendi diye GitHub'da değildir. Taze klonun çalışması ve
 > CI'ın kodu görmesi için `git push` gerekir — commit'ten sonra push edilmediyse
@@ -145,11 +145,11 @@ handler'ın işi).
 |---|---|
 | `main.go` | Giriş noktası + **tüm bağımlılık grafiği**: config → pgxpool → repository → router → http.Server (timeout'lu) → goroutine'de dinle → sinyalde 10sn'lik graceful shutdown |
 | `router.go` | Chi router'ı, middleware zinciri, rota kayıtları, JSON 404/405 zarfları, `handleHealth` |
-| `books.go` | `bookGetter` interface'i (**tüketen tarafta** tanımlı) + `handleGetBook`: girdi doğrulama, ctx iletimi, hata→HTTP haritalaması |
-| `respond.go` | Tüm cevap yazımının tek kapısı: `writeJSON` + `{"error":{"code","message"}}` zarfı. *Frontend değişebilen `message`'a değil sabit `code`'a bakar.* |
+| `books.go` | `bookGetter` interface'i (**tüketen tarafta** tanımlı) + üç handler. `handleGetBook`/`handleListBooks` okuma; `handleCreateBook` yazma: `createBookRequest` DTO'su (**`status` alanı yok** — mass-assignment koruması), `normalizeAndValidate`, elle eşleme, 201/400/409/500 |
+| `respond.go` | HTTP gövde okuma/yazmanın tek kapısı: `writeJSON`, `{"error":{"code","message"}}` zarfı ve `readJSON` (1 MiB sınır + `DisallowUnknownFields` + hata çevirisi). *Frontend değişebilen `message`'a değil sabit `code`'a bakar.* |
 | `main_test.go` | Faz 1'in ilk testi — `handleHealth`'i router'sız çağırır |
 | `router_test.go` | Bilinmeyen yolda JSON hata zarfı dönüyor mu (`newRouter(nil)` ile) |
-| `books_test.go` | `fakeBooks` sahtesiyle **DB'siz** handler testi, 5 senaryo (200/404/400×2/500) |
+| `books_test.go` | `fakeBooks` sahtesiyle **DB'siz** handler testleri (get/list/create); `capturingBooks` ile "statüyü sunucu belirler" kanıtı |
 
 ### `backend/internal/` — dışa kapalı paketler (derleyici zorlar)
 
@@ -158,7 +158,7 @@ handler'ın işi).
 | `config/config.go` | Env'den `Port` + `DatabaseURL`; boot'ta doğrular **ve normalize eder** (pointer receiver). `DATABASE_URL` için varsayılan **yok** |
 | `config/config_test.go` | Table-driven, `t.Setenv` ile izole, 8 senaryo |
 | `database/database.go` | Tek işi: `pgxpool` aç + **5sn timeout'lu Ping** (pgxpool tembel olduğu için fail-fast bunu gerektirir) |
-| `books/repository.go` | Kitap veri erişimi. `pgx.ErrNoRows` → `books.ErrNotFound` çevirisi; `db.DBTX` aldığı için ileride **transaction içinde de** çalışır. Metotlar: `Get`, `List`, `Create` |
+| `books/repository.go` | Kitap veri erişimi + **domain sözlüğü**: `ErrNotFound`, `ErrDuplicateSlug` (Postgres `23505`'ten çevrilir), `StatusPending/Approved/Rejected` sabitleri. `db.DBTX` aldığı için ileride **transaction içinde de** çalışır. Metotlar: `Get`, `List`, `Create` |
 | `db/` (**sqlc üretimi, elle düzenleme**) | `db.go` (`DBTX`/`Queries`/`WithTx`), `models.go` (`Book`/`Genre`/`BookGenre` struct'ları), `books.sql.go` (`GetApprovedBook`/`ListBooks`/`CreateBook` + `Scan` boilerplate'i) |
 
 ### `backend/` — SQL ve yapılandırma
@@ -207,8 +207,8 @@ handler'ın işi).
 |---|---|---|
 | 0 | Repo + git + .gitignore | ✅ |
 | 1 | Minimal Go API (/health, config, graceful shutdown, Chi, testler, CI, hook'lar) | ✅ push'lu |
-| **2** | **Postgres + Kitap/Tür CRUD** | **🔄 6/8 adım — buradasın** |
-| 3 | Auth + roller (JWT, bcrypt/argon2id) — *ilk Service katmanı burada doğar* | 📝 taslak |
+| 2 | Postgres + kitap/tür CRUD + many-to-many | ✅ |
+| **3** | **Auth + roller (JWT, bcrypt) — *ilk Service katmanı burada doğar*** | **⏭️ sırada** |
 | 4 | Öneri + moderasyon (status state machine, audit log) | 📝 taslak |
 | 5 | Yorum + puan — *projenin #1 doğruluk dersi:* `UNIQUE` + `ON CONFLICT`, agregatı asla app'te oku-yaz etme | 📝 taslak |
 | 6 | Ağırlıklı puan (Bayesian `WR = (v/(v+m))·R + (m/(v+m))·C`), saf fonksiyon + tablo testleri | 📝 taslak |
@@ -268,20 +268,12 @@ bakarken sorulduğunu kaydeder.
   `defer pool.Close()`'u atlar; `http.Server`'da `IdleTimeout` set edilmemiş.
 - Kök `README.md` **boş** (0 byte); `docs/decisions/` (ADR) klasörü hiç açılmamış;
   `frontend/`, `scripts/` boş.
-- Slug UNIQUE ihlali (Postgres `23505`) domain hatasına çevrilmiyor → create handler'ı
-  yazılınca **409 yerine 500** dönecek.
+- ~~Slug UNIQUE ihlali 500 dönüyor~~ ✅ kapandı: repository `23505` → `books.ErrDuplicateSlug`,
+  handler → **409**.
 
 ---
 
-## 11. Sıradaki adım — Faz 2 / adım 7 (yarım kalan egzersiz)
+## 11. Sıradaki adım
 
-1. `internal/books/repository.go`: `List`/`Create`'e doc comment + `gofmt -w`.
-2. `handleListBooks` — `handleGetBook` şablonundan. ⚠️ Repo `nil` slice dönebilir; `writeJSON`
-   öncesi `[]db.Book{}`'a normalize et, yoksa boş listede JSON `null` döner.
-3. `handleCreateBook` — **ayrı** `createBookRequest` struct'ı (istemciden `status` alınmaz →
-   mass-assignment koruması), zorunlu alan kontrolü → 400, başarı → **201**.
-4. `bookGetter` 3 metoda çıkar → `books_test.go`'daki `fakeBooks` da 3 metot almazsa
-   **test paketi derlenmez** (bu iki değişiklik atomik).
-5. Router: `GET /api/books` + `POST /api/admin/books`.
-6. Sonra: genres CRUD + `book_genres` many-to-many → **adım 8** (Compose Postgres'e karşı
-   integration testi) → milestone commit + push.
+Tek kaynak: **[STATUS.md](STATUS.md)** (bu dosya "ne var", o "neredeyiz"; sıradaki adımı iki yerde
+tutmak kaçınılmaz olarak drift üretiyordu).

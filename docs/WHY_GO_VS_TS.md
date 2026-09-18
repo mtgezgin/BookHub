@@ -121,9 +121,11 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 3. Explicit DI & small interfaces vs duck typing / DI containers
 
-**Status:** `CONFIRMED` (Faz 1) · **Illustration:** `backend/cmd/api/main.go` — `main()` elle DI (config.Load + newRouter, framework yok).
+**Status:** `CONFIRMED` (Faz 1 + Faz 2) · **Illustration:** `backend/cmd/api/main.go` (elle DI), `backend/cmd/api/books.go:bookStore` (tüketen tarafta interface), `backend/cmd/api/router.go:deps`.
 >
 > **✅ Faz 1:** grafı `main.go`'da elle kurmak net ve okunur. Henüz interface yok — gerçek bir fake / 2. implementasyon gerekmedi, o yüzden eklemedik (GO_CONVENTIONS §3). Hipotez bu ölçekte doğrulandı.
+>
+> **✅ Faz 2:** İlk interface'ler **gerçek bir ihtiyaçla** doğdu: handler'ları DB'siz test etmek. `bookStore`/`genreStore` TÜKETEN tarafta (`cmd/api`) tanımlı; `*books.Repository` onları "implements" demeden sağlıyor. Kazanç somut: `countingBooks` sahtesi çağrıları sayıp liste ucunun N+1 yapmadığını kanıtlıyor — DI container'ında bu kadar ucuz olmazdı. Maliyeti de somut: interface büyüdükçe (Get → List/Create/SetGenres) her sahte tüm metotları uygulamak zorunda; struct embedding (`capturingBooks{fakeBooks}`) bunu hafifletti. Router parametre listesi uzamaya başlayınca `deps` struct'ına geçtik — hâlâ elle DI, ama testler yalnızca ihtiyaç duydukları alanı dolduruyor.
 
 - **Hypothesis:** Wiring dependencies by hand in `main.go` (no framework) keeps the whole
   object graph readable top-to-bottom and teaches DI better than a container that resolves it
@@ -175,9 +177,11 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 5. JSON (de)serialization & validation at the boundary
 
-**Status:** `PARTIAL` (Faz 1) · **Illustration:** `backend/cmd/api/respond.go:writeJSON` + hata zarfı (JSON *serileştirme* yapıldı).
+**Status:** `CONFIRMED` (Faz 2) · **Illustration:** `backend/cmd/api/respond.go:readJSON`, `backend/cmd/api/validate.go:validator`, `backend/cmd/api/books.go:createBookRequest`/`bookResponse`.
 >
-> **◑ Faz 1:** JSON yazma (struct/map → JSON) ve tutarlı hata zarfı var. Ama **validation** (`go-playground/validator`) HENÜZ yok — çünkü request body'si alan bir endpoint yok. Gerçek DTO + doğrulama Faz 2'de (suggest-book / rating body). Kısmi.
+> **◑ Faz 1:** JSON yazma ve tutarlı hata zarfı vardı; doğrulama yoktu.
+>
+> **✅ Faz 2:** İstek ve cevap DTO'ları DB modelinden (`db.Book`) ayrıldı ve bunun neden şart olduğunu **canlı** gördük: ilk taslak gövdeyi doğrudan `db.CreateBookParams`'a okuyordu ve `{"status":"APPROVED"}` gönderen istemci kitabını kendi yayına aldı (mass-assignment). `DisallowUnknownFields` + ayrı request struct ikinci ve birinci savunma hattı oldu. **Karar:** `go-playground/validator` EKLENMEDİ — 60 satırlık bir `validator` (biriktiren, rune sayan, kalıp/URL denetleyen) ihtiyacı karşıladı; struct tag'lerine gömülü DSL yerine düz Go kodu okunur ve test edilir kaldı (§14.5). **Dürüst not:** zod'un "tek şema → tip + doğrulama" ergonomisi burada gerçekten daha iyi — Go'da request struct'ı, `normalize()` ve `validate()` üç ayrı yerde yaşıyor.
 
 - **Hypothesis:** Go struct tags + `go-playground/validator` on request DTOs give a
   compile-time-known shape with co-located validation rules, vs untyped `JSON.parse` recovered
@@ -200,7 +204,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 6. Typed DB access: sqlc + pgx vs Prisma / Knex / TypeORM
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 2 — backend/sql/queries/*.sql + generated — TBD]`, `[Phase 5–6 — rating aggregation queries — TBD]`
+**Status:** `CONFIRMED` (Faz 2) · **Illustration:** `backend/sql/queries/books.sql`, `book_genres.sql`, üretilen `backend/internal/db/*.go`; `[Phase 5–6 — rating aggregation queries — TBD]`
+>
+> **✅ Faz 2:** Hipotez doğrulandı ve dört somut kanıt birikti. (1) `SELECT *` üretim anında açık 12 kolonluk listeye genişledi — şema değişirse regenerate derleme hatası verir. (2) Çoka-çok JOIN için sqlc sorguya özel `ListGenresForBooksRow` üretti; ORM'in `book.genres` diye sakladığı şeyi SQL olarak yazdık. (3) **N+1'i bilerek önledik:** liste için `book_id = ANY($1)` ile tek sorgu + Go'da gruplama; bir test çağrı sayısını sayıyor. Naif bir ORM döngüsü 20 kitapta 21 sorgu atardı. (4) Opsiyonel filtreler (`genre`, `q`) için `(sqlc.narg IS NULL OR ...)` deseni: sqlc'nin dinamik sorgu zayıflığının standart çözümü — sorgu metni sabit, filtreyi değer açıp kapatıyor. **Gerçek bir tuzak da yaşadık:** parametreli INSERT'te DB `DEFAULT`'u devreye girmez (`language` boş string olarak gitti) → varsayılanı uygulama koymak zorunda (öğrenme notu database #5). **Maliyet:** her SQL değişikliği `sqlc generate` + commit; opsiyonel filtre deseni sorguyu okunaksızlaştırıyor.
 
 - **Hypothesis:** sqlc — which **reads your hand-written SQL and generates type-safe Go** —
   lets you learn real SQL (joins, the many-to-many) while eliminating the `rows.Scan` /
@@ -229,7 +235,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 7. context.Context propagation: cancellation, timeouts, deadlines
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 2 — ctx threaded through backend/internal/books/repository.go — TBD]`, `[Phase 7 — Redis call with ctx deadline — TBD]`
+**Status:** `PARTIAL` (Faz 2) · **Illustration:** `backend/cmd/api/books.go` (`r.Context()` → `store.Get(ctx, ...)`), `backend/internal/database/tx.go:WithTx`, `backend/internal/database/database.go` (5 sn Ping deadline); `[Phase 7 — Redis call with ctx deadline — TBD]`
+>
+> **◑ Faz 2:** `ctx` handler'dan pgx'e kadar kesintisiz iniyor ve transaction'lar da (`WithTx`) aynı ctx'e bağlı. Açılıştaki `Ping` gerçek bir deadline kullanıyor. **Ama dürüst olmak gerekirse** iptal edilen bir isteğin DB sorgusunu iptal ettiğini henüz ÖLÇMEDİK — kısa DB okumalarında bu disiplinin getirisi bu ölçekte görünmüyor. Kısmi: yapı hazır, kanıt Faz 7'de (Redis deadline) aranacak. Yan kazanç: review paneli, `ReadTimeout` dolunca gövde okumasının `i/o timeout` verdiğini ve hatanın iç IP:port'u sızdırdığını bulmuştu — deadline'lar gerçekten tetikleniyor.
 
 - **Hypothesis:** `context.Context` as the first parameter everywhere gives uniform,
   pervasive cancellation/timeouts (a cancelled request cancels its DB query) that Node's
@@ -446,6 +454,18 @@ Seed entries:
    ve JS ekosisteminin genişliği gerçek bir avantaj.
 10. **Hata zarfı (§5):** tutarlı `{"error":{"code","message"}}` JS'te de birebir kurulur — dil
     farkı değil, **disiplin**.
+
+**Faz 2'de eklenen dürüst gözlemler:**
+11. **Doğrulama ergonomisi (§5):** zod'da tek bir şema hem TS tipini hem doğrulamayı üretir. Go'da
+    `createBookRequest` struct'ı, `normalize()` ve `validate()` üç ayrı yerde yaşıyor ve senkron
+    tutulmaları elle. Bu noktada TS açıkça daha iyi.
+12. **Mass-assignment (§5):** açığı yaratan şey dil değil, "gövdeyi DB modeline decode et"
+    kısayoluydu — Express'te `Object.assign(book, req.body)` aynı açıktır, NestJS `whitelist:true`
+    ile aynı çözümü sunar. Go burada bir şey kazandırmadı; disiplin kazandırdı.
+13. **Opsiyonel filtreler (§6):** `(narg IS NULL OR ...)` deseni çalışıyor ama okunaksız; Knex/
+    Prisma'da `where` nesnesini koşullu kurmak çok daha doğal. sqlc'nin bilinen zayıflığı.
+14. **Sahte (fake) bakımı (§3):** interface büyüdükçe her sahte tüm metotları uygulamak zorunda.
+    jest'in `jest.fn()` ile tek metodu taklit etmesi bu noktada daha az törenli.
 
 > **Refleksiyon (TR):** Buraya her Go bölümü doldurduğunda en az bir dürüst "TS/JS kazanırdı"
 > girdisi ekle. Bu bölüm büyümüyorsa, doküman Go reklamına kaymış demektir.

@@ -1,6 +1,6 @@
 # Faz 2 — Postgres + Kitap/Tür CRUD
 
-> Durum: 📖 detaylı · Önkoşul: Faz 1 ✅
+> Durum: ✅ TAMAM · Önkoşul: Faz 1 ✅
 > İlgili: [WHY_GO_VS_TS](../WHY_GO_VS_TS.md) §6/§7 · [GO_CONVENTIONS](../GO_CONVENTIONS.md) §6/§7 · [PROJECT_BRIEF](../PROJECT_BRIEF.md) §7.1/§7.2/§8/§9, §18.1/§18.3/§18.4
 
 ## 🎯 Amaç
@@ -67,11 +67,11 @@ oturacak. Önce tek dilimi uçtan uca yapmak, "tüm akışı bir kez gör" anın
 
 ## ✅ Tamamlanma (Definition of Done)
 
-- [ ] `docker compose up -d` ile dev Postgres çalışıyor; API ona bağlanıyor.
-- [ ] goose migration'ları `up`/`down` çalışıyor; tablolar doğru tip/kısıt/index ile.
-- [ ] sqlc üretilen kodla kitap & tür CRUD çalışıyor; many-to-many bağ kurulabiliyor.
-- [ ] Tek Book dikey dilimi uçtan uca çalışıyor ve testi var.
-- [ ] En az bir repository integration testi PASS; `go test -race ./...` yeşil.
+- [x] `docker compose up -d` ile dev Postgres çalışıyor; API ona bağlanıyor.
+- [x] goose migration'ları `up`/`down` çalışıyor; tablolar doğru tip/kısıt/index ile.
+- [x] sqlc üretilen kodla kitap & tür CRUD çalışıyor; many-to-many bağ kurulabiliyor.
+- [x] Tek Book dikey dilimi uçtan uca çalışıyor ve testi var.
+- [x] En az bir repository integration testi PASS; `go test -race ./...` yeşil.
 
 ## 📒 Bu fazda WHY_GO_VS_TS güncellemesi
 

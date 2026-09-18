@@ -9,6 +9,7 @@ Dil-bağımsız backend/web kavramları: HTTP, API tasarımı, config/12-factor,
 2. [Graceful shutdown Express/Node ile de yapılır mı?](#2-graceful-shutdown-expressnode-ile-de-yapılır-mı)
 3. [Environment variable nedir? (os.Getenv, lokal vs prod)](#3-environment-variable-nedir-osgetenv-lokal-vs-prod)
 4. [The Twelve-Factor App (12-factor) nedir?](#4-the-twelve-factor-app-12-factor-nedir)
+5. [HTTP hata kodları: bu kimin hatası? (400 / 409 / 500)](#5-http-hata-kodları-bu-kimin-hatası-400--409--500)
 
 ---
 
@@ -186,3 +187,61 @@ env'den okumak = Factor III; graceful shutdown = Factor IX; "aynı kod, farklı 
 - 12factor.net (kaynak)
 - Yukarıda [Girdi 3](#3-environment-variable-nedir-osgetenv-lokal-vs-prod) (config-in-env)
 - [docs/PROJECT_BRIEF.md](../PROJECT_BRIEF.md) §7 (dev-lokal/prod-cloud = parity)
+
+---
+
+## 5. HTTP hata kodları: bu kimin hatası? (400 / 409 / 500)
+
+**🗓️ Bağlam:** `POST /api/admin/books` ucunu yazarken üç farklı hata yolunu haritalamak gerekti:
+bozuk JSON, eksik alan, aynı slug'ın ikinci kez gönderilmesi ve beklenmeyen DB hatası. Aynı slug
+başta **500** dönüyordu; bunun yanlış olduğunu konuştuk ve **409**'a çevirdik.
+
+**⚡ Kısa cevap:** Doğru kodu seçmenin tek sorusu var: **"bu hatayı kim düzeltebilir?"**
+İstemci düzeltebiliyorsa `4xx` (ve mesajı GÖSTER), yalnızca sunucu tarafı düzeltebiliyorsa
+`5xx` (ve detayı SAKLA, log'a yaz).
+
+**📖 Açıklama:**
+
+Bizim uçtaki tam harita:
+
+| Durum | Kod | `error.code` | Detay istemciye? |
+|---|---|---|---|
+| Gövde bozuk JSON / bilinmeyen alan / boş | **400** | `invalid_json` | **Evet** — girdiyi o yazdı, düzeltebilsin |
+| Zorunlu alan eksik, `page_count: 0` | **400** | `validation_error` | **Evet** — hangi alan olduğunu söyle |
+| Aynı slug ikinci kez | **409** | `slug_conflict` | **Evet** — başka slug seçebilir |
+| Beklenmeyen DB/sürücü hatası | **500** | `internal` | **HAYIR** — log'a yaz, generic mesaj dön |
+
+**400 vs 409 ayrımı:** 400 "gönderdiğin şey **kendi başına** hatalı" demektir (eksik alan, bozuk
+JSON) — istek tek başına bakıldığında bozuktur. 409 ise "gönderdiğin şey geçerli ama **mevcut
+durumla çakışıyor**" demektir — aynı gövde beş dakika önce gönderilse çalışırdı, ya da farklı bir
+slug'la şimdi çalışır. Çakışma isteğin değil, **sistemin durumunun** fonksiyonudur.
+
+**Neden 500 yanlıştı:** 500 "sunucuda beklenmedik bir şey oldu, senin yapabileceğin bir şey yok"
+demektir. Ama aynı slug'ı göndermek **beklenen** bir istemci hatasıdır ve çözümü istemcide.
+500 dönmek üç şeyi birden bozar: (1) istemci ne yapacağını bilemez, (2) hata izleme sistemleri
+gerçek arıza sanıp alarm üretir, (3) SLA/uptime metrikleri boşuna kirlenir.
+
+**Detay göster/gizle kuralı aynı soruya bağlı.** Aynı projede iki zıt karar var ve ikisi de doğru:
+
+```go
+// Girdi hakkında → GÖSTER (yardım eder, sızıntı değil)
+writeError(w, 400, "invalid_json", err.Error())   // "bilinmeyen alan: \"status\""
+
+// Sunucunun içi hakkında → SAKLA (şema/sürücü bilgisi taşıyabilir)
+log.Printf("CreateBook başarısız: %v", err)
+writeError(w, 500, "internal", "beklenmeyen bir hata oluştu")
+```
+
+**Sık karışan diğerleri:** 401 (kimliğini bilmiyorum → giriş yap) vs 403 (kim olduğunu biliyorum,
+yetkin yok) · 404 (yok) vs 403 — güvenlikte çoğu zaman **404 tercih edilir**, çünkü 403 "burada
+bir şey VAR ama göremezsin" bilgisini sızdırır (bkz. `GET /api/books/{id}`, PENDING kitaba 404) ·
+422 (sözdizimi doğru ama semantik geçersiz) — 400 ile sınırı bulanık, biz 400'de birleştirdik.
+
+**Dil bağımsız:** Express/NestJS'te de aynı sorular. Fark yalnızca `res.status(409).json(...)`
+yazmak; karar mekanizması HTTP'nin kendisine ait.
+
+**🔗 İlgili:**
+- [backend/cmd/api/books.go](../../backend/cmd/api/books.go) — `handleCreateBook`'taki `switch` haritalaması
+- [backend/internal/books/repository.go](../../backend/internal/books/repository.go) — `ErrDuplicateSlug` (Postgres 23505 → domain hatası)
+- [backend/cmd/api/respond.go](../../backend/cmd/api/respond.go) — tutarlı `{"error":{"code","message"}}` zarfı
+- [security-and-auth.md](security-and-auth.md) Girdi 2 (404'ün varlık sızdırmama gerekçesi)

@@ -9,6 +9,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 2. [sqlc nedir: SQL'i sen yaz, Go'yu makine yazsın](#2-sqlc-nedir-sqli-sen-yaz-goyu-makine-yazsın)
 3. [Natural key vs surrogate key: ISBN neden PK olmaz?](#3-natural-key-vs-surrogate-key-isbn-neden-pk-olmaz)
 4. [DSN (Data Source Name) nedir?](#4-dsn-data-source-name-nedir)
+5. [sqlc + parametreli INSERT: DB DEFAULT'u neden devreye girmez?](#5-sqlc--parametreli-insert-db-defaultu-neden-devreye-girmez)
 
 ---
 
@@ -207,3 +208,55 @@ postgres://bookhub:bookhub_dev@localhost:5432/bookhub?sslmode=disable
 - [.env.example](../../.env.example) — dev DSN'imiz ve format açıklaması
 - [backend/internal/database/database.go](../../backend/internal/database/database.go) — DSN'i tüketen kod (pgxpool + fail-fast Ping)
 - [security-and-auth.md](security-and-auth.md) Girdi 1 — dev DSN'i repoya yazmak neden güvenli, prod DSN nerede yaşar
+
+---
+
+## 5. sqlc + parametreli INSERT: DB DEFAULT'u neden devreye girmez?
+
+**🗓️ Bağlam:** `POST /api/admin/books` ucunu ilk kez canlı denerken `language` alanını
+göndermedim. Migration'da `language text NOT NULL DEFAULT 'tr'` yazdığı için `"tr"` bekliyordum;
+cevapta **`"language":""`** çıktı.
+
+**⚡ Kısa cevap:** DB'nin `DEFAULT` değeri yalnızca kolon INSERT'te **hiç anılmazsa** çalışır.
+sqlc her parametreyi **her zaman açıkça** yazdığı için (`INSERT INTO books (..., language, ...)
+VALUES (..., $8, ...)`), Go'daki boş string DB'ye gider ve Postgres "değer verilmiş" sayar.
+Yani parametreli INSERT'te **varsayılanı uygulama katmanı düşünmek zorundadır.**
+
+**📖 Açıklama:**
+
+Postgres'in kuralı basit ama sezgiye ters geliyor:
+
+```sql
+-- DEFAULT ÇALIŞIR: kolon listede yok
+INSERT INTO books (title, slug, author, status) VALUES (...);        → language = 'tr'
+
+-- DEFAULT ÇALIŞMAZ: kolon listede var, değeri boş string
+INSERT INTO books (title, slug, author, language, status)
+VALUES (..., '', ...);                                                → language = ''
+```
+
+`''` bir *yokluk* değil, geçerli bir değerdir. `NULL` gönderilse `NOT NULL` reddederdi; boş string
+ise sessizce kabul edilir. Bu, aynı ailedeki başka bir tuzağın kardeşi: **`NOT NULL` boş string'i
+engellemez** — o yüzden zorunlu alan kontrolünü de uygulama yapıyor.
+
+Neden sqlc böyle davranıyor: üretilen kod statiktir, "bu alan gönderilmedi mi?" diye
+çalışma-zamanı dallanması yapmaz — tip güvenliğinin bedeli budur (bkz. [Girdi 2](#2-sqlc-nedir-sqli-sen-yaz-goyu-makine-yazsın)
+"dinamik sorgularda hantal").
+
+**Üç çözüm yolu, biz 1'i seçtik:**
+
+| Yol | Nasıl | Değerlendirme |
+|---|---|---|
+| 1. **Uygulamada varsayılan** | Handler `Language == "" → "tr"` | ✅ Seçtiğimiz. Görünür, test edilebilir, tek yerde (`varsayilanDil`) |
+| 2. SQL'de `COALESCE` | `COALESCE(NULLIF($8,''), 'tr')` | Varsayılan SQL'de kalır ama sorgu okunaksızlaşır |
+| 3. `sqlc.narg` + `COALESCE` | Parametreyi nullable yap, SQL'de `COALESCE($8, 'tr')` | Varsayılan SQL'de; Go tarafı `*string`. ⚠️ Nullable parametre **tek başına** DEFAULT'u tetiklemez: açıkça gönderilen `NULL` de bir değerdir → `NOT NULL` ihlali. `COALESCE` şart |
+
+**Genel ders:** DB'deki `DEFAULT`, elle yazılmış INSERT'ler ve migration'lar için bir güvenlik ağı;
+uygulama yolunda ona güvenme. Varsayılanın **iki yerde** (DB + uygulama) tanımlı olması da bir tür
+borç — biri değişip diğeri unutulursa sessizce ayrışırlar. Bizim durumda ikisi de `'tr'`.
+
+**🔗 İlgili:**
+- [backend/cmd/api/books.go](../../backend/cmd/api/books.go) — `varsayilanDil` sabiti ve `normalizeAndValidate`
+- [backend/migrations/0001_books_genres.sql](../../backend/migrations/0001_books_genres.sql) — `language text NOT NULL DEFAULT 'tr'`
+- Yukarıda [Girdi 2](#2-sqlc-nedir-sqli-sen-yaz-goyu-makine-yazsın) (sqlc'nin dinamik sorgu zayıflığı)
+- [go-language.md](go-language.md) Girdi 8 (zero value — boş string neden "yokluk" değil)

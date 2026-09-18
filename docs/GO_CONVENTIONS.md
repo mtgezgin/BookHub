@@ -192,6 +192,12 @@ func TestWeightedScore(t *testing.T) {
   gate. Run them locally and in CI (Phase 10).
 - For a JS background: the **zero-config** formatting/vetting culture is itself a learning
   point — there is no eslint/prettier config to bikeshed.
+- **Naming language (decided in Phase 2):** identifiers (types, funcs, vars, test function
+  names) are **English**; comments, log/error messages and table-test case names are
+  **Turkish**. Mixed identifiers crept in during Phase 2 and the review panel flagged the
+  inconsistency twice — this line turns the de-facto Phase 1 convention into a written rule.
+
+> **TR:** Kod (identifier) İngilizce, anlatım (yorum, hata mesajı, test senaryosu adı) Türkçe.
 
 ---
 

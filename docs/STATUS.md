@@ -1,77 +1,81 @@
 # BookHub — Durum & Devir (STATUS)
 
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
-> Her oturum sonunda güncellenir. (Kişisel öğrenme notları/memory ayrıca otomatik yüklenir.)
+> Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme bağlamı:** Faz 2 adım 6/8 bitti — dikey dilim canlı doğrulandı; adım 7 (liste+create) kullanıcı egzersizi olarak YARIM.
-**Repo:** github.com/mtgezgin/BookHub (private) · Adım 4–6 (sqlc + pgx havuzu + dikey dilim) **commit'lendi**; push bekliyor. Adım 7 (liste+create) hâlâ yarım — kullanıcı egzersizi.
+**Son güncelleme:** Faz 2 ✅ TAMAM. Sırada **Faz 3 — Auth + roller**.
+**Hedef (kullanıcı talebi, 2026-09):** projeyi baştan sona bitir — MVP (Faz 1–7) + opsiyonel
+altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push.
+
+> **Ortam notu:** Kabukta `go` bulunamazsa `export PATH="/opt/homebrew/bin:$HOME/go/bin:$PATH"`
+> — git hook'ları da `go: command not found` ile bu yüzden patlıyor.
 
 ---
 
-## Neredeyiz — Faz 1 ✅ TAMAM
-Çalışan, test edilmiş, CI'lı bir Go API iskeleti kuruldu ve push'landı:
-- **Kod** (`backend/`): `cmd/api/{main.go, router.go, respond.go}` + testleri; `internal/config/{config.go, config_test.go}`.
-  - `/health` endpoint, env'den config + boot'ta fail-fast doğrulama, graceful shutdown + timeouts, Chi router + middleware (RequestID/Logger/Recoverer), tutarlı JSON hata zarfı `{"error":{"code","message"}}`.
-  - Testler: `httptest` + table-driven, `go test -race` yeşil.
-- **Bağımlılık:** `go-chi/chi/v5 v5.3.0` (ilk ve tek dış paket).
-- **CI** (`.github/workflows/ci.yml`): gofmt + vet + build + test-race + **golangci-lint** — **tamamen yeşil**.
-- **Katmanlı git hook'ları** (`.githooks/`): pre-commit (gofmt+vet), pre-push (golangci-lint+test-race). `core.hooksPath=.githooks` **yerel git config**'tir → taze klonda bir kez `git config core.hooksPath .githooks` gerekir.
+## Faz durumu
 
-## Faz 2 — devam ediyor 🔄 (adım 6/8 bitti) → [phases/phase-02](phases/phase-02-postgres-books-genres.md)
-- ✅ **1. Docker Postgres:** `docker-compose.yml` (postgres:16, named volume `pg_data`, healthcheck, `5432:5432`). `docker compose up -d` ile ayakta, doğrulandı.
-- ✅ **2. `DATABASE_URL` config:** zorunlu alan (default yok → fail-fast) — kullanıcının ilk "örnekten uyarla" egzersisiydi; testler 8 senaryoya çıktı. `.env.example` eklendi; lokalde `.env` kopyalandı.
-- ✅ **3. goose + ilk migration:** goose v3.27.2 (`go install`, `~/go/bin`). `backend/migrations/0001_books_genres.sql` = `books`/`genres`/`book_genres` (§18.3: identity PK, TEXT+CHECK status **DEFAULT'suz**, timestamptz, slug UNIQUE, partial index `(created_at DESC) WHERE status='APPROVED'`, `book_genres(genre_id)` index'i). **avg_rating/rating_count bilerek yok → Faz 5 migration'ı ekleyecek** (şema evrimi dersi). up/down/up roundtrip doğrulandı; dev DB'de seed: books id=1 "Clean Code".
-- ✅ **4. sqlc:** v1.31.1 (`go install`) + `sqlc.yaml` (açıklamalı; pgx/v5, timestamptz→time.Time, nullable int→*int32 override'ları) + `sql/queries/books.sql`: `GetApprovedBook` (asistan, örnek) + `ListBooks`/`CreateBook` (**kullanıcı yazdı**, ilk denemede doğru). Üretilen kod `internal/db/` (commit'lenir). pgx/v5 v5.10.0 go.mod'da.
-- ✅ **5. pgx pool:** `internal/database/database.go` — pgxpool + fail-fast Ping (5sn timeout). main.go'da elle DI: pool → repository → router.
-- ✅ **6. Dikey dilim `GET /api/books/{id}`:** `internal/books/repository.go` (ErrNoRows→ErrNotFound çevirisi, DBTX ile tx-hazır) + `cmd/api/books.go` (tüketici-tarafı `bookGetter` interface, closure DI, 400/404/500 haritalama) + fake'li table-driven handler testi. **Canlı doğrulandı** (5 Tem): seed id=1 → 200, 999 → 404, abc → 400.
-- 🔶 **7. Liste + create — kullanıcı egzersizi YARIM:**
-  - ✅ `Repository.List`/`Create` yazıldı (review'daki hata-yolunda-`nil` düzeltmesi uygulandı).
-  - ⏳ Kalan: `List`/`Create` doc comment + `gofmt -w internal/books/repository.go`; `handleListBooks` (**nil slice → `[]` normalize et — JSON null tuzağı!**) + `handleCreateBook` (ayrı request struct — istemciden `status` ALINMAZ, handler `APPROVED` yazar; decode şablonu konuşma geçmişinde/aşağıda); router'a `GET /api/books` + `POST /api/admin/books`; `fakeBooks`'a `List`/`Create` (interface 3 metoda çıkınca derlenmesi için şart) + liste testi.
-  - Stretch: slug UNIQUE ihlali (pgconn.PgError 23505) → domain hatası → **409** (şu an 500 döner).
-  - Sonra: genres CRUD + book_genres m2m.
-- ✅ **8. Testler (adım 7'den ÖNCE geldi):** coverage kapısı tetikledi → `internal/books/repository_test.go` (hata çevirisi: `ErrNoRows`→`ErrNotFound`; `List`/`Create`'te bu çevirinin OLMADIĞI), `repository_integration_test.go` (**görünürlük sınırı** + liste sırası, gerçek Postgres'e karşı), `internal/database/database_test.go` + `_integration_test.go` (havuz hata yolları + mutlu yol), ayrıca handler tarafında "500 detay sızdırmaz" ve "405 JSON zarfı" testleri. Entegrasyon testleri `TEST_DATABASE_URL` ile korumalı → DB'siz `go test ./...` yeşil kalır.
-  - Çalıştırmak: `docker compose up -d` sonra `TEST_DATABASE_URL="$DATABASE_URL" go test -race ./...`
+| Faz | Konu | Durum |
+|---|---|---|
+| 0 | Repo + git | ✅ |
+| 1 | Minimal Go API (/health, config, graceful shutdown, CI, hook'lar) | ✅ |
+| 2 | Postgres + kitap/tür CRUD + many-to-many | ✅ |
+| 3 | Auth + roller (JWT, bcrypt, refresh token, admin guard) | ⏭️ sırada |
+| 4 | Öneri + moderasyon (state machine, audit log) | ⏳ |
+| 5 | Yorum + puan (ON CONFLICT, tx-içi agregat, eşzamanlılık) | ⏳ |
+| 6 | Ağırlıklı puan (Bayesian, top-rated) | ⏳ |
+| 7 | Redis cache + rate limit + yük testi — **MVP sonu** | ⏳ |
+| 8–12 | Docker imajı · Frontend · CI/CD · NGINX · Kubernetes | ⏳ |
+
+## Faz 2'de ne oldu (özet)
+
+- **Uçlar:** `GET /api/books` (sayfalı: `?genre=&q=&limit=&offset=` → `{items,total,limit,offset}`),
+  `GET /api/books/{id}` (türleriyle), `GET /api/genres`; admin: `POST /api/admin/books`,
+  `PUT /api/admin/books/{id}/genres`, `POST/PATCH/DELETE /api/admin/genres`.
+- **Güvenlik dersleri (canlı):** BOLA/IDOR (görünürlük sınırı SQL'de: `GetApprovedBook`),
+  mass-assignment (ayrı request DTO + `DisallowUnknownFields`), hata detayı sızıntısı
+  (`readJSON` artık tipli `*requestError`; ham hata asla istemciye gitmez).
+- **Doğruluk dersleri:** N+1'den kaçınma (toplu `ANY($1)` + çağrı sayan test), `WithTx` +
+  `SELECT ... FOR UPDATE` (kilitsiz eşzamanlı değiştirme iki listenin birleşimini bırakıyordu —
+  mutation ile kanıtlandı).
+- **Altyapı:** migration'lar binary'ye gömülü (`migrations/embed.go`), `AUTO_MIGRATE=true` ile
+  açılışta uygulanır; entegrasyon testleri `internal/testdb` ile kendiliğinden migrate eder.
+- **Commit'ler:** `d6a9245` kitap uçları · `0f4da49` gömülü migration · `ee1ae59` test sertleştirme ·
+  `159f8c8` türler · `7dd71d7` many-to-many · `2a31a50` sayfalama/arama · (docs kapanışı).
+
+## Sıradaki: Faz 3 — Auth + roller (plan)
+
+1. Migration `0002`: `users` (email UNIQUE — küçük harfe normalize, `password_hash`, `role` TEXT+CHECK
+   USER/ADMIN), `refresh_tokens` (token **hash**'i, `expires_at`, kullanıcıya FK, CASCADE).
+2. `internal/auth`: bcrypt (cost 12) · JWT HS256 (`alg` açıkça doğrulanır; `exp/iat/iss/aud/sub/role`,
+   access ~15 dk) · opak refresh token (`crypto/rand`, DB'de SHA-256 hash, kullanımda **rotate**).
+3. Config: `JWT_SECRET` (zorunlu, ≥32 bayt), `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`.
+4. Uçlar: `POST /api/auth/register|login|refresh|logout`, `GET /api/auth/me`. Login hatası generic.
+5. Middleware: `requireAuth` (401), `requireAdmin` (403) → `/api/admin/*` korunur.
+6. İlk admin: `cmd/manage create-admin` komutu (parola env'den/stdin'den; koda gömülmez).
+7. İlk **Service** katmanı: `auth.Service` (register/login/refresh iş kuralları).
 
 ## Ortam / gerçekler
-- **Go 1.26.4** (Homebrew ile yönetiliyor). Module: `github.com/mtgezgin/bookhub/backend`.
-- **goose v3.27.2** ve **sqlc v1.31.1** CLI'ları `~/go/bin`'de (taze makinede `go install` ile). pgAdmin 4 kurulu (dev DB'ye `localhost:5432`, bookhub/bookhub_dev).
-- **Compose portu `127.0.0.1:5432:5432`** (LAN'a kapalı — güvenlik sohbetinin çıktısı). Oturum başında `docker compose up -d` gerekebilir (yeniden başlatmada container kalkmaz, veri named volume'da durur).
-- Dev DB'de seed: books id=1 "Clean Code" (dikey dilimin curl hedefi).
-- **Commit kimliği:** bu repoda **yerel** `user.email=mehmetturgutgezgin@gmail.com` (global iş kimliği değişmedi).
-- Bu repo'da **pre-commit gate'leri** (güvenlik + coverage + kod review) ve **pre-push fan-out panel** çalışıyor → kaynak kod commit/push'ları ağır. **Commit'leri milestone'da topla.**
+
+- **Go toolchain 1.27.0** (Homebrew) · `go.mod` dil sürümü 1.26.4 · module `github.com/mtgezgin/bookhub/backend`.
+- CLI'lar `~/go/bin`: goose v3.27.2, sqlc v1.31.1, golangci-lint v2.13 (CI v2.12.2 pinli).
+- Docker Desktop + `docker compose up -d` → Postgres 16 (`127.0.0.1:5432`, LAN'a kapalı). Veri named volume'da.
+- `.env` = `.env.example` kopyası (dotenv YOK: `set -a; source .env; set +a` ile yükle).
+- Testler: `go test -race ./...` (DB'siz, CI gibi) · `TEST_DATABASE_URL="$DATABASE_URL" go test -race ./...` (DB'li).
+- Commit kimliği: repo-yerel `user.email=mehmetturgutgezgin@gmail.com`.
+- **Git kapıları:** pre-commit hook yalnız gofmt+vet (golangci-lint'i ELLE çalıştır). Push'ta plugin
+  kapıları: güvenlik incelemesi + çok ajanlı review paneli + test coverage (SHA'ya bağlı; her yeni
+  commit onları sıfırlar → push'u faz sonunda topla).
 
 ## Kilit kararlar (yeniden tartışma — [PROJECT_BRIEF.md](PROJECT_BRIEF.md) §7 & §18)
-- **DB/Redis:** dev'de **lokal Docker** · prod'da **cloud** (Supabase Postgres + Upstash Redis); `DATABASE_URL`/`REDIS_URL` ile geçiş; **dev ≠ prod DB**.
-- **sqlc + pgx** (ORM değil — GORM/bun dışlandı).
-- **§14.5:** sebepsiz teknoloji ekleme. **MVP = Faz 1–7.** Faz 8–12 opsiyonel altyapı.
-- Rating consistency: `UNIQUE(user_id,book_id)` + `ON CONFLICT`, tx-içi agregat; `weighted_score` query-time.
 
-## Çalışma modu (memory'de de var — [bookhub-working-mode])
-- **Hedef:** production-ready **demo ürün** + tool'ları *neden/ne zaman* anlamak. Go **syntax ustalığı değil**.
-- **Hedef beceri:** oku + anla + gözden geçir + karar ver.
-- **Kod yazımı (seçici):** boilerplate'i **ben** yazarım; anlamlı ~%20'yi (bir sorgu, fonksiyon gövdesi) **kullanıcı** yazar/uyarlar.
-- **Örnekten uyarla:** daha önce benzerini yaptıysak → "şu örneğe (Y) bakarak sen yaz (X)". İlk kez → ben yazar+açıklarım.
-- Derin, başlangıç-seviyesi açıklamalar; her adımda kadran kullanıcıda.
-
-## Açık uçlar (non-blocking)
-- ~~[F1] golangci-lint sürüm yorumu~~ ✅ kapandı (yorum "reproducibility için pinlendi; otorite CI" olarak düzeltildi).
-- GitHub Actions **Node 20 deprecation** uyarısı (checkout@v4, setup-go@v5, golangci-lint-action@v7) → ileride action sürümlerini bump'la (acil değil).
-
-## Sırada: adım 7'yi bitir (kullanıcı egzersizi — detay yukarıda 🔶)
-1. Repository kozmetiği (doc comment ×2 + gofmt) → 2. iki handler + iki rota → 3. fakeBooks + liste testi → 4. canlı curl doğrulaması → 5. genres/m2m → 6. adım 8 integration testi → **milestone commit + push.**
-
-`handleCreateBook` için hazır decode şablonu (istemciden `status` alınmaz — mass-assignment):
-```go
-var req createBookRequest // ayrı struct: Title/Slug/Author/... (*int32'ler pointer)
-if err := json.NewDecoder(r.Body).Decode(&req); err != nil { /* 400 invalid_json */ }
-// zorunlu alanlar (title/slug/author) boşsa 400 → sonra elle eşle:
-// db.CreateBookParams{ ..., Status: "APPROVED" } → 201 + writeJSON
-```
+- dev = lokal Docker, prod = Supabase/Upstash; geçiş yalnızca `DATABASE_URL`/`REDIS_URL` ile.
+- sqlc + pgx, ORM yok. Identifier'lar İngilizce, yorum/mesajlar Türkçe (GO_CONVENTIONS §9).
+- Ratings: `UNIQUE(user_id,book_id)` + `ON CONFLICT`, tx-içi agregat; `weighted_score` query-time.
+- Service katmanı yalnızca gerçek iş mantığı olan yerde (auth, moderasyon, puan).
 
 ## Doküman haritası
-- [PROJECT_MAP.md](PROJECT_MAP.md) — **"neyin ne olduğu" haritası**: dosya dosya ne işe yarar, istek yolculuğu, araç zinciri, kavramlar, bakım borcu. (Bu dosya "neredeyiz", o "ne var".) Uzun aradan sonra ikisini birlikte oku.
-- [PROJECT_BRIEF.md](PROJECT_BRIEF.md) — ürün + roadmap (§11) + §18 addendum (kararlar).
-- [phases/](phases/) — faz faz adım adım rehber (README = merdiven).
-- [GO_CONVENTIONS.md](GO_CONVENTIONS.md) — Go'yu nasıl yazıyoruz + güvenlik temeli.
-- [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md) — Go vs TS/JS (Faz 1 dolduruldu).
+
+- [PROJECT_MAP.md](PROJECT_MAP.md) — "neyin ne olduğu" (dosya dosya, istek yolculuğu, araçlar).
+- [PROJECT_BRIEF.md](PROJECT_BRIEF.md) — ürün + roadmap (§11) + kararlar (§18).
+- [phases/](phases/) — faz rehberleri · [GO_CONVENTIONS.md](GO_CONVENTIONS.md) · [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md)
 - [learning-notes/](learning-notes/) — sorulan kavramların kalıcı notları (`/not` skill'i ekler).

@@ -10,6 +10,7 @@ commit ritmi. Format: [README.md](README.md).
 3. [Bir commit'te neden birden çok "gate" çalışıyor?](#3-bir-committe-neden-birden-çok-gate-çalışıyor)
 4. [gofmt vs golangci-lint (Prettier vs ESLint)](#4-gofmt-vs-golangci-lint-prettier-vs-eslint)
 5. [pre-commit vs pre-push: kontrolleri maliyete göre katmanlama](#5-pre-commit-vs-pre-push-kontrolleri-maliyete-göre-katmanlama)
+6. [VS Code eklentisi aktivasyonu ve "command not found" yarışı](#6-vs-code-eklentisi-aktivasyonu-ve-command-not-found-yarışı)
 
 ---
 
@@ -171,3 +172,71 @@ gerekir.
 **🔗 İlgili:**
 - [.githooks/pre-commit](../../.githooks/pre-commit), [.githooks/pre-push](../../.githooks/pre-push)
 - Yukarıda [Girdi 4](#4-gofmt-vs-golangci-lint-prettier-vs-eslint)
+
+---
+
+## 6. VS Code eklentisi aktivasyonu ve "command not found" yarışı
+
+**🗓️ Bağlam:** `GET /api/books/{id}` testlerini yazarken VS Code'u yeni açmıştım. Sağ alttaki
+Go sürüm rozetine (`1.27.0`) tıkladım ve **`command 'go.environment.status' not found`** hatası
+aldım. "Go kurulumum mu bozuldu, eklentiyi yeniden mi kurayım?" diye sordum. Cevap: hiçbir şey
+bozuk değil; bu, eklentinin **açılış sırasındaki birkaç saniyelik yarış (race)** penceresi.
+
+**⚡ Kısa cevap:** Go eklentisi status bar öğesini `go.environment.status` komutuna bağlayıp
+**hemen gösteriyor**, ama komutun kendisini ancak aktivasyonun **sonunda** (gopls başladıktan
+sonra) kaydediyor. O aralıkta tıklarsan VS Code komutu registry'de bulamaz. ⚡ ikonu gelince
+tıkla → çalışır. Israr ederse `Developer: Reload Window`.
+
+**📖 Açıklama:**
+
+VS Code'da bir eklenti nasıl "canlanır":
+
+- Eklentiler **extension host** denen ayrı bir Node.js sürecinde çalışır. Bir `.go` dosyası
+  açılınca (`activationEvents: onLanguage:go`) eklentinin `async activate()` fonksiyonu çağrılır.
+- Bir **command** aslında sadece bir **string id** → handler eşlemesidir; `registerCommand("id", fn)`
+  ile bir Map'e yazılır. Status bar öğesi de sadece bu id'yi tutar (`item.command = "id"`).
+- JS/TS analojisi: `emitter.emit("x")` demeyi `emitter.on("x", …)` satırından **önce** çağırmak.
+  Listener henüz yoksa hiçbir şey olmaz; VS Code bunu "command not found" hatasıyla söyler.
+
+`golang.go` 0.56.1 `activate()` sırası (dist/goMain.js, satır 40355–40392):
+
+| Adım | Ne olur | Status bar |
+|---|---|---|
+| `await updateGoVarsFromConfig()` | `go env` çalışır, callback'te `initGoStatusBar()` | öğe **görünür**, command id atanmış, arka plan **sarı** (gopls yok) |
+| `await maybeInstallImportantTools()` | araç kontrolü (yerel `go version` vb.) | tıklanabilir ama komut **kayıtsız** |
+| `await startLanguageServer()` | gopls başlar | ⚡ ikonu gelir |
+| `registerCommand("go.environment.status")` | komut **ancak şimdi** kayda girer | artık çalışır |
+
+VS Code tarafı: komut registry'de yoksa `onCommand:<id>` activation event'ini bekler; ama bu id
+`package.json`'da **ilan edilmemiş** (sadece `go.environment.choose` var), `*` aktivasyonu da
+çoktan bitmiş → anında `Error: command 'go.environment.status' not found`.
+
+Bugünkü zaman çizelgesi (loglardan; normalde bu aralık 1–2 s, bugün extension host aşırı yüklü
+olduğundan ~10 s):
+
+| Saat | Kaynak | Olay |
+|---|---|---|
+| 18:43:42.7 | exthost.log | `golang.go` aktivasyonu başladı |
+| 18:43:51–53 | renderer.log | extension host "unresponsive" |
+| 18:43:53.4 | Go.log | "Try to start language server" |
+| 18:43:54.750 | Go.log + state.vscdb | gopls çalışıyor; aynı ms'de komut kaydı yapıldı |
+
+**Nasıl teşhis ettik (öğrenilecek asıl şey):** tahmin yerine log okuduk.
+`~/Library/Application Support/Code/logs/<oturum>/window<N>/exthost/exthost.log` (aktivasyon
+hataları), aynı klasörde `golang.go/Go.log` (eklentinin kendi "Go" output kanalı) ve
+`~/.vscode/extensions/golang.go-*/dist/goMain.js` (eklenti kodu). VS Code içinden:
+`Output → Go`, `Output → Log (Extension Host)`, `Developer: Show Running Extensions`.
+
+**Yapma:** eklentiyi kaldırıp kurma, sürüm değiştirme, GOPATH silme, PATH/GOROOT oynama.
+Loglar `go env`'in başarılı olduğunu ve gopls'un başladığını gösteriyor; sorun kurulumda değil.
+
+**Upstream durumu:** aynı sıralama 0.56.1 (güncel stable), 0.57.2 (pre-release) ve master'da
+da var; hiçbir sürüm düzeltmiyor. Aynı hata için açılmış #3065 teşhis konmadan kapanmış. Kalıcı
+çözüm eklenti tarafında: `registerCommand`'ı `updateGoVarsFromConfig`'in üstüne taşımak ya da
+`onCommand:go.environment.status` activation event'i eklemek (#457'de `go.locate.tools` için
+aynı sınıf sorun böyle çözülmüş).
+
+**🔗 İlgili:**
+- [golang/vscode-go#3065](https://github.com/golang/vscode-go/issues/3065) (aynı hata, teşhissiz kapanmış), [#457](https://github.com/golang/vscode-go/issues/457) (aynı sınıf sorunun düzeltilmesi)
+- [docs/STATUS.md](../STATUS.md) (o sırada çalıştığımız faz)
+- Yukarıda [Girdi 1](#1-memory-mi-skill-mi-hook-mu-kalıcılık--tetiklenme) (VS Code / Claude Code araç katmanları)

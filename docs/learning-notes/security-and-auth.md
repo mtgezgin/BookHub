@@ -7,6 +7,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 
 1. [Sır (secret) nedir — dev credential'ı repoya yazmak neden güvenli olabilir?](#1-sır-secret-nedir--dev-credentialı-repoya-yazmak-neden-güvenli-olabilir)
 2. [OWASP nedir? (ve BOLA/IDOR — bizim ilk gerçek bulgumuz)](#2-owasp-nedir-ve-bolaidor--bizim-ilk-gerçek-bulgumuz)
+3. [Mass-assignment: request DTO neden DB modelinden ayrı?](#3-mass-assignment-request-dto-neden-db-modelinden-ayrı)
 
 ---
 
@@ -112,3 +113,61 @@ türetilmiş. Dil bağımsız: aynı liste Express/NestJS için de birebir geçe
 - [backend/internal/books/repository.go](../../backend/internal/books/repository.go) — `Get`: neden "yok" muamelesi yapıyor
 - [docs/PROJECT_BRIEF.md](../PROJECT_BRIEF.md) §6.1 (güvenlik taban çizgisi) · [GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §12
 - Yukarıda [Girdi 1](#1-sır-secret-nedir--dev-credentialı-repoya-yazmak-neden-güvenli-olabilir) (sır yönetimi)
+
+---
+
+## 3. Mass-assignment: request DTO neden DB modelinden ayrı?
+
+**🗓️ Bağlam:** Faz 2'nin son adımında `POST /api/admin/books` ucunu yazarken, ilk taslakta gövdeyi
+doğrudan sqlc'nin ürettiği `db.CreateBookParams`'a okumuştum. Kısa ve temiz görünüyordu. Açığı
+**curl ile canlı gösterdik**, sonra kapattık.
+
+**⚡ Kısa cevap:** İstemcinin gövdesini doğrudan DB/domain modeline decode etmek
+**mass-assignment** açığıdır: model, istemcinin doldurmaması gereken alanları da taşır
+(`status`, `role`, `is_admin`, `user_id`…) ve istemci onları set eder. Çözüm: **kabul edilen
+alanları ayrı bir request struct'ında sen tanımla.**
+
+**📖 Açıklama:**
+
+Açığın canlı hâli (kapatmadan önce ölçtük):
+
+```bash
+POST /api/admin/books {"title":"Sızma","slug":"sizma","author":"X","status":"APPROVED"}
+  → 201  {"id":41, ..., "status":"APPROVED"}
+GET /api/books  → "Sızma" listede
+```
+
+Saldırgan kitabını gönderdi ve **aynı saniyede yayına aldı** — Faz 4'te yazacağımız admin onay
+akışının tamamı anlamsızlaşırdı. Kod tarafında sebep tek satır: `db.CreateBookParams` içinde
+`Status` alanı var ve JSON decode onu memnuniyetle doldurur.
+
+Kapattıktan sonra aynı istek:
+
+```
+→ 400 {"error":{"code":"invalid_json","message":"bilinmeyen alan: \"status\""}}
+```
+
+**İki savunma hattı üst üste** (biri yeterli değil, ikisi birlikte sağlam):
+
+| Hat | Ne yapar | Nerede |
+|---|---|---|
+| 1. Ayrı request struct | Kabul edilen yüzeyi SEN tanımlarsın; `status` alanı hiç yok | `createBookRequest` (books.go) |
+| 2. `DisallowUnknownFields` | Tanımadığı alan gelirse isteği reddeder — sessizce yutmaz | `readJSON` (respond.go) |
+
+Sadece 1 olsaydı: `status` sessizce yok sayılırdı (güvenli ama istemci neden çalışmadığını
+bilemezdi). Sadece 2 olsaydı: `CreateBookParams`'a decode ederken `status` "bilinen alan"
+olduğu için geçerdi — yani asıl koruma **1. hat**.
+
+**Elle eşlemenin görünmeyen faydası:** alan alan `params := db.CreateBookParams{Title: req.Title, ...}`
+yazmak angarya gibi durur, ama şema büyüdüğünde koruma tam da budur — yeni bir DB kolonu
+eklendiğinde **otomatik olarak istemciye açılmaz**, buraya bilinçli bir satır eklemek gerekir.
+
+**JS/TS paraleli birebir:** Bu, Rails'in `strong parameters`'ı, Laravel'in `$fillable`'ı,
+NestJS'te `class-validator` + `whitelist: true` ile çözdüğü problemin aynısı. Node'da
+`Object.assign(user, req.body)` yazmak da tam olarak bu açıktır.
+
+**🔗 İlgili:**
+- [backend/cmd/api/books.go](../../backend/cmd/api/books.go) — `createBookRequest` + elle eşleme
+- [backend/cmd/api/respond.go](../../backend/cmd/api/respond.go) — `readJSON`, `DisallowUnknownFields`
+- Yukarıda [Girdi 2](#2-owasp-nedir-ve-bolaidor--bizim-ilk-gerçek-bulgumuz) — kardeş açık (BOLA/IDOR)
+- [docs/GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §11 (DTO ↔ domain ayrımı), §12 (güvenlik temeli)
