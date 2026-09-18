@@ -13,6 +13,7 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/config"
 	"github.com/mtgezgin/bookhub/backend/internal/database"
+	"github.com/mtgezgin/bookhub/backend/internal/genres"
 )
 
 func main() {
@@ -45,7 +46,8 @@ func main() {
 	// ELLE DI ZİNCİRİ (GO_CONVENTIONS §3): pool → repository'ler → router.
 	// Framework yok; bağımlılık grafiğinin tamamı burada, tek yerde okunuyor.
 	d := deps{
-		books: books.NewRepository(pool),
+		books:  books.NewRepository(pool),
+		genres: genres.NewRepository(pool),
 	}
 
 	// http.Server'ı elle kuruyoruz: timeout'lar + Shutdown() erişimi.

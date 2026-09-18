@@ -7,8 +7,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/mtgezgin/bookhub/backend/internal/database"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
 )
 
@@ -73,12 +73,10 @@ func (r *Repository) Get(ctx context.Context, id int64) (db.Book, error) {
 func (r *Repository) Create(ctx context.Context, params db.CreateBookParams) (db.Book, error) {
 	book, err := r.q.CreateBook(ctx, params)
 	if err != nil {
-		// Postgres 23505 = unique_violation. books tablosunda istemcinin
-		// ihlal EDEBİLECEĞİ tek benzersizlik kısıtı slug'dır (id'yi DB üretiyor),
-		// bu yüzden kodu doğrudan slug çakışmasına eşliyoruz. İleride ikinci bir
-		// UNIQUE kolon eklenirse burası pgErr.ConstraintName'e bakmalı.
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		// Postgres 23505 = unique_violation. books tablosunda istemcinin ihlal
+		// EDEBİLECEĞİ tek benzersizlik kısıtı slug'dır (id'yi DB üretiyor). İkinci bir
+		// UNIQUE kolon eklenirse genres.translateWriteErr gibi kısıt adına bakmalı.
+		if _, ok := database.UniqueViolation(err); ok {
 			return db.Book{}, ErrDuplicateSlug
 		}
 		return db.Book{}, fmt.Errorf("kitap ekleme sorgusu: %w", err)

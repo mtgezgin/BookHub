@@ -230,6 +230,17 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 		assertParams(t, fake.got, want)
 	})
 
+	t.Run("slug gönderilmezse başlıktan türetilir (Türkçe karakterler dahil)", func(t *testing.T) {
+		fake := &capturingBooks{fakeBooks: fakeBooks{book: db.Book{ID: 1}}}
+		rec := do(t, newRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", `{"title":"Şeker Portakalı","author":"José Mauro"}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("durum kodu: istenen 201, gelen %d (%s)", rec.Code, rec.Body)
+		}
+		if fake.got.Slug != "seker-portakali" {
+			t.Errorf("türetilen slug: istenen %q, gelen %q", "seker-portakali", fake.got.Slug)
+		}
+	})
+
 	t.Run("language gönderilmezse varsayılan tr (DB DEFAULT devreye girmez)", func(t *testing.T) {
 		fake := &capturingBooks{fakeBooks: fakeBooks{book: db.Book{ID: 1}}}
 		rec := do(t, newRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", `{"title":"T","slug":"t","author":"a"}`)

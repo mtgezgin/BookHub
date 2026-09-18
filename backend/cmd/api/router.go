@@ -14,7 +14,8 @@ import (
 // Struct ile testler yalnızca ihtiyaç duydukları alanı doldurur: deps{books: fake}.
 // Yine de elle DI: grafın tamamı main.go'da tek yerde kuruluyor (GO_CONVENTIONS §3).
 type deps struct {
-	books bookStore
+	books  bookStore
+	genres genreStore
 }
 
 // newRouter, uygulamanın HTTP router'ını (yönlendiricisini) kurar.
@@ -40,12 +41,17 @@ func newRouter(d deps) http.Handler {
 	// Herkese açık okuma uçları.
 	r.Get("/api/books", handleListBooks(d.books))
 	r.Get("/api/books/{id}", handleGetBook(d.books)) // {id} = Chi URL parametresi
+	r.Get("/api/genres", handleListGenres(d.genres))
 
 	// /api/admin altı Faz 3'te auth middleware'iyle korunacak — şimdilik açık.
 	// Ayrı yol öneki bilinçli: yetki kararı routing tablosunda görünsün, handler
 	// içindeki bir "if user.IsAdmin" dalında değil.
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Post("/books", handleCreateBook(d.books))
+
+		r.Post("/genres", handleCreateGenre(d.genres))
+		r.Patch("/genres/{id}", handleUpdateGenre(d.genres))
+		r.Delete("/genres/{id}", handleDeleteGenre(d.genres))
 	})
 
 	return r

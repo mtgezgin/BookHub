@@ -12,6 +12,7 @@ import (
 
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
+	"github.com/mtgezgin/bookhub/backend/internal/slug"
 )
 
 // bookStore, kitap handler'larının repository'den ihtiyaç duyduğu davranışlar.
@@ -151,6 +152,11 @@ func (req *createBookRequest) normalize() {
 	if req.Language == "" {
 		req.Language = defaultLanguage
 	}
+	// Slug gönderilmediyse başlıktan türet: kullanıcıdan (öneri formunda) URL kimliği
+	// uydurmasını beklemek kötü deneyim. Türetilen slug da aynı doğrulamadan geçer.
+	if req.Slug == "" {
+		req.Slug = slug.Make(req.Title)
+	}
 }
 
 // validate, normalize edilmiş gövdeyi denetler; TÜM problemleri tek hatada toplar.
@@ -158,7 +164,7 @@ func (req createBookRequest) validate() error {
 	var v validator
 	v.required("title", req.Title)
 	v.maxLen("title", req.Title, maxTitleLen)
-	v.required("slug", req.Slug)
+	v.required("slug", req.Slug) // title'dan türetilemediyse (ör. yalnız emoji) boş kalır
 	v.maxLen("slug", req.Slug, maxSlugLen)
 	v.match("slug", req.Slug, slugPattern, "küçük harf, rakam ve tek tire; ör. clean-code")
 	v.required("author", req.Author)
