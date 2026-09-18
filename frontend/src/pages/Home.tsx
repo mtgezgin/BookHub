@@ -11,7 +11,9 @@ export function Home() {
   const [params, setParams] = useSearchParams();
   const q = params.get("q") ?? "";
   const genre = params.get("genre") ?? "";
-  const offset = Number(params.get("offset") ?? 0);
+  // URL elle değiştirilebilir (/?offset=abc): geçersiz/negatif değer 0 sayılır (NaN API'ye gitmesin).
+  const parsed = parseInt(params.get("offset") ?? "0", 10);
+  const offset = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 
   const [page, setPage] = useState<Page<Book> | null>(null);
   const [genres, setGenres] = useState<Genre[]>([]);

@@ -19,7 +19,15 @@ export function Moderation() {
   const [genre, setGenre] = useState("");
 
   const load = useCallback(() => {
-    api.adminBooks(status, offset).then(setPage).catch(setError);
+    api
+      .adminBooks(status, offset)
+      .then((p) => {
+        // Son sayfadaki son kitap onaylanınca/reddedilince o sayfa boşalır: bir sayfa geri
+        // git (yoksa admin "liste boş" ekranında mahsur kalırdı — review bulgusu R1).
+        if (p.items.length === 0 && offset > 0) setOffset(Math.max(0, offset - p.limit));
+        else setPage(p);
+      })
+      .catch(setError);
   }, [status, offset]);
   useEffect(load, [load]);
 
@@ -67,7 +75,7 @@ export function Moderation() {
           </li>
         ))}
       </ul>
-      {page && page.total > page.limit && (
+      {page && (offset > 0 || page.total > page.limit) && (
         <div className="pager">
           <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - page.limit))}>← Önceki</button>
           <span className="muted">{offset + 1}–{Math.min(offset + page.limit, page.total)} / {page.total}</span>

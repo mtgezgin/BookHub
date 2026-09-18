@@ -40,7 +40,13 @@ function storeSession(s: Session) {
   onSessionChange(s.user);
 }
 
+// Oturum "dönemi": her çıkış/düşme onu artırır. Uçuştaki bir yenileme, başladığından beri
+// dönem değiştiyse (kullanıcı bu arada çıkış yaptı) sonucunu YAZMAZ — yoksa çıkıştan sonra
+// gelen yenileme cevabı oturumu geri diriltirdi (review bulgusu R4).
+let sessionEpoch = 0;
+
 function clearSession() {
+  sessionEpoch++;
   accessToken = null;
   localStorage.removeItem(REFRESH_KEY);
   onSessionChange(null);
@@ -75,6 +81,7 @@ async function doRefresh(): Promise<boolean> {
 async function refreshOnce(): Promise<boolean> {
   const token = localStorage.getItem(REFRESH_KEY);
   if (!token) return false;
+  const epoch = sessionEpoch;
   let res: Response;
   try {
     res = await fetch("/api/auth/refresh", {
@@ -93,7 +100,9 @@ async function refreshOnce(): Promise<boolean> {
   }
   // 429 (NGINX sınırı), 502/5xx (API yeniden başlıyor): geçici — token'ı koru, sonra yeniden dene.
   if (!res.ok) return false;
-  storeSession((await res.json()) as Session);
+  const session = (await res.json()) as Session;
+  if (epoch !== sessionEpoch) return false; // bu arada çıkış yapıldı: diriltme
+  storeSession(session);
   return true;
 }
 
@@ -148,6 +157,9 @@ export const api = {
   register: (email: string, display_name: string, password: string) =>
     request<User>("POST", "/api/auth/register", { email, display_name, password }, false),
   async logout(): Promise<void> {
+    // Uçuşta bir yenileme varsa önce bitsin: sunucuda token'ı döndürüyorsa, çıkışta
+    // silinmesi gereken YENİ token'dır (eskisi zaten tüketildi).
+    if (refreshing) await refreshing.catch(() => false);
     const token = localStorage.getItem(REFRESH_KEY);
     clearSession();
     if (token) await request<void>("POST", "/api/auth/logout", { refresh_token: token }, false).catch(() => {});

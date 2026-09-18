@@ -98,6 +98,25 @@ describe("api client", () => {
     expect(localStorage.getItem("bookhub.refresh")).toBeNull();
   });
 
+  // Review bulgusu R4: yenileme uçuştayken çıkış yapılırsa, yenilemenin cevabı oturumu
+  // geri diriltmemeli ve çıkış sunucuya YENİ (döndürülmüş) token'ı iptal ettirmeli.
+  it("yenileme sırasında çıkış: oturum dirilmez, yeni token iptal edilir", async () => {
+    localStorage.setItem("bookhub.refresh", "refresh-0");
+    let resolveRefresh!: (r: Response) => void;
+    fetchMock
+      .mockImplementationOnce(() => new Promise<Response>((r) => (resolveRefresh = r))) // /refresh
+      .mockResolvedValueOnce(new Response(null, { status: 204 })); // /logout
+    const inFlight = refreshSession();
+    const loggingOut = api.logout();
+    resolveRefresh(json(200, session(1)));
+    await inFlight;
+    await loggingOut;
+    expect(localStorage.getItem("bookhub.refresh")).toBeNull();
+    const logoutCall = fetchMock.mock.calls[1];
+    expect(logoutCall[0]).toBe("/api/auth/logout");
+    expect(JSON.parse(logoutCall[1].body)).toEqual({ refresh_token: "refresh-1" });
+  });
+
   it("204 cevabı gövdesiz döner", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await expect(request("DELETE", "/api/admin/comments/1")).resolves.toBeUndefined();

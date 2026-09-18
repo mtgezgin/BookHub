@@ -11,15 +11,18 @@ export function BookDetail() {
   const [book, setBook] = useState<Book | null>(null);
   const [summary, setSummary] = useState<RatingSummary | null>(null);
   const [comments, setComments] = useState<Page<Comment> | null>(null);
+  const [commentOffset, setCommentOffset] = useState(0);
   const [mine, setMine] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<unknown>(null);
 
+  // Hatalar YUTULMAZ: özet ya da yorumlar gelmezse boş ("henüz puan yok") gibi görünüp
+  // yanıltmasın, hata kutusunda görünsün (review bulgusu R2).
   const reload = useCallback(() => {
     api.book(id).then(setBook).catch(setError);
-    api.ratingSummary(id).then(setSummary).catch(() => {});
-    api.comments(id).then(setComments).catch(() => {});
-  }, [id]);
+    api.ratingSummary(id).then(setSummary).catch(setError);
+    api.comments(id, commentOffset).then(setComments).catch(setError);
+  }, [id, commentOffset]);
 
   useEffect(reload, [reload]);
   useEffect(() => {
@@ -131,6 +134,13 @@ export function BookDetail() {
             </li>
           ))}
         </ul>
+        {comments && comments.total > comments.limit && (
+          <div className="pager">
+            <button disabled={commentOffset === 0} onClick={() => setCommentOffset(Math.max(0, commentOffset - comments.limit))}>← Yeniler</button>
+            <span className="muted small">{commentOffset + 1}–{Math.min(commentOffset + comments.limit, comments.total)} / {comments.total}</span>
+            <button disabled={commentOffset + comments.limit >= comments.total} onClick={() => setCommentOffset(commentOffset + comments.limit)}>Eskiler →</button>
+          </div>
+        )}
       </section>
     </article>
   );
