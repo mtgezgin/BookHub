@@ -8,7 +8,7 @@ SHELL := /bin/bash
 ENV := set -a; . ./.env; set +a
 GO := go -C backend
 
-.PHONY: help up down app-up app-down logs run test test-db lint fmt sqlc migrate-status admin smoke perf-seed docker-build
+.PHONY: help up down app-up app-down logs run test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build web web-test
 
 help: ## Hedefleri listele
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -52,6 +52,11 @@ migrate-status: ## Migration durumu
 admin: ## İlk admin'i oluştur: make admin EMAIL=sen@ornek.com (parola gizli sorulur)
 	$(ENV); $(GO) run ./cmd/manage create-admin -email "$(EMAIL)"
 
+demo-seed: ## Arayüz için örnek katalog (türler, klasikler, puanlar, yorumlar) — tekrar çalıştırılabilir
+	docker exec -i bookhub-postgres psql -U bookhub -d bookhub < backend/scripts/demo_seed.sql
+	@# Seed uygulamayı atlayıp DB'ye doğrudan yazdı → top-rated cache'i bayat; sil (TTL'i beklemeden).
+	docker exec bookhub-redis redis-cli del books:top-rated:v1 >/dev/null || true
+
 smoke: ## MVP Definition of Done'ı çalışan API'ye karşı doğrula (API=... ile değiştirilebilir)
 	$(ENV); API=$${API:-http://localhost:8080} backend/scripts/mvp_smoke.sh
 
@@ -62,3 +67,9 @@ perf-seed: ## Ayrı bookhub_perf DB'sine 20k kitap / ~200k oy (EXPLAIN ve yük t
 
 docker-build: ## API imajını derle
 	docker build -t bookhub-api:dev backend
+
+web: ## Frontend geliştirme sunucusu (http://localhost:5173; /api → localhost:8080)
+	cd frontend && npm install && npm run dev
+
+web-test: ## Frontend tip kontrolü + testler
+	cd frontend && npm run typecheck && npm test
