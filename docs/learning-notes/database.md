@@ -12,6 +12,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 5. [sqlc + parametreli INSERT: DB DEFAULT'u neden devreye girmez?](#5-sqlc--parametreli-insert-db-defaultu-neden-devreye-girmez)
 6. [Durum makinesi + denetim kaydı: kural nerede yaşamalı?](#6-durum-makinesi--denetim-kaydı-kural-nerede-yaşamalı)
 7. [Kayıp güncelleme (lost update): neden kilit, neden türetilmiş veri?](#7-kayıp-güncelleme-lost-update-neden-kilit-neden-türetilmiş-veri)
+8. [EXPLAIN ANALYZE nasıl okunur? (index'in neden kullanılmadığını bulmak)](#8-explain-analyze-nasıl-okunur-indexin-neden-kullanılmadığını-bulmak)
 
 ---
 
@@ -349,3 +350,60 @@ Veri yarışını yalnızca eşzamanlı entegrasyon testi (ve kilidi silip düş
 - [backend/sql/queries/ratings.sql](../../backend/sql/queries/ratings.sql) — `LockApprovedBook`, `UpsertRating`, `RefreshBookRatingStats`
 - [backend/internal/ratings/service.go](../../backend/internal/ratings/service.go)
 - [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §10
+
+---
+
+## 8. EXPLAIN ANALYZE nasıl okunur? (index'in neden kullanılmadığını bulmak)
+
+**🗓️ Bağlam:** Faz 6'da top-rated ucunu ölçerken; 20 bin kitaplık sentetik veriyle
+(`backend/scripts/perf_seed.sql`) sorgu planlarına baktık ve Faz 2'den beri var olan bir index'in
+hiç kullanılmadığını keşfettik.
+
+**⚡ Kısa cevap:** `EXPLAIN ANALYZE` sorguyu **gerçekten çalıştırır** ve her adımın gerçek süresini,
+satır sayısını ve hangi yolu (Seq Scan / Index Scan / Sort) seçtiğini gösterir. "Yavaş" hissine
+değil bu çıktıya bakarak karar verirsin.
+
+**📖 Açıklama:**
+
+Okuma sırası: **içten dışa, alttan üste**. En içteki satır veriyi okur, üsttekiler onu işler.
+
+```
+Limit (actual time=6.46..6.46 rows=20)
+  ->  Sort  Sort Key: created_at DESC, id DESC   Sort Method: top-N heapsort
+        ->  Seq Scan on books  (rows=18000)        ← 18 bin satırı baştan sona okudu
+Execution Time: 6.511 ms
+```
+
+Burada alarm: tabloda `(created_at DESC) WHERE status='APPROVED'` index'i VAR ama plan **Seq Scan**
+diyor. Neden? Sorgu `ORDER BY created_at DESC, id DESC` — ikinci anahtar `id` index'te yok, index
+sıralamanın tamamını veremiyor. Planlayıcı "zaten hepsini sıralayacaksam index'le uğraşmayayım" dedi.
+
+```
+Limit ->  Index Scan using books_approved_recent_idx   (rows=20)   ← yalnız 20 satır
+Execution Time: 0.058 ms
+```
+
+Index `(created_at DESC, id DESC)` olunca: yalnızca gereken 20 satır, ~100 kat hızlı.
+
+**Sözlük:**
+
+| Terim | Anlamı |
+|---|---|
+| Seq Scan | tablonun tamamını oku (küçük tabloda ya da satırların çoğu lazımken doğru seçim) |
+| Index Scan | index'ten git, yalnız gereken satırları oku |
+| top-N heapsort | LIMIT'li sıralama: hepsini değil en iyi N'i tutar (ucuz ama yine tam okuma ister) |
+| Hash Join | küçük tarafı belleğe hash'le, büyüğü tara (bizim C sorgusu: 209 bin oy × kitaplar = 43 ms) |
+| actual time=a..b | ilk satırın ve son satırın hazır olduğu an (ms) |
+| rows / loops | gerçek satır sayısı / o adımın kaç kez çalıştığı (paralel işçilerde loops=2) |
+
+**Üç kural:**
+1. Index'i yalnız WHERE'e göre değil, **WHERE + ORDER BY'ın tamamına** göre tasarla.
+2. Küçük tabloda Seq Scan normaldir — ölçmek için gerçekçi hacimde veri üret (dev DB'de 3 kitapla
+   her plan aynı görünür).
+3. Önce index/sorgu, SONRA cache: C'yi 209 bin satır yerine 20 bin kitap agregatından hesaplamak
+   43 ms'yi 5.7 ms'ye indirdi — Redis'e hiç gerek kalmadan.
+
+**🔗 İlgili:**
+- [backend/migrations/0005_listing_indexes.sql](../../backend/migrations/0005_listing_indexes.sql)
+- [backend/scripts/perf_seed.sql](../../backend/scripts/perf_seed.sql)
+- [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §12

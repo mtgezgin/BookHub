@@ -11,6 +11,7 @@ Dil-bağımsız backend/web kavramları: HTTP, API tasarımı, config/12-factor,
 4. [The Twelve-Factor App (12-factor) nedir?](#4-the-twelve-factor-app-12-factor-nedir)
 5. [HTTP hata kodları: bu kimin hatası? (400 / 409 / 500)](#5-http-hata-kodları-bu-kimin-hatası-400--409--500)
 6. [Middleware ve context: kimlik isteğe nasıl taşınır? (401 vs 403)](#6-middleware-ve-context-kimlik-isteğe-nasıl-taşınır-401-vs-403)
+7. [Ağırlıklı (Bayes) puan: neden basit ortalama sıralamaya yetmez?](#7-ağırlıklı-bayes-puan-neden-basit-ortalama-sıralamaya-yetmez)
 
 ---
 
@@ -296,3 +297,47 @@ gibi kaynak sahipliği kontrolü servis katmanında yapılır (IDOR — Faz 5).
 - [backend/cmd/api/middleware.go](../../backend/cmd/api/middleware.go)
 - [backend/cmd/api/router.go](../../backend/cmd/api/router.go) — `/api/admin` grubu
 - [security-and-auth.md](security-and-auth.md) — Girdi 2 (BOLA/IDOR)
+
+---
+
+## 7. Ağırlıklı (Bayes) puan: neden basit ortalama sıralamaya yetmez?
+
+**🗓️ Bağlam:** Faz 6'da "en iyi kitaplar" listesini yazarken. İlk entegrasyon testim yanlış bir
+sezgiyi yakaladı — formül değil, ben yanılmıştım.
+
+**⚡ Kısa cevap:** Her kitabı, sanki **m tane "katalog ortalaması" oyla** başlıyormuş gibi düşün.
+Az oylu kitabın gerçek oyları bu sanal oyların yanında zayıf kalır → skoru katalog ortalamasına (C)
+yakın durur. Çok oylu kitabın sanal oyları kaybolur → kendi ortalamasına yakın durur.
+
+**📖 Açıklama:**
+
+```
+WR = (v / (v + m)) · R  +  (m / (v + m)) · C
+      ↑ kendi ortalamasının ağırlığı   ↑ katalog ortalamasının ağırlığı
+```
+
+| Kitap | R | v | WR (m=10, C=7) |
+|---|---|---|---|
+| A — 1 kişi 10 verdi | 10 | 1 | 7.27 |
+| B — 2000 kişi ortalama 8.5 | 8.5 | 2000 | 8.49 |
+
+Basit ortalamada A birinci olurdu. "Bir kişinin 10 vermesi" zayıf bir kanıt; formül bunu sayıyla ifade ediyor.
+
+**m nasıl seçilir?** m büyüdükçe az oylu kitaplar C'ye daha çok çekilir. Brief'teki m=100, 30 oylu
+bir kitabı bile C'ye yapıştırır — küçük katalogda sıralama anlamsızlaşır. Bu yüzden 10 ile başladık
+(`RATING_MIN_VOTES`), katalog büyüdükçe artırılır.
+
+**C'nin etkisi — testin öğrettiği:** ilk testte yalnız iki kitap vardı: 30 kişi 9 vermiş, 1 kişi 10
+vermiş. C ≈ 9.03 çıktı (oyların çoğu 9'luk kitaptan) ve 1 oylu kitap ÖNE geçti (9.12 > 9.01). Önce
+bug sandım; değildi. C = 9 olan bir dünyada 9'luk kitap "ortalamanın altında", tek 10 ise "zayıf ama
+olumlu" kanıt — formül tutarlı. Brief'in iddiası C her iki kitabın da altındayken geçerli, yani
+gerçekçi bir katalogda. Test artık bunu açıkça kuruyor (40 oyla 5 alan arka plan kitabı → C ≈ 6.9).
+
+**Neden skor saklanmıyor?** C globaldir: herhangi bir kitaba verilen tek oy C'yi, dolayısıyla
+BÜTÜN kitapların skorunu değiştirir. Saklanan bir `weighted_score` kolonu her oyda bayatlar.
+Sorgu anında hesaplamak ucuz (14 ms/20 bin kitap); yavaşlarsa cache (Faz 7).
+
+**🔗 İlgili:**
+- [backend/internal/ratings/score.go](../../backend/internal/ratings/score.go) — saf fonksiyon (spesifikasyon)
+- [backend/sql/queries/ratings.sql](../../backend/sql/queries/ratings.sql) — `ListTopRated` (SQL'de aynı formül)
+- `TestTopRatedRealDB` — SQL ↔ Go karşılaştırması

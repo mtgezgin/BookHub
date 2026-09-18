@@ -290,7 +290,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 9. Concurrency: goroutines vs the Node event loop (CPU-bound fan-out)
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 6 — backend/internal/ratings/recalc.go worker pool — TBD]`
+**Status:** `FALSIFIED-FOR-THIS-PROJECT` (Faz 6) · **Illustration:** yok — bilerek.
+>
+> **❌ Faz 6 (dürüst not):** CPU-bound bir fan-out işi hiç doğmadı. Ağırlıklı puan query-time SQL'de hesaplanıyor (tek geçiş + LIMIT, 14 ms/20 bin kitap); "paralel recompute worker pool" yazmak hem gereksiz hem de "skor saklanmaz" kararıyla çelişirdi. Goroutine'ler bu projede yalnızca TESTTE eşzamanlı istemci üretmek için kullanıldı (25 eşzamanlı oy, iki admin yarışı) — orada gerçekten rahat. Hipotez bu projenin ölçeğinde test edilemedi; uydurma bir iş yaratmıyoruz.
 
 - **Hypothesis:** Goroutines + `errgroup` / a bounded worker pool can recompute weighted
   scores across all books in **true parallel** across cores — work that Node's single thread
@@ -365,7 +367,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 12. Performance & memory under load on read-hot endpoints
 
-**Status:** `HYPOTHESIS` / `UNVERIFIED-PERF` · **Illustration:** `[Phase 6–7 — benchmark + before/after cache numbers — TBD]`
+**Status:** `PARTIAL` (Faz 6 ölçümü; yük testi Faz 7) · **Illustration:** `backend/migrations/0005_listing_indexes.sql`, `backend/scripts/perf_seed.sql`
+>
+> **🟡 Faz 6 — EXPLAIN ANALYZE (20 bin kitap, ~209 bin oy):** En büyük kazanımlar dilden değil SORGUDAN geldi: (1) public liste Faz 2'deki index'i hiç kullanmıyordu — `ORDER BY created_at DESC, id DESC`'in ikinci anahtarı index'te yoktu; `(created_at DESC, id DESC)` ile 6.5 ms → 0.06 ms. (2) Genel ortalama C her istekte 209 bin oyu tarıyordu (43 ms); kitap agregatlarından hesaplayınca 5.7 ms. (3) Top-rated sorgusunun kendisi (14 ms) index'le hızlanamaz — sıralama anahtarı global C'ye bağlı. Faz 7'de cache'lenecek olan tam da bu, ve karar ÖLÇÜLDÜ. Go vs Node farkı bu uçta ölçülemez: süre DB'de geçiyor.
 
 - **Hypothesis:** On read-hot paths Go's per-request allocation/GC profile is leaner than an
   equivalent Express handler — but for DB-bound endpoints the **database, not the language,**
@@ -387,7 +391,7 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 13. Standard toolchain & DX: `go test` / `vet` / `-race` / `gofmt` / `build` vs the JS toolchain
 
-**Status:** `CONFIRMED` (kısmi, Faz 1) · **Illustration:** `backend/internal/config/config_test.go:TestLoad` (table-driven, 7 alt-test) + `.github/workflows/ci.yml` (CI — Faz 10'dan öne çekildi) + `.githooks/` (fmt/vet/lint/test hook'ları).
+**Status:** `CONFIRMED` (Faz 1 + Faz 6 bayrak testi) · **Illustration:** `backend/internal/ratings/score_test.go:TestWeightedScore` (bayrak tablo testi: brief örnekleri + kenarlar + özellik testleri), `backend/internal/config/config_test.go:TestLoad` (table-driven, 7 alt-test) + `.github/workflows/ci.yml` (CI — Faz 10'dan öne çekildi) + `.githooks/` (fmt/vet/lint/test hook'ları).
 >
 > **✅ Faz 1:** sıfır-config toolchain (`go test`/`vet`/`gofmt`, hepsi kutudan) + table-driven gerçekten rahat — JS'teki jest+eslint+prettier+tsc kurulum yükü yok. Dürüst karşı-nokta: JS'in mock/snapshot/watch ekosistemi daha zengin. (Bayrak weighted-score testi hâlâ Faz 6.)
 
@@ -497,6 +501,12 @@ Seed entries:
 20. **Kayıp güncelleme (§10):** Node'da aynı hata aynı biçimde olur (iki istek, iki transaction);
     çözüm de aynı SQL. Go'nun goroutine'leri testi YAZMAYI kolaylaştırdı (25 eşzamanlı istemci,
     `sync.WaitGroup` + başlangıç kanalı), ama hatayı bulan şey dil değil, test tasarımıydı.
+
+**Faz 6'da eklenen dürüst gözlemler:**
+21. **Performans (§12):** ölçülen üç iyileştirmenin üçü de SQL'di (index, agregat, sıralama).
+    Aynı API Node'da aynı sorgularla aynı sürede cevap verirdi; darboğaz dil değil DB.
+22. **Tablo testi (§13):** `it.each` ile Jest'te aynı test aynı kısalıkta yazılır. Go'nun avantajı
+    yalnızca sıfır bağımlılık — ifade gücü değil.
 
 > **Refleksiyon (TR):** Buraya her Go bölümü doldurduğunda en az bir dürüst "TS/JS kazanırdı"
 > girdisi ekle. Bu bölüm büyümüyorsa, doküman Go reklamına kaymış demektir.

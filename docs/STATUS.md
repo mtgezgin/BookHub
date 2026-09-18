@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme:** Faz 5 ✅ TAMAM. Sırada **Faz 6 — Ağırlıklı puan**.
+**Son güncelleme:** Faz 6 ✅ TAMAM. Sırada **Faz 7 — Redis cache + rate limit (MVP sonu)**.
 **Hedef (kullanıcı talebi, 2026-09):** projeyi baştan sona bitir — MVP (Faz 1–7) + opsiyonel
 altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push.
 
@@ -22,8 +22,8 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
 | 3 | Auth + roller (JWT, bcrypt, refresh token, admin guard) | ✅ |
 | 4 | Öneri + moderasyon (state machine, audit log) | ✅ |
 | 5 | Yorum + puan (ON CONFLICT, tx-içi agregat, eşzamanlılık) | ✅ |
-| 6 | Ağırlıklı puan (Bayesian, top-rated) | ⏭️ sırada |
-| 7 | Redis cache + rate limit + yük testi — **MVP sonu** | ⏳ |
+| 6 | Ağırlıklı puan (Bayesian, top-rated) | ✅ |
+| 7 | Redis cache + rate limit + yük testi — **MVP sonu** | ⏭️ sırada |
 | 8–12 | Docker imajı · Frontend · CI/CD · NGINX · Kubernetes | ⏳ |
 
 ## Faz 2'de ne oldu (özet)
@@ -70,12 +70,19 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
   satırı `FOR UPDATE`. Kilitsiz 25 eşzamanlı oyda sayım 16–19'a düşüyordu.
 - **Commit'ler:** `69d44f8` audit refactor · `73bcb97` şema+servis · `cc18495` uçlar · (docs).
 
-## Sıradaki: Faz 6 — Ağırlıklı puan (plan)
+## Faz 6'da ne oldu (özet)
 
-1. `internal/ratings/score.go`: saf `WeightedScore(R, v, m, C)` + brief'teki örnek değerlerle tablo testi.
-2. `C` = tüm puanların ortalaması (SQL `AVG`), puan yoksa cold-start fallback; `m` config (`RATING_MIN_VOTES`, ~10).
-3. `GET /api/books/top-rated?limit=` — query-time `ORDER BY` ağırlıklı skor (saklanan kolon yok);
-   `EXPLAIN ANALYZE` gözlemi WHY §12'ye.
+- `ratings.WeightedScore` (saf, bayrak tablo testi) + `GET /api/books/top-rated` (query-time SQL; SQL↔Go testli).
+- EXPLAIN ANALYZE (`backend/scripts/perf_seed.sql`, ayrı `bookhub_perf` DB): public liste index'i
+  düzeltildi (6.5 → 0.06 ms), C hesabı 43 → 5.7 ms. Top-rated sıralaması 14 ms — index'le hızlanamaz.
+- **Commit'ler:** `1e4ab05` · `4e3217a` · `06f9ec8` · (docs).
+
+## Sıradaki: Faz 7 — Redis + rate limit (plan)
+
+1. Önce ÖLÇ: `hey`/`ab` ile top-rated yük testi (cache'siz), sayıları WHY §12'ye.
+2. docker-compose'a Redis (127.0.0.1:6379), `REDIS_URL` (opsiyonel — yoksa cache kapalı), go-redis/v9.
+3. Top-rated cache (TTL + puan yazımında invalidation), sonra aynı yük testi → öncesi/sonrası.
+4. Rate limit: login/register — önce in-memory token bucket, sonra Redis (çok-instance).
 
 ## Ortam / gerçekler
 

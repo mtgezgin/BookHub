@@ -1,6 +1,6 @@
 # Faz 6 — Ağırlıklı Puan (Weighted Rating)
 
-> Durum: 📝 taslak · Önkoşul: Faz 5 ✅
+> Durum: ✅ TAMAM · Önkoşul: Faz 5 ✅
 > İlgili: [WHY_GO_VS_TS](../WHY_GO_VS_TS.md) §9/§12/§13 · [GO_CONVENTIONS](../GO_CONVENTIONS.md) §8 · [PROJECT_BRIEF](../PROJECT_BRIEF.md) §6.7
 
 ## 🎯 Amaç
@@ -26,11 +26,24 @@ IMDb tarzı Bayesian ağırlıklı puanı uygula ve **table-driven test**'lerle 
   önce ölç. (WHY_GO_VS_TS §12)
 - "Paralel recompute job" yazma — bu ölçekte sahte; ayrıca query-time kararıyla çelişir.
 
-## ✅ Tamamlanma (taslak)
+## ✅ Tamamlanma
 
-- [ ] `WeightedScore` pure fonksiyonu + kapsamlı table-driven testler (brief'teki örnek değerler).
-- [ ] Top-rated endpoint ağırlıklı skora göre sıralıyor (query-time veya matview).
-- [ ] `m` config'ten; `C` türetiliyor; cold-start davranışı dokümante.
+- [x] `WeightedScore` pure fonksiyonu + table-driven testler (brief'in örneği: m=100'de A 7.03 < B 8.43).
+- [x] `GET /api/books/top-rated` query-time ağırlıklı skorla sıralıyor; SQL skoru Go spesifikasyonuyla birebir (testli).
+- [x] `m` config'ten (`RATING_MIN_VOTES`, varsayılan 10); `C` türetiliyor, cold-start 5.5.
+- [x] EXPLAIN ANALYZE: public liste index'i düzeltildi (6.5 → 0.06 ms), C hesabı 43 → 5.7 ms.
+
+## 🧾 Ne yapıldı
+
+| Commit | İçerik |
+|---|---|
+| `1e4ab05` | `WeightedScore` + bayrak tablo testi |
+| `4e3217a` | top-rated ucu (query-time), config `RATING_MIN_VOTES` |
+| `06f9ec8` | EXPLAIN ANALYZE bulguları: index (0005) + agregattan C; `scripts/perf_seed.sql` |
+
+**Testin öğrettiği:** ilk entegrasyon testinde yalnız iki kitap vardı ve C ≈ 9 çıktı; o dünyada
+1 oylu 10'luk kitabın öne geçmesi istatistiksel olarak DOĞRU. Brief'in iddiası C iki kitabın da
+altındayken geçerli — gerçekçi bir katalogda. Test artık bu önkoşulu açıkça kuruyor.
 
 ## 📒 WHY_GO_VS_TS güncellemesi
 
