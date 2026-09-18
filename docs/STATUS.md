@@ -3,9 +3,9 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme:** Faz 7 ✅ — **MVP TAMAM** 🎉 (brief §15, `backend/scripts/mvp_smoke.sh` 21/21). Faz 8 (Docker) ✅. Sırada **Faz 9 — Frontend**.
-**Hedef (kullanıcı talebi, 2026-09):** projeyi baştan sona bitir — MVP (Faz 1–7) + opsiyonel
-altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push.
+**Son güncelleme (2026-09-18):** **12 fazın tamamı ✅** — MVP (Faz 1–7, brief §15; `backend/scripts/mvp_smoke.sh`
+21/21) + altyapı rayı (Docker, React frontend, CI/CD, NGINX, Kubernetes). Tek açık madde: gerçek bulut
+deploy'u (senin hesapların gerekiyor — [DEPLOYMENT.md](DEPLOYMENT.md)).
 
 > **Ortam notu:** Kabukta `go` bulunamazsa `export PATH="/opt/homebrew/bin:$HOME/go/bin:$PATH"`
 > — git hook'ları da `go: command not found` ile bu yüzden patlıyor.
@@ -24,7 +24,11 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
 | 5 | Yorum + puan (ON CONFLICT, tx-içi agregat, eşzamanlılık) | ✅ |
 | 6 | Ağırlıklı puan (Bayesian, top-rated) | ✅ |
 | 7 | Redis cache + rate limit + yük testi — **MVP sonu** | ✅ |
-| 8–12 | Docker imajı · Frontend · CI/CD · NGINX · Kubernetes | ⏭️ sırada |
+| 8 | Docker imajı + compose (`app` profili) | ✅ |
+| 9 | Frontend (React + Vite) | ✅ |
+| 10 | CI/CD (servis konteynerleri, E2E, release) | ✅ (deploy hesap ister) |
+| 11 | NGINX (tek origin, CSP, güvenilen proxy) | ✅ |
+| 12 | Kubernetes (kind'da doğrulandı) | ✅ |
 
 ## Faz 2'de ne oldu (özet)
 
@@ -85,19 +89,28 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
 - **MVP DoD:** `set -a; source .env; set +a; API=http://localhost:8080 backend/scripts/mvp_smoke.sh`
 - **Commit'ler:** `5e1a179` · `5a223d8` · `62c7c28` · `3376982` · (docs).
 
-## Sıradaki: altyapı rayı (Faz 8–12, brief §18.2'ye göre opsiyonel)
+## Faz 8–12'de ne oldu (özet)
 
-8. Docker: çok aşamalı `Dockerfile` (distroless/scratch), compose'a `api` servisi, `Makefile`.
-9. Frontend: React + Vite (liste, detay, giriş/kayıt, öneri, admin kuyruğu).
-10. CI/CD: GitHub Actions (test + imaj build); gerçek bulut deploy'u hesap gerektirir (kullanıcıda).
-11. NGINX: reverse proxy + statik frontend, güvenilir proxy başlığı.
-12. Kubernetes: manifest'ler (Deployment/Service/ConfigMap/Secret şablonu), kind ile yerel deneme.
+- **8 Docker:** distroless imaj 38 MB, uid 65532; slog JSON log + `X-Request-Id`; `run() int` ile temiz çıkış.
+- **9 Frontend:** React 19 + Vite; tek uçuşlu token yenileme (refresh token tek kullanımlık olduğu için şart).
+- **10 CI/CD:** gerçek Postgres/Redis ile entegrasyon testleri, frontend işi, compose + smoke E2E;
+  imaj yayını yalnız `v*` etiketi/elle (`release.yml`).
+- **11 NGINX:** tek origin, CSP + başlıklar (add_header tuzağı snippet ile aşıldı), `X-Real-IP`'ye
+  yalnız güvenilen proxy'den güven; root olmayan NGINX.
+- **12 Kubernetes:** kustomize manifestleri, migrate Job, 2 API kopyası, pod güvenliği; kind'da 21/21.
+
+## Sıradaki (opsiyonel)
+
+1. Bulut deploy'u: [DEPLOYMENT.md](DEPLOYMENT.md) (Supabase + Upstash + konteyner platformu).
+2. Bilinen borçlar: [PROJECT_MAP.md](PROJECT_MAP.md) §7 (refresh çerezi, token ailesi, kullanıcı silme).
+3. Brief §12 ekstraları (okuma listeleri, raporlar, öneri sistemi…).
 
 ## Ortam / gerçekler
 
 - **Go toolchain 1.27.0** (Homebrew) · `go.mod` dil sürümü 1.26.4 · module `github.com/mtgezgin/bookhub/backend`.
 - CLI'lar `~/go/bin`: goose v3.27.2, sqlc v1.31.1, golangci-lint v2.13 (CI v2.12.2 pinli).
-- Docker Desktop + `docker compose up -d` → Postgres 16 (`127.0.0.1:5432`, LAN'a kapalı). Veri named volume'da.
+- Docker Desktop + `docker compose up -d` → Postgres 16 (`127.0.0.1:5432`) + Redis 7 (`127.0.0.1:6380` — 6379 başka projenin). Veri named volume'da.
+- Tüm uygulama: `make app-up` → http://localhost:3000 · Kubernetes: `make k8s-up` / `make k8s-down` (kind).
 - `.env` = `.env.example` kopyası (dotenv YOK: `set -a; source .env; set +a` ile yükle).
 - Testler: `go test -race ./...` (DB'siz, CI gibi) · `TEST_DATABASE_URL="$DATABASE_URL" go test -race ./...` (DB'li).
 - Commit kimliği: repo-yerel `user.email=mehmetturgutgezgin@gmail.com`.

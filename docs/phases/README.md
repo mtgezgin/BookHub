@@ -32,10 +32,10 @@ Tek seferde bir kavram. **Hiçbir soru fazla basit değil.** Takıldığın an "
 | [6](phase-06-weighted-rating.md) | Ağırlıklı puan | aggregation, pure fonksiyon, EXPLAIN ANALYZE | ✅ bitti |
 | [7](phase-07-redis-cache.md) | Redis cache + rate limit | cache/TTL, "önce ölç sonra ekle" | ✅ bitti — **MVP** |
 | [8](phase-08-docker.md) | Docker imajı + compose | multi-stage, distroless, servis DNS | ✅ bitti |
-| 9 | Frontend (React + Vite) | SPA, token yönetimi, proxy | ⏭️ |
-| 10 | CI/CD | GitHub Actions, imaj build | ⏭️ |
-| 11 | NGINX | reverse proxy, güvenilir IP başlığı | ⏭️ |
-| 12 | Kubernetes | Deployment/Service/probe'lar | ⏭️ |
+| [9](phase-09-frontend.md) | Frontend (React + Vite) | SPA, token yönetimi, proxy | ✅ bitti |
+| [10](phase-10-cicd.md) | CI/CD | servis konteynerleri, E2E, release | ✅ bitti (deploy hesap ister) |
+| [11](phase-11-nginx.md) | NGINX | reverse proxy, güvenilir IP başlığı, CSP | ✅ bitti |
+| [12](phase-12-kubernetes.md) | Kubernetes | Deployment/Job/probe, pod güvenliği | ✅ bitti |
 
 **Durum işaretleri:** ✅ bitti · 📖 detaylı (hazır) · 📝 taslak (sırası gelince birlikte
 detaylandırılacak) · ⏭️ ileride.

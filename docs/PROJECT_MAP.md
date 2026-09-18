@@ -1,279 +1,195 @@
 # BookHub — Proje Haritası (neyin ne olduğu)
 
-> **Bu dosya "NE" sorusunun cevabı:** hangi dosya ne işe yarar, hangi araç niye var, bir istek
-> nereden nereye gider. Kalıcı referans — uzun aradan sonra dönünce burayı oku.
-> **[STATUS.md](STATUS.md) ise "NEREDEYİZ" sorusunun cevabı:** o oturum-devir dosyası, her
-> oturumda güncellenir. İkisi kardeş: harita + imleç.
+> **Bu dosya "NE" sorusunun cevabı:** hangi dosya ne işe yarar, bir istek nereden nereye gider,
+> hangi araç niye var. Uzun aradan sonra dönünce burayı oku.
+> **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
 >
-> Bu haritanın içindeki tüm durum bilgisi **2026-09-10'da kod/komut çalıştırılarak
-> doğrulandı** (dosya envanteri, git durumu, testler, canlı ortam).
+> Son güncelleme: 12 fazın tamamı bitti (2026-09-18).
 
 ---
 
 ## 1. Otuz saniyelik özet
 
-**BookHub**, okunan kitapların kaydedildiği bir katalog + topluluk API'si. Ama asıl amaç ürün
-değil **öğrenme**: JS/TS geçmişinden gelen birinin backend teknolojilerini *neden var
-oldukları* üzerinden Go ile öğrenmesi. Bu yüzden her teknoloji, projede gerçek bir problem
-doğduğunda ekleniyor (§14.5 "sebepsiz teknoloji yok") ve kodun içi **Türkçe "neden böyle"
-yorumlarıyla dolu** — kaynak dosyalar aynı zamanda ders notu.
+**BookHub**, okunan kitapların kataloğu + topluluğu. Asıl amaç **öğrenme**: TS geçmişinden gelen
+birinin backend teknolojilerini *neden var oldukları* üzerinden Go ile öğrenmesi. Her teknoloji
+gerçek bir problem doğunca eklendi; kodun içi Türkçe "neden böyle" yorumlarıyla dolu.
 
-- **Yığın:** Go 1.26 + Chi (router) + pgx/v5 (Postgres sürücüsü) + sqlc (kod üreteci) + goose
-  (migration) + Docker Compose (dev Postgres). **ORM yok** — bilinçli karar.
-- **Nerede:** Faz 2 (Postgres) — kitap tarafı bitti; kalan tek iş genres + many-to-many.
-- **Çalışan:** `/health`, `GET /api/books`, `GET /api/books/{id}`, `POST /api/admin/books` (uçtan uca, gerçek DB'den, testli).
-- **Öğrenme günlüğü:** [learning-notes/](learning-notes/) altında **27 kayıtlı kavram**.
+- **Yığın:** Go (chi, pgx, sqlc, goose, slog) · PostgreSQL · Redis · React + Vite · NGINX ·
+  Docker · Kubernetes · GitHub Actions. **ORM yok.**
+- **Kapsam:** MVP (Faz 1–7) + altyapı rayı (Faz 8–12) tamam. Buluta deploy rehberi hazır, deploy
+  edilmedi (hesap gerektirir).
+- **Boyut:** ~6.5k satır Go (+ ~6k satır test, 151 test fonksiyonu), ~1k satır TypeScript,
+  5 migration, 41 öğrenme notu.
 
 ---
 
-## 2. Başlarken — komut zinciri (sırayla)
-
-Ortam her oturumda sıfırdan kaldırılır; container yeniden başlatmalarda ayakta kalmaz.
+## 2. Çalıştırma
 
 ```bash
-cd ~/Desktop/BookHub
-
-# 1) Dev Postgres'i kaldır (veri named volume'da, kaybolmaz)
-docker compose up -d
-docker compose ps            # "healthy" görene kadar bekle
-
-# 2) Env'i shell'e yükle  ⚠️ ZORUNLU — aşağıdaki tuzağa bak
-set -a; source .env; set +a
-
-# 3) Şema güncel mi?
-cd backend
-goose -dir migrations postgres "$DATABASE_URL" status
-
-# 4) API'yi çalıştır
-go run ./cmd/api            # kapatırken Ctrl+C — unutma!
-
-# 5) Doğrula (başka bir terminalde)
-curl localhost:8080/health          # {"status":"ok"}
-curl localhost:8080/api/books/1     # seed: "Clean Code"
+cp .env.example .env            # bir kez
+make app-up                     # her şey konteynerde → http://localhost:3000
+make demo-seed                  # örnek katalog
+make admin EMAIL=sen@ornek.com  # ilk admin (parola gizli sorulur)
+make smoke                      # MVP tanımını uçtan uca doğrula
+make help                       # tüm hedefler
 ```
 
-> ⚠️ **`.env` TUZAĞI:** Uygulama `.env` dosyasını **okumaz** (godotenv bilinçli olarak
-> eklenmedi). Dosya sadece bir şablon; değerleri shell'e **elle yüklemen** gerekir (adım 2).
-> Yüklemezsen `config.Load()` "DATABASE_URL zorunlu" diyerek boot'ta ölür — bu bir bug değil,
-> tasarım (fail-fast).
->
-> ⚠️ **`go run` unutulmuş süreç:** İki kez başımıza geldi (biri 14 gün ayakta kaldı). Port
-> doluysa: `lsof -ti :8080 | xargs kill`.
-
-Diğer sık komutlar:
-
-| Komut | Ne yapar |
+| Ne | Nerede |
 |---|---|
-| `go test -race ./...` | Tüm testler (yarış dedektörüyle) |
-| `gofmt -l .` | Formatı bozuk dosyaları listeler (`-w` düzeltir) |
-| `sqlc generate` | `sql/queries/*.sql` → `internal/db/*.go` (SQL değişince şart) |
-| `goose ... up` / `down` | Migration uygula / son migration'ı geri al (**down sadece dev**) |
-| `docker compose down` | DB'yi durdur (veri kalır) · `down -v` → **veriyi de sil** |
-| `docker exec -it bookhub-postgres psql -U bookhub` | DB'ye elle bak |
+| Uygulama (NGINX → frontend + API) | http://localhost:3000 |
+| API (doğrudan) | http://localhost:8080 |
+| Frontend geliştirme (`make web`) | http://localhost:5173 |
+| Kubernetes (`make k8s-up && make k8s-port`) | http://localhost:3001 |
+| Postgres / Redis (host'tan) | 127.0.0.1:5432 / 127.0.0.1:6380 |
+
+> ⚠️ **Redis host portu 6380** — bu makinede 6379'u başka bir projenin Redis'i kullanıyor.
+> ⚠️ Uygulama `.env`'i kendisi okumaz: host'ta `set -a; source .env; set +a` (Makefile bunu yapıyor).
 
 ---
 
-## 3. Şu an ne çalışıyor, ne çalışmıyor
-
-| | Durum |
-|---|---|
-| `GET /health` | ✅ çalışıyor |
-| `GET /api/books/{id}` | ✅ çalışıyor — DB'den gerçek veri, 400/404/500 haritalaması testli |
-| `GET /api/books` (liste) | ✅ çalışıyor — onaylılar, en yeniden eskiye; boş listede `[]` (JSON `null` değil) |
-| `POST /api/admin/books` | ✅ çalışıyor — ayrı request DTO (istemci `status` gönderemez), doğrulama, 201/400/409/500 |
-| Testler | ✅ yeşil: 18 test fonksiyonu / 52 senaryo (DB'siz); entegrasyon testleri `TEST_DATABASE_URL` ile |
-| Kod hijyeni | `gofmt`, `go vet`, `golangci-lint` — hepsi temiz |
-
-Faz 2'de kalan tek iş: **genres CRUD + `book_genres` many-to-many** (ara tablo + JOIN).
-
----
-
-## 4. Git ritmi: neyin commit'li, neyin beklediği
-
-Bu repoda **commit'ler milestone'da toplanır** — çünkü her `git commit` ağır kapılar tetikler
-(güvenlik review'u + test coverage + kod review) ve `git push` ayrıca çok ajanlı bir review
-paneli çalıştırır. Bu yüzden "her küçük adımda commit" ritmi burada pahalıdır.
-
-Faz 2'nin commit haritası:
-
-| Commit | İçerik |
-|---|---|
-| `f68e107` | Adım 1–3: docker-compose Postgres, zorunlu `DATABASE_URL`, ilk migration |
-| `7ddc5ed` | Adım 4–6: sqlc, pgx havuzu, repository, dikey dilim `GET /api/books/{id}` + görünürlük sınırı (BOLA düzeltmesi) |
-| `d4f25c7` · `e6d4cb8` · `54ce984` | Test katmanı: repository/havuz birim testleri, entegrasyon testleri, uçtan uca HTTP + sözleşme testi |
-| *(bu commit)* | Kitap uçları: `GET /api/books`, `POST /api/admin/books` (mass-assignment kapatıldı), 409 slug çakışması, öğrenme notları |
-| *(sırada)* | genres CRUD + `book_genres` many-to-many |
-
-> ⚠️ **Commit ≠ push.** Bir şey commit'lendi diye GitHub'da değildir. Taze klonun çalışması ve
-> CI'ın kodu görmesi için `git push` gerekir — commit'ten sonra push edilmediyse
-> `origin/main` bayat kalır. Durumu `git status -sb` ilk satırındaki `ahead N` ile gör.
-
----
-
-## 5. Bir isteğin yolculuğu (`GET /api/books/1`)
+## 3. Bir isteğin yolculuğu (`PUT /api/books/42/rating`)
 
 ```
-① BOOT      main.go: config.Load() → env doğrula (fail-fast)
-            signal.NotifyContext → iptal edilebilir kök ctx
-            database.New() → pgxpool + 5sn timeout'lu Ping (bağlanamazsa BURADA ölür)
-② DI        books.NewRepository(pool) → newRouter(bookRepo)   ← graf elle, 2 satır
-────────────────────────────────────────────────────────────── istek gelir ──
-③ ROUTER    cmd/api/router.go · Chi: RequestID → Logger → Recoverer
-④ HANDLER   cmd/api/books.go · {id}'yi ParseInt ile doğrula
-              └─ geçersizse DB'ye HİÇ GİTMEDEN 400 invalid_id
-⑤ REPO      internal/books/repository.go · repo.Get(r.Context(), id)
-              └─ ctx iletilir: istemci kopunca sorgu da iptal olur
-⑥ SQLC      internal/db/books.sql.go · QueryRow + 12 kolonluk row.Scan
-              └─ $1 prepared statement — string birleştirme yok
-⑦ PGX       DBTX interface'i → *pgxpool.Pool → Postgres (havuzdan bağlantı al, iade et)
-⑧ DÖNÜŞ     satır yok → pgx.ErrNoRows → books.ErrNotFound → 404
-            beklenmeyen hata → log'a yaz, istemciye "internal" (detay SIZMAZ) → 500
-            başarı → writeJSON(200, book)
+tarayıcı ─▶ NGINX (Faz 11)          CSP/başlıklar · /api/auth/ için ikinci rate limit
+               │ X-Real-IP = gördüğü adres (istemcinin gönderdiğini EZER)
+               ▼
+Go API ─ chi middleware zinciri (router.go)
+   RequestID ─▶ resolveClientIP (yalnız güvenilen proxy'nin başlığına inan)
+   ─▶ requestLogger (tek JSON satırı + X-Request-Id) ─▶ Recoverer
+   ─▶ requireAuth (JWT: HS256 sabit, iss/aud/exp) → Principal context'e
+   ─▶ handleRateBook (community.go): gövde doğrula (1–10), kullanıcı = TOKEN'dan (IDOR yok)
+   ─▶ ratings.CachedService.Rate
+        └▶ ratings.Service.Rate — TEK transaction:
+             1. SELECT … FROM books … FOR UPDATE      (eşzamanlı oylar sıraya girer)
+             2. INSERT … ON CONFLICT DO UPDATE        (bir kez oy + güncelleme, tek deyim)
+             3. UPDATE books SET avg/count FROM (SELECT AVG/COUNT …)   (kaynaktan türet)
+        └▶ commit SONRASI: Redis'ten books:top-rated:v1 sil
+   ◀─ 201 (yeni) / 200 (güncelleme) + {score, average_rating, rating_count}
 ```
 
-Öğretici çekirdek: **her katman bir sonrakinin sürücüsünü bilmez.** Handler pgx'i tanımaz
-(repository `ErrNoRows`'u domain hatasına çevirir); repository HTTP'yi tanımaz (status kodu
-handler'ın işi).
+Çekirdek fikir: **her katman bir sonrakinin sürücüsünü bilmez** — handler pgx'i tanımaz,
+repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye tek yerde eşlenir.
 
 ---
 
-## 6. Dosya haritası
+## 4. Dosya haritası
 
-### `backend/cmd/api/` — çalıştırılabilir uygulama (paket `main`)
+### Kök
 
-| Dosya | Ne yapar |
+| Dosya | Ne |
 |---|---|
-| `main.go` | Giriş noktası + **tüm bağımlılık grafiği**: config → pgxpool → repository → router → http.Server (timeout'lu) → goroutine'de dinle → sinyalde 10sn'lik graceful shutdown |
-| `router.go` | Chi router'ı, middleware zinciri, rota kayıtları, JSON 404/405 zarfları, `handleHealth` |
-| `books.go` | `bookGetter` interface'i (**tüketen tarafta** tanımlı) + üç handler. `handleGetBook`/`handleListBooks` okuma; `handleCreateBook` yazma: `createBookRequest` DTO'su (**`status` alanı yok** — mass-assignment koruması), `normalizeAndValidate`, elle eşleme, 201/400/409/500 |
-| `respond.go` | HTTP gövde okuma/yazmanın tek kapısı: `writeJSON`, `{"error":{"code","message"}}` zarfı ve `readJSON` (1 MiB sınır + `DisallowUnknownFields` + hata çevirisi). *Frontend değişebilen `message`'a değil sabit `code`'a bakar.* |
-| `main_test.go` | Faz 1'in ilk testi — `handleHealth`'i router'sız çağırır |
-| `router_test.go` | Bilinmeyen yolda JSON hata zarfı dönüyor mu (`newRouter(nil)` ile) |
-| `books_test.go` | `fakeBooks` sahtesiyle **DB'siz** handler testleri (get/list/create); `capturingBooks` ile "statüyü sunucu belirler" kanıtı |
+| `Makefile` | tüm komutların kısayolları (`make help`) |
+| `docker-compose.yml` | Postgres + Redis (her zaman) · api + web (`app` profili) · sabit alt ağ |
+| `.env.example` | env şablonu (dev değerleri, açıklamalı); gerçek `.env` git dışı |
+| `.githooks/` | pre-commit (gofmt + vet), pre-push (golangci-lint + test -race) |
+| `.github/workflows/` | `ci.yml` (backend/frontend/e2e), `release.yml` (yalnız tag/elle imaj yayını) |
+| `deploy/k8s/` | Kubernetes manifestleri (kustomize) |
 
-### `backend/internal/` — dışa kapalı paketler (derleyici zorlar)
+### `backend/cmd/api/` — HTTP katmanı (paket `main`)
 
-| Paket / dosya | Ne yapar |
+| Dosya | Ne |
 |---|---|
-| `config/config.go` | Env'den `Port` + `DatabaseURL`; boot'ta doğrular **ve normalize eder** (pointer receiver). `DATABASE_URL` için varsayılan **yok** |
-| `config/config_test.go` | Table-driven, `t.Setenv` ile izole, 8 senaryo |
-| `database/database.go` | Tek işi: `pgxpool` aç + **5sn timeout'lu Ping** (pgxpool tembel olduğu için fail-fast bunu gerektirir) |
-| `books/repository.go` | Kitap veri erişimi + **domain sözlüğü**: `ErrNotFound`, `ErrDuplicateSlug` (Postgres `23505`'ten çevrilir), `StatusPending/Approved/Rejected` sabitleri. `db.DBTX` aldığı için ileride **transaction içinde de** çalışır. Metotlar: `Get`, `List`, `Create` |
-| `db/` (**sqlc üretimi, elle düzenleme**) | `db.go` (`DBTX`/`Queries`/`WithTx`), `models.go` (`Book`/`Genre`/`BookGenre` struct'ları), `books.sql.go` (`GetApprovedBook`/`ListBooks`/`CreateBook` + `Scan` boilerplate'i) |
+| `main.go` | `run() int`: config → migrate (ops.) → pgxpool → Redis (ops.) → servisler → router → graceful shutdown; `healthcheck` alt komutu |
+| `router.go` | `deps` struct'ı, middleware zinciri, tüm rotalar (public / giriş / admin grupları) |
+| `middleware.go` | `requireAuth` (401), `requireAdmin` (403), `rateLimit` (429), `resolveClientIP`, `requestLogger` |
+| `respond.go` | `writeJSON`, hata zarfı, `writeInternalError` (request id'li log), `readJSON` (1 MiB, bilinmeyen alan = 400) |
+| `validate.go` | `validator` (hataları biriktirir), alan sınırları, slug/dil/URL kuralları |
+| `books.go` | public kitap uçları, public DTO, `createBookRequest`, ortak alan kontrolleri (`checkTitle`…) |
+| `moderation.go` | öneri ucu + admin kitap uçları, admin DTO, durum geçişleri (method expression) |
+| `community.go` | yorum + puan + top-rated uçları |
+| `genres.go` | tür uçları |
+| `auth.go` | register/login/refresh/logout/me |
+| `*_test.go` | sahte (fake) servislerle DB'siz handler testleri; sözleşme (alan listesi) testleri; korelasyon testi |
 
-### `backend/` — SQL ve yapılandırma
+### `backend/cmd/manage/` — operatör komutları
 
-| Yol | Rolü — **ikisini karıştırma** |
+`migrate` (şemayı uygula) · `create-admin -email E` (parola prompt/stdin'den; argümanla ASLA).
+
+### `backend/internal/` — iş mantığı ve veri
+
+| Paket | Ne |
 |---|---|
-| `migrations/0001_books_genres.sql` | **goose'un şema tarihi.** `books`/`genres`/`book_genres`. Kararlar: identity PK, `TEXT + CHECK` status (DEFAULT'suz!), `timestamptz`, `slug UNIQUE`, partial index (`created_at DESC WHERE status='APPROVED'`), `book_genres` bileşik PK + ayrı `(genre_id)` index'i |
-| `sql/queries/books.sql` | **sqlc'nin girdisi.** `GetApprovedBook :one` (status filtresi burada — görünürlük sınırı), `ListBooks :many`, `CreateBook :one` |
-| `sqlc.yaml` | Şemayı `migrations/`'tan okur (şema iki kez tanımlanmaz). pgx/v5, JSON tag'leri, override'lar: `timestamptz→time.Time`, nullable int → `*int32` |
-| `go.mod` | **Sadece 2 doğrudan bağımlılık:** chi v5.3.0, pgx/v5 v5.10.0. goose ve sqlc CLI'dır — burada yoklar |
+| `config` | env → `Config`, fail-fast doğrulama (JWT ≥32 bayt, TTL'ler, proxy CIDR'ları…) |
+| `database` | pgxpool (`New`), `Migrate` (goose + advisory lock), `WithTx`, Postgres hata kodları |
+| `db` | **sqlc'nin ürettiği** kod — elle düzenlenmez (`make sqlc`) |
+| `books` | kitap repository'si (public okuma yalnız APPROVED), statüler, `ParseStatus` |
+| `genres` | tür repository'si |
+| `auth` | bcrypt, JWT (`TokenManager`), refresh token, `Service` (ilk servis katmanı) |
+| `moderation` | durum makinesi (`Next`, veri olarak), öneri/onay/red/arşiv, `WithPublicChangeHook` |
+| `audit` | denetim kaydı yazıcısı (append-only tablo) |
+| `comments` | yorum servisi (yumuşak silme + denetim) |
+| `ratings` | puan servisi (kilit + upsert + türetme), `WeightedScore` (saf), `CachedService` (Redis) |
+| `cache` | `Cache` arayüzü: Redis / Noop |
+| `ratelimit` | sabit pencere: Memory / Redis / Unlimited |
+| `slug` | NFD ile Türkçe/aksanlı → URL slug'ı, `Truncate` |
+| `testdb` | entegrasyon testlerinin ortak DB kurulumu |
 
-### Kök ve `docs/`
+### `backend/migrations/` ve `backend/sql/queries/`
 
-| Yol | Ne |
+| Migration | İçerik |
 |---|---|
-| `docker-compose.yml` | Dev Postgres 16 (named volume `pg_data`, healthcheck, `127.0.0.1:5432` — LAN'a kapalı) |
-| `.env.example` / `.env` | `PORT` + `DATABASE_URL`. İkisi şu an **birebir aynı** (dev'de gerçek sır yok); `.env` gitignore'lu |
-| `.githooks/pre-commit` | Hızlı kapı: `gofmt -l` + `go vet` (sadece backend değiştiyse) |
-| `.githooks/pre-push` | Ağır kapı: `golangci-lint` + `go test -race`. ⚠️ `core.hooksPath` **yerel** config — taze klonda bir kez `git config core.hooksPath .githooks` |
-| `.github/workflows/ci.yml` | gofmt → vet → build → test -race → golangci-lint (otoriter backstop) |
-| `docs/STATUS.md` | **Oturum devri** — yeni konuşmanın ilk okuduğu dosya (kök `README.md` boş!) |
-| `docs/PROJECT_BRIEF.md` | Ürün + roadmap (§11) + kararlar (§18 addendum). *Not: içinde proje adı "BookWise" geçiyor* |
-| `docs/GO_CONVENTIONS.md` | Nasıl yazıyoruz — 12 bölüm + PR checklist |
-| `docs/WHY_GO_VS_TS.md` | "Neden Go" yargı günlüğü; her bölüm kanıt gelene kadar HYPOTHESIS |
-| `docs/phases/` | Faz faz rehber (README + phase-01..07) |
-| `docs/learning-notes/` | Sorulan kavramların kalıcı notları (`/not` skill'i ekler) |
+| `0001` | books, genres, book_genres |
+| `0002` | users (email CHECK lower, role DEFAULT USER), refresh_tokens (SHA-256) |
+| `0003` | ARCHIVED, moderasyon kolonları, `audit_logs` (trigger ile append-only) |
+| `0004` | ratings (`(user_id, book_id)` PK), comments (+ `visible_comments` VIEW), avg/count kolonları |
+| `0005` | liste index'leri `(created_at DESC, id DESC)` — EXPLAIN ANALYZE bulgusu |
 
----
+`sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
 
-## 7. Araç zinciri — hangi araç neden var
+### `backend/scripts/`
 
-| Araç | Ne çözüyor | Nerede |
-|---|---|---|
-| **Chi** | net/http uyumlu router + hazır middleware (RequestID/Logger/Recoverer) | go.mod |
-| **pgx/v5 + pgxpool** | Postgres sürücüsü + bağlantı **havuzu** (her istekte TCP+auth el sıkışması pahalı) | go.mod |
-| **sqlc** v1.31.1 | El yazması SQL → tip-güvenli Go. **Runtime'da yok**, kod üreteci. Hataları derleme anına çeker | `~/go/bin` |
-| **goose** v3.27.2 | Şemayı versiyonlu + geri alınabilir SQL dosyalarıyla yönetir ("şema için git") | `~/go/bin` |
-| **Docker Compose** | Dev Postgres'i tek komutla, izole ve silinebilir tutar. Prod'da yok (Supabase) | kök |
-| **golangci-lint** | Kalite/bug linter'ı (ESLint karşılığı; gofmt formatter = Prettier karşılığı) | `~/go/bin` + CI |
+`mvp_smoke.sh` (MVP tanımı, 21 kontrol) · `demo_seed.sql` (örnek katalog) · `perf_seed.sql` (20k kitap / 209k oy, ayrı DB).
 
----
+### `frontend/`
 
-## 8. Faz merdiveni
-
-| Faz | Konu | Durum |
-|---|---|---|
-| 0 | Repo + git + .gitignore | ✅ |
-| 1 | Minimal Go API (/health, config, graceful shutdown, Chi, testler, CI, hook'lar) | ✅ push'lu |
-| 2 | Postgres + kitap/tür CRUD + many-to-many | ✅ |
-| **3** | **Auth + roller (JWT, bcrypt) — *ilk Service katmanı burada doğar*** | **⏭️ sırada** |
-| 4 | Öneri + moderasyon (status state machine, audit log) | 📝 taslak |
-| 5 | Yorum + puan — *projenin #1 doğruluk dersi:* `UNIQUE` + `ON CONFLICT`, agregatı asla app'te oku-yaz etme | 📝 taslak |
-| 6 | Ağırlıklı puan (Bayesian `WR = (v/(v+m))·R + (m/(v+m))·C`), saf fonksiyon + tablo testleri | 📝 taslak |
-| 7 | Redis cache + rate limit — **MVP burada biter** (önce ölç, sonra cache'le) | 📝 taslak |
-| 8–12 | Docker imajı · Frontend · CI/CD deploy · NGINX · Kubernetes | ⏭️ opsiyonel |
-
-Faz 2'nin 8 adımı: ①compose Postgres ✅ ②DATABASE_URL config ✅ ③goose + migration ✅
-④sqlc ✅ ⑤pgx pool ✅ ⑥dikey dilim `GET /api/books/{id}` ✅ **⑦liste+create+genres/m2m 🔶**
-⑧repository integration testi ⏳
-
-> Faz 3–7 bilerek "taslak": adımları, 1–2'de yazılan koddan doğacak. Boşluk değil, prensip.
-
----
-
-## 9. Öğrenme notları indeksi (22 girdi)
-
-Her girdi sabit formatta: **🗓️ Bağlam** (bunu neden sordum) → **⚡ Kısa cevap** → **📖 Açıklama**
-→ **🔗 İlgili**. Ayırt edici değeri "Bağlam" alanı: hangi hatayı alırken, hangi dosyaya
-bakarken sorulduğunu kaydeder.
-
-| Dosya | Girdiler |
+| Dosya | Ne |
 |---|---|
-| [go-language.md](learning-notes/go-language.md) (8) | stdlib · `_test.go` konvansiyonu · paket↔modül · goroutine/channel/context/defer · sync-by-default · if-init + tek harfli isimler · toolchain komutları (`./...`, gofmt) · **zero value** |
-| [tooling-and-workflow.md](learning-notes/tooling-and-workflow.md) (5) | memory/skill/hook · proje-içi skill · commit gate'leri · gofmt vs golangci-lint · pre-commit vs pre-push |
-| [backend-and-web.md](learning-notes/backend-and-web.md) (4) | graceful shutdown · Node'da da olur mu · environment variable · 12-factor |
-| [database.md](learning-notes/database.md) (4) | goose & migration · **sqlc** · natural vs surrogate key (ISBN) · DSN |
-| [security-and-auth.md](learning-notes/security-and-auth.md) (1) | sır (secret) nedir — dev credential'ı repoya yazmak |
+| `src/api/client.ts` | fetch sarmalayıcı, token saklama, 401 → **tek uçuşlu** yenileme → tekrar |
+| `src/api/types.ts` | API sözleşmesinin TS tipleri |
+| `src/auth/AuthContext.tsx` | oturum durumu, açılışta geri yükleme |
+| `src/pages/` | Home (katalog + en iyiler), BookDetail, Auth, Suggest, admin/Moderation |
+| `nginx/` | `default.conf`, `api-proxy.conf`, `security-headers.conf` |
+| `Dockerfile` | node build → nginx-unprivileged (uid 101, :8080) |
 
 ---
 
-## 10. Konvansiyonlar (kodda görünen kurallar)
+## 5. Kritik kararlar ve kanıtları
 
-1. **`ctx` her yerde ilk parametre** — `r.Context()`'ten doğar, pgx'e kadar kesintisiz iner.
-2. **Hatalar değerdir:** `%w` ile sar, domain sentinel'i tanımla (`ErrNotFound`), HTTP'ye
-   **tek yerde** (handler) map'le.
-3. **Elle DI** — framework yok; graf `main.go`'da okunur. Interface'i **tüketen** tarafta tanımla.
-4. **Saf CRUD'da Service katmanı yazma** — anemik katman cargo-cult'tur; Faz 3'te (auth) doğar.
-5. **Fail-fast config + timeout + graceful shutdown.**
-6. **sqlc + pgx, ORM yok.** `sql/queries/` ≠ `migrations/`.
-7. **Testler:** standart `testing`, table-driven, `-race`; assertion framework'ü yok.
-
-### Bilinen bakım borcu (aradan sonra tuzak olabilecekler)
-
-- **Kod yorumları "GO_CONVENTIONS §5" diyor ama elle DI kuralı §3'te** (§5 sunucu yaşam
-  döngüsü). 3 dosyada numara kayması var.
-- **§10 `slog` diyor, kod stdlib `log` kullanıyor** (8 yerde). §11 (DTO + validator) hiç
-  uygulanmadı — `db.Book` doğrudan API cevabı olarak serileşiyor (`status`, `created_at` sızıyor).
-- **WHY_GO_VS_TS doldurma borcu:** Faz 2 kod üretti ama **§6 (sqlc+pgx) ve §7 (ctx)** hâlâ
-  `[TBD]` placeholder'ında. §13'teki "7 alt-test" bayat (artık 8). §3'teki "henüz interface yok"
-  da bayat (`bookGetter` var).
-- **golangci-lint sürüm çatlağı:** lokal **v1.64.8** ↔ CI **v2.12.2** (major fark, `.golangci.yml`
-  yok) → pre-push'ta yeşil olan CI'da kırmızı olabilir.
-- **Kırık link:** `database.md` → `infra-and-devops.md` (dosya henüz yok).
-- **Şema drift'i:** brief'te `ARCHIVED` statüsü var, migration'daki `CHECK` sadece 3 değere
-  izin veriyor → ileride migration gerekecek.
-- **Küçük teknik:** `main.go`'da `ListenAndServe` goroutine'i içindeki `log.Fatalf`,
-  `defer pool.Close()`'u atlar; `http.Server`'da `IdleTimeout` set edilmemiş.
-- Kök `README.md` **boş** (0 byte); `docs/decisions/` (ADR) klasörü hiç açılmamış;
-  `frontend/`, `scripts/` boş.
-- ~~Slug UNIQUE ihlali 500 dönüyor~~ ✅ kapandı: repository `23505` → `books.ErrDuplicateSlug`,
-  handler → **409**.
+| Karar | Kanıt (test / ölçüm) |
+|---|---|
+| Görünürlük sınırı SQL'de (`GetApprovedBook`) | öneri onaya kadar public 404 (smoke) |
+| Ayrı request/response DTO | `status`/`role` gönderen istek 400; iç alanlar public'e sızmıyor (sözleşme testleri) |
+| JWT algoritma sabitleme | sabitleme kaldırılınca HS512 token kabul ediliyor (mutation) |
+| bcrypt 72 bayt koruması | koruma kaldırılınca "72 bayt + sonek" giriş yapıyor (regresyon testi) |
+| Tek kullanımlık refresh (`DELETE … RETURNING`) | 20 eşzamanlı tüketim → tam 1 kazanan |
+| Moderasyonda `FOR UPDATE` | kilitsiz: iki admin de "kazanıyor", denetimde çelişen iki karar |
+| Puanda kilit + kaynaktan türetme | kilitsiz: 25 oydan sayım 16–19 (kayıp güncelleme) |
+| Ağırlıklı skor query-time | SQL skoru = Go spesifikasyonu (1e-9) |
+| Index `(created_at, id)` | 6.5 ms → 0.06 ms (EXPLAIN ANALYZE) |
+| Redis cache (top-rated) | 327 → 2892 istek/sn, p95 236 → 27 ms |
+| Paylaşılan rate limit | iki instance: bellek 10, Redis 5 (sınır 5) |
+| Güvenilen proxy | sahte X-Real-IP iki yoldan da yok sayılıyor |
 
 ---
 
-## 11. Sıradaki adım
+## 6. Araçlar — ne işe yarar
 
-Tek kaynak: **[STATUS.md](STATUS.md)** (bu dosya "ne var", o "neredeyiz"; sıradaki adımı iki yerde
-tutmak kaçınılmaz olarak drift üretiyordu).
+| Araç | Rol |
+|---|---|
+| **sqlc** | SQL yaz → tip güvenli Go üret (`make sqlc`); şemaya karşı derleme anında doğrular |
+| **goose** | versiyonlu migration (up/down); binary'ye gömülü, advisory lock'lu |
+| **golangci-lint** | ESLint'in Go karşılığı (pre-push + CI) |
+| **Docker Compose** | dev altyapısı; `app` profiliyle tüm uygulama |
+| **kind** | Docker içinde Kubernetes (yerel küme) |
+| **ab** (ApacheBench) | yük testi (Faz 7 ölçümleri) |
+
+---
+
+## 7. Bilinen borçlar
+
+- Refresh token `localStorage`'da → httpOnly + `SameSite=Strict` çerez daha güçlü (backend değişikliği ister).
+- Kullanıcı silme ucu yok; eklenirse puan agregatları yeniden hesaplanmalı (CASCADE hesaplamaz).
+- Token "aile" iptali (eski refresh token tekrar gelirse tüm aileyi düşür) yok.
+- Arayüzün giriş gerektiren akışları tarayıcıda otomatik test edilmedi (API seviyesinde smoke ile kapsanıyor).
+- Buluta deploy yapılmadı — [DEPLOYMENT.md](DEPLOYMENT.md).
+- Küme içi Postgres yalnız demo içindir; prod'da yönetilen veritabanı.

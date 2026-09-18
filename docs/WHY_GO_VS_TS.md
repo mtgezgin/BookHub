@@ -346,7 +346,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 11. Single static binary & container footprint
 
-**Status:** `PARTIAL-MEASURED` (Faz 8) · **Illustration:** `backend/Dockerfile` (multi-stage → `distroless/static:nonroot`), `[Phase 12 — k8s/ image-pull/cold-start notes — TBD]`
+**Status:** `PARTIAL-MEASURED` (Faz 8 + Faz 12) · **Illustration:** `backend/Dockerfile` (multi-stage → `distroless/static`, uid 65532), `deploy/k8s/api.yaml`
+>
+> **🟡 Faz 12:** kind'da API pod'u `readOnlyRootFilesystem: true` ile sorunsuz çalıştı (binary diske hiçbir şey yazmıyor) ve 32 Mi bellek isteğiyle 2 kopya açıldı; Job + rollout ~30 sn. Soğuk başlangıç süresini ya da Node karşılığını ÖLÇMEDİK — iddia hâlâ PARTIAL.
 >
 > **🟡 Faz 8 — ölçüldü:** imaj **38 MB** (api + manage statik binary'leri 23.6 MB, `-s -w` ile; debug sembollü yerel binary 19.5 MB tek başına). Konteyner açılıştan `healthy`'ye ~5 sn (çoğu migration + Redis/DB bağlantısı; sürecin kendisi ms'ler). Shell ve paket yöneticisi yok, root değil. Dürüst sınır: aynı API'nin Node sürümünü inşa edip ÖLÇMEDİK — "node:22-alpine + node_modules genelde 150 MB+" bir genel bilgi, bu projenin ölçümü değil. Karşılaştırmalı iddia bu yüzden hâlâ PARTIAL.
 
