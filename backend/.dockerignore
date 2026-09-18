@@ -1,0 +1,10 @@
+# Derleme bağlamına (build context) GİRMEYECEKLER. Küçük bağlam = hızlı build; ayrıca
+# yerel sırların (.env) ve test çıktılarının imaja sızma ihtimalini baştan keser.
+.env
+.env.*
+*.test
+*.out
+coverage.*
+bin/
+Dockerfile
+.dockerignore

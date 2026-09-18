@@ -1,4 +1,4 @@
-# docker-compose.yml — DEV altyapı stack'i (Faz 2: Postgres; Faz 7: Redis).
+# docker-compose.yml — DEV stack'i (Faz 2: Postgres; Faz 7: Redis; Faz 8: API imajı).
 #
 # NE İŞE YARAR: "docker compose up -d" tek komutla dev veritabanını ayağa kaldırır.
 # API bu fazda hâlâ host'ta "go run" ile çalışır (hızlı feedback döngüsü);
@@ -69,6 +69,35 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # API (Faz 8) — "app" PROFİLİNDE: düz "docker compose up -d" yalnızca altyapıyı
+  # (Postgres + Redis) kaldırır ve API'yi host'ta "go run" ile hızlı döngüde geliştirirsin.
+  # Tüm uygulamayı konteynerde görmek için: docker compose --profile app up -d --build
+  api:
+    profiles: ["app"]
+    build: ./backend
+    image: bookhub-api:dev
+    container_name: bookhub-api
+    environment:
+      PORT: "8080"
+      # Konteyner İÇİNDEN "localhost" API'nin kendisi demektir; DB'ye servis adıyla gidilir
+      # (compose ağında "postgres" ve "redis" birer DNS adıdır) ve konteyner portuyla (6379).
+      DATABASE_URL: postgres://bookhub:bookhub_dev@postgres:5432/bookhub?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      # Sır compose dosyasına YAZILMAZ: compose, repo kökündeki .env'den okur (git dışı).
+      # Tanımlı değilse "up" burada, anlaşılır bir mesajla durur.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET gerekli - .env.example'i .env olarak kopyala}
+      AUTO_MIGRATE: "true"
+      LOG_FORMAT: json
+    ports:
+      - "127.0.0.1:8080:8080"
+    # "container başladı" değil "Postgres bağlantı kabul ediyor" + "Redis PONG" bekle.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
 # Named volume'ların bildirimi. Veriyi sıfırlamak istersen:
 # "docker compose down -v" (-v volume'u da siler → taze DB).
