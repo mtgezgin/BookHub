@@ -244,3 +244,89 @@ func TestTopRated(t *testing.T) {
 		}
 	}
 }
+
+// TestMyRatingSuccess: puanı olan kullanıcı 200 + servis satırındaki score/created_at/updated_at alır.
+func TestMyRatingSuccess(t *testing.T) {
+	created := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	updated := created.Add(90 * time.Minute)
+	fake := &fakeRatings{mine: db.GetUserRatingRow{Score: 8, CreatedAt: created, UpdatedAt: updated}}
+	rec := do(t, userRouter(deps{ratings: fake}), http.MethodGet, "/api/books/5/rating", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d (%s)", rec.Code, rec.Body)
+	}
+	var got myRatingResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	if got.Score != 8 || !got.CreatedAt.Equal(created) || !got.UpdatedAt.Equal(updated) {
+		t.Errorf("servis satırı kopyalanmalı: %+v", got)
+	}
+	if fake.gotUser != 7 || fake.gotBook != 5 {
+		t.Errorf("Mine token kullanıcısı (7) ve path id (5) ile çağrılmalı: user=%d book=%d", fake.gotUser, fake.gotBook)
+	}
+}
+
+func TestTopRatedValidLimitReachesService(t *testing.T) {
+	fake := &fakeRatings{}
+	rec := do(t, newRouter(deps{books: fakeBooks{}, ratings: fake}), http.MethodGet, "/api/books/top-rated?limit=50", "")
+	if rec.Code != http.StatusOK || fake.gotLimit != int32(ratings.MaxTopRated) {
+		t.Errorf("limit=50 servise %d olarak gitmeli: status %d, gelen limit %d", ratings.MaxTopRated, rec.Code, fake.gotLimit)
+	}
+}
+
+func TestTopRatedServiceErrorIs500WithoutDetail(t *testing.T) {
+	fake := &fakeRatings{err: errors.New("pq: connection refused to 10.0.0.9")}
+	rec := do(t, newRouter(deps{books: fakeBooks{}, ratings: fake}), http.MethodGet, "/api/books/top-rated", "")
+	if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
+		t.Fatalf("500 internal bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "connection refused") {
+		t.Errorf("iç hata detayı cevaba sızmamalı: %s", rec.Body)
+	}
+}
+
+func TestTopRatedGenresErrorIs500(t *testing.T) {
+	fake := &fakeRatings{top: ratings.TopRated{Books: []ratings.TopRatedBook{{Book: db.Book{ID: 2}}}}}
+	rec := do(t, newRouter(deps{books: fakeBooks{genreErr: errors.New("db")}, ratings: fake}), http.MethodGet, "/api/books/top-rated", "")
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("GenresForBooks hatası 500 olmalı: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestListCommentsServiceErrorIs500(t *testing.T) {
+	fake := &fakeComments{err: errors.New("db")}
+	rec := do(t, newRouter(deps{books: fakeBooks{book: db.Book{ID: 5}}, comments: fake}), http.MethodGet, "/api/books/5/comments", "")
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("svc.List hatası 500 olmalı: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestDeleteCommentUnexpectedErrorIs500(t *testing.T) {
+	rec := do(t, adminRouter(deps{comments: &fakeComments{err: errors.New("db")}}), http.MethodDelete, "/api/admin/comments/9", "")
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("ErrNotFound dışı hata 500 olmalı (404 değil): %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestWriteRatingError: handler skoru önceden doğruladığı için ErrInvalidScore ve bilinmeyen
+// hata dalları haritalayıcıya doğrudan verilerek test edilir.
+func TestWriteRatingError(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{"geçersiz skor → 400", ratings.ErrInvalidScore, http.StatusBadRequest, "validation_error"},
+		{"bilinmeyen (DB kapalı) → 500", errors.New("db down"), http.StatusInternalServerError, "internal"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeRatingError(w, "Test", tt.err) })
+			rec := do(t, h, http.MethodGet, "/", "")
+			if rec.Code != tt.wantStatus || errorCode(t, rec) != tt.wantCode {
+				t.Errorf("istenen %d %s, gelen %d %s", tt.wantStatus, tt.wantCode, rec.Code, rec.Body)
+			}
+		})
+	}
+}

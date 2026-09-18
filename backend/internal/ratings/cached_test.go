@@ -128,3 +128,23 @@ func TestInvalidateSurvivesCanceledRequest(t *testing.T) {
 		t.Error("anahtar silinmeliydi")
 	}
 }
+
+// failingSetCache, Set'i hep başarısız olan cache (Redis yazımı düştü).
+type failingSetCache struct{ *memCache }
+
+func (failingSetCache) Set(context.Context, string, []byte, time.Duration) error {
+	return errors.New("redis: write timeout")
+}
+
+// TestCachedTopRatedSetFailure: cache'e yazılamaması isteği düşürmez — yüklenen liste döner.
+func TestCachedTopRatedSetFailure(t *testing.T) {
+	c := newMemCache()
+	loads := 0
+	s := cachedWithLoader(c, &loads)
+	s.cache = failingSetCache{c}
+
+	got, err := s.TopRated(context.Background(), 5)
+	if err != nil || loads != 1 || len(got.Books) != 5 || got.C != 6.5 {
+		t.Errorf("Set hatasında yüklenen liste hatasız dönmeli: loads=%d len=%d err=%v", loads, len(got.Books), err)
+	}
+}

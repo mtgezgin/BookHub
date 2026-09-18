@@ -249,3 +249,34 @@ func TestRateLimitBehindProxy(t *testing.T) {
 		t.Errorf("aynı istemcinin ikinci denemesi 429 olmalı: %d", code)
 	}
 }
+
+func TestRemoteHostWithoutPort(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.5"
+	if got := remoteHost(req); got != "10.0.0.5" {
+		t.Errorf("portsuz RemoteAddr olduğu gibi dönmeli: %q", got)
+	}
+}
+
+func TestClientIPWithoutResolver(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "203.0.113.9:4321"
+	req.Header.Set("X-Real-IP", "6.6.6.6")
+	if got := clientIP(req); got != "203.0.113.9" {
+		t.Errorf("resolveClientIP yoksa RemoteAddr host'u dönmeli: %q", got)
+	}
+}
+
+// TestRequestLoggerDefaultsStatus200: hiç WriteHeader/Write çağırmayan handler 200 loglanmalı (0 değil).
+func TestRequestLoggerDefaultsStatus200(t *testing.T) {
+	buf := captureLogs(t)
+	h := requestLogger(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/sessiz", nil))
+	lines := logLines(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("tek erişim satırı bekleniyordu: %v", lines)
+	}
+	if status, _ := lines[0]["status"].(float64); status != http.StatusOK {
+		t.Errorf("status=200 loglanmalı, gelen %v", lines[0]["status"])
+	}
+}

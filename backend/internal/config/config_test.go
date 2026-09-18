@@ -234,3 +234,38 @@ func TestParsePrefixes(t *testing.T) {
 		t.Errorf("boş liste: %v %v", got, err)
 	}
 }
+
+func TestLoadTrustedProxies(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test")
+	t.Setenv("JWT_SECRET", testJWTSecret)
+
+	t.Setenv("TRUSTED_PROXIES", "172.28.0.10, 10.0.0.0/8")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("beklenmeyen hata: %v", err)
+	}
+	if len(cfg.TrustedProxies) != 2 || cfg.TrustedProxies[0].String() != "172.28.0.10/32" || cfg.TrustedProxies[1].String() != "10.0.0.0/8" {
+		t.Errorf("TRUSTED_PROXIES ayrıştırılıp cfg'ye kopyalanmalı: %v", cfg.TrustedProxies)
+	}
+
+	t.Setenv("TRUSTED_PROXIES", "bir-proxy-degil")
+	if _, err := Load(); err == nil {
+		t.Error("geçersiz TRUSTED_PROXIES Load'u başarısız kılmalı")
+	}
+}
+
+func TestLoadRedisURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://test")
+	t.Setenv("JWT_SECRET", testJWTSecret)
+
+	for _, want := range []string{"redis://localhost:6380/0", ""} {
+		t.Setenv("REDIS_URL", want)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("beklenmeyen hata: %v", err)
+		}
+		if cfg.RedisURL != want {
+			t.Errorf("REDIS_URL kopyalanmalı (boş = cache kapalı): istenen %q, gelen %q", want, cfg.RedisURL)
+		}
+	}
+}

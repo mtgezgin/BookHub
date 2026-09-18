@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,6 +16,9 @@ func TestNoop(t *testing.T) {
 	}
 	if _, ok, err := c.Get(ctx, "k"); ok || err != nil {
 		t.Errorf("Noop her zaman miss vermeli: ok=%v err=%v", ok, err)
+	}
+	if err := c.Delete(ctx, "k"); err != nil {
+		t.Errorf("Noop.Delete nil dönmeli: %v", err)
 	}
 }
 
@@ -56,5 +60,38 @@ func TestRedisRoundTrip(t *testing.T) {
 	}
 	if ttl := r.Client().TTL(ctx, key).Val(); ttl > 0 {
 		t.Errorf("silinmiş anahtarın TTL'i olmamalı: %v", ttl)
+	}
+}
+
+// TestNewRedisUnreachable: geçerli URL ama ulaşılamayan sunucu → açılışta hata, nil istemci.
+func TestNewRedisUnreachable(t *testing.T) {
+	r, err := NewRedis(context.Background(), "redis://127.0.0.1:1/0")
+	if err == nil || !strings.Contains(err.Error(), "redis'e bağlanılamadı") {
+		t.Fatalf("\"redis'e bağlanılamadı\" hatası bekleniyordu, gelen %v", err)
+	}
+	if r != nil {
+		t.Errorf("hata durumunda istemci nil olmalı: %+v", r)
+	}
+}
+
+// TestRedisDeleteNoKeys: anahtarsız Delete nil dönmeli. Redis argümansız DEL'i REDDEDER
+// ("wrong number of arguments"), dolayısıyla nil sonuç komutun gönderilmediğini gösterir.
+func TestRedisDeleteNoKeys(t *testing.T) {
+	url := os.Getenv("TEST_REDIS_URL")
+	if url == "" {
+		t.Skip("TEST_REDIS_URL tanımlı değil → Redis testi atlanıyor")
+	}
+	ctx := context.Background()
+	r, err := NewRedis(ctx, url)
+	if err != nil {
+		t.Fatalf("NewRedis: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+
+	if err := r.Client().Do(ctx, "DEL").Err(); err == nil {
+		t.Fatal("ön koşul: Redis argümansız DEL'i reddetmeli")
+	}
+	if err := r.Delete(ctx); err != nil {
+		t.Errorf("anahtarsız Delete nil dönmeli (DEL gönderilmemeli): %v", err)
 	}
 }

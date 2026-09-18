@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/mtgezgin/bookhub/backend/internal/books"
@@ -270,5 +271,58 @@ func TestPublicChangeHookRealDB(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Errorf("onay + düzenleme = 2 çağrı bekleniyordu (başarısız onay sayılmaz), gelen %d", calls)
+	}
+}
+
+// TestListByStatusRealDB: List yalnız istenen statüdeki kitapları döner, limit'e uyar ve
+// CountBooksByStatus toplamını verir. Tek bir REPEATABLE READ işlemi içinde koşar: paralel
+// koşan diğer paketlerin yazdığı kitaplar liste ile sayım arasındaki anlık görüntüyü bozmasın;
+// sonda geri alınır (temizlik gerekmez).
+func TestListByStatusRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
+
+	insert := func(status string) int64 {
+		slug := testdb.Unique("modlist")
+		var id int64
+		if err := tx.QueryRow(ctx, `INSERT INTO books (title, slug, author, status) VALUES ($1, $1, 'Yazar', $2) RETURNING id`, slug, status).Scan(&id); err != nil {
+			t.Fatalf("kitap açılamadı: %v", err)
+		}
+		return id
+	}
+	for range 3 {
+		insert(books.StatusPending)
+	}
+	approvedID := insert(books.StatusApproved)
+
+	s := NewService(tx)
+	list, total, err := s.List(ctx, books.StatusPending, 2, 0)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 2 {
+		t.Errorf("limit 2'ye uyulmalı, gelen %d", len(list))
+	}
+	want, err := db.New(tx).CountBooksByStatus(ctx, books.StatusPending)
+	if err != nil {
+		t.Fatalf("CountBooksByStatus: %v", err)
+	}
+	if total != want || total < 3 {
+		t.Errorf("toplam CountBooksByStatus ile aynı olmalı: istenen %d, gelen %d", want, total)
+	}
+
+	all, _, err := s.List(ctx, books.StatusPending, int32(total), 0)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, b := range all {
+		if b.Status != books.StatusPending || b.ID == approvedID {
+			t.Errorf("PENDING listesinde başka statü: id=%d statü=%s", b.ID, b.Status)
+		}
 	}
 }

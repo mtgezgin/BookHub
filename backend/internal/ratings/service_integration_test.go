@@ -337,3 +337,61 @@ func TestDeleteTriggerWaitsForBookLockRealDB(t *testing.T) {
 		t.Errorf("kalan tek oy (9) sayılmalı: count=%d avg=%v", sum.Count, sum.Average)
 	}
 }
+
+// TestCachedRemoveInvalidationRealDB: başarılı puan silme top-rated cache'ini siler;
+// başarısız silme (ErrNotRated) cache'e dokunmaz.
+func TestCachedRemoveInvalidationRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	c := newMemCache()
+	s := NewCached(NewService(pool, DefaultMinVotes), c)
+	ctx := context.Background()
+	user := createUser(t, pool)
+	book := createBook(t, pool, books.StatusApproved)
+
+	if _, err := s.Rate(ctx, user, book, 7); err != nil {
+		t.Fatalf("Rate: %v", err)
+	}
+	c.data[TopRatedCacheKey] = []byte("{}")
+	if _, err := s.Remove(ctx, user, book); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, ok := c.data[TopRatedCacheKey]; ok {
+		t.Error("başarılı puan silme top-rated cache'ini silmeli")
+	}
+
+	c.data[TopRatedCacheKey] = []byte("{}")
+	if _, err := s.Remove(ctx, user, book); !errors.Is(err, ErrNotRated) {
+		t.Fatalf("ikinci silme ErrNotRated vermeli: %v", err)
+	}
+	if _, ok := c.data[TopRatedCacheKey]; !ok {
+		t.Error("BAŞARISIZ silme cache'i silmemeli")
+	}
+}
+
+// TestNonApprovedBookRealDB: onaylı olmayan (ya da olmayan) kitapta puan silme ve özet
+// books.ErrNotFound vermeli — public görünürlük kuralı.
+func TestNonApprovedBookRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	s := NewService(pool, DefaultMinVotes)
+	ctx := context.Background()
+	user := createUser(t, pool)
+
+	cases := map[string]int64{
+		"PENDING":  createBook(t, pool, books.StatusPending),
+		"ARCHIVED": createBook(t, pool, books.StatusArchived),
+		"yok":      math.MaxInt64,
+	}
+	for name, id := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := s.Remove(ctx, user, id); !errors.Is(err, books.ErrNotFound) {
+				t.Errorf("Remove ErrNotFound vermeli: %v", err)
+			}
+			if name == "yok" {
+				return
+			}
+			if _, err := s.Summary(ctx, id); !errors.Is(err, books.ErrNotFound) {
+				t.Errorf("Summary ErrNotFound vermeli: %v", err)
+			}
+		})
+	}
+}

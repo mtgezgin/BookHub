@@ -266,3 +266,95 @@ func TestBookHistory(t *testing.T) {
 		t.Errorf("boş geçmiş [] olmalı: %q", empty.Body)
 	}
 }
+
+func TestAdminGetBook(t *testing.T) {
+	for _, status := range []string{books.StatusPending, books.StatusApproved, books.StatusRejected, books.StatusArchived} {
+		t.Run(status, func(t *testing.T) {
+			fake := &fakeModeration{book: db.Book{ID: 5, Status: status}}
+			store := fakeBooks{genres: map[int64][]db.Genre{5: {{ID: 1, Name: "Roman", Slug: "roman"}}}}
+			rec := do(t, adminRouter(deps{moderation: fake, books: store}), http.MethodGet, "/api/admin/books/5", "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status %d (%s)", rec.Code, rec.Body)
+			}
+			var got adminBookResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("JSON: %v", err)
+			}
+			if got.Status != status || len(got.Genres) != 1 || got.Genres[0].Slug != "roman" {
+				t.Errorf("admin DTO statü + türleri taşımalı: %+v", got)
+			}
+			if len(fake.calls) != 1 || fake.calls[0] != "Get" || fake.gotID != 5 {
+				t.Errorf("svc.Get path id (5) ile çağrılmalı: %v id=%d", fake.calls, fake.gotID)
+			}
+		})
+	}
+}
+
+func TestAdminGetBookNotFound(t *testing.T) {
+	rec := do(t, adminRouter(deps{moderation: &fakeModeration{err: books.ErrNotFound}, books: fakeBooks{}}), http.MethodGet, "/api/admin/books/5", "")
+	if rec.Code != http.StatusNotFound || errorCode(t, rec) != "not_found" {
+		t.Errorf("404 not_found bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestActorFromWithoutPrincipal: requireAuth dışında bağlanmış bir handler kapalı başarısız olur.
+func TestActorFromWithoutPrincipal(t *testing.T) {
+	var ok = true
+	rec := do(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, ok = actorFrom(w, r) }), http.MethodGet, "/", "")
+	if ok || rec.Code != http.StatusUnauthorized || errorCode(t, rec) != "missing_token" {
+		t.Errorf("401 missing_token + false bekleniyordu: ok=%v %d %s", ok, rec.Code, rec.Body)
+	}
+
+	fake := &fakeModeration{}
+	rec = do(t, handleSuggestBook(fake), http.MethodPost, "/", `{"title":"T","author":"A"}`)
+	if rec.Code != http.StatusUnauthorized || len(fake.calls) != 0 {
+		t.Errorf("principal'sız handler 401 vermeli ve servisi çağırmamalı: %d %v", rec.Code, fake.calls)
+	}
+}
+
+func TestSuggestBookDuplicateSlug(t *testing.T) {
+	fake := &fakeModeration{err: books.ErrDuplicateSlug}
+	rec := do(t, userRouter(deps{moderation: fake}), http.MethodPost, "/api/books/suggestions", `{"title":"T","author":"A"}`)
+	if rec.Code != http.StatusConflict || errorCode(t, rec) != "slug_conflict" {
+		t.Errorf("409 slug_conflict bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestAdminListBooksErrors(t *testing.T) {
+	t.Run("svc.List hatası → 500", func(t *testing.T) {
+		rec := do(t, adminRouter(deps{moderation: &fakeModeration{err: errors.New("db")}, books: fakeBooks{}}), http.MethodGet, "/api/admin/books", "")
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("500 bekleniyordu: %d %s", rec.Code, rec.Body)
+		}
+	})
+	t.Run("GenresForBooks hatası → 500", func(t *testing.T) {
+		fake := &fakeModeration{list: []db.Book{{ID: 3}}, total: 1}
+		rec := do(t, adminRouter(deps{moderation: fake, books: fakeBooks{genreErr: errors.New("db")}}), http.MethodGet, "/api/admin/books", "")
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("500 bekleniyordu: %d %s", rec.Code, rec.Body)
+		}
+	})
+}
+
+// TestWriteAdminBookGenresError: geçiş/güncelleme başarılı ama türler okunamazsa 500.
+func TestWriteAdminBookGenresError(t *testing.T) {
+	for _, tc := range []struct{ method, path, body string }{
+		{http.MethodPost, "/api/admin/books/5/approve", ""},
+		{http.MethodPatch, "/api/admin/books/5", `{"title":"Yeni"}`},
+	} {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			fake := &fakeModeration{book: db.Book{ID: 5}}
+			rec := do(t, adminRouter(deps{moderation: fake, books: fakeBooks{genreErr: errors.New("db")}}), tc.method, tc.path, tc.body)
+			if rec.Code != http.StatusInternalServerError || len(fake.calls) != 1 {
+				t.Errorf("500 bekleniyordu (servis bir kez çağrılmış): %d %v %s", rec.Code, fake.calls, rec.Body)
+			}
+		})
+	}
+}
+
+func TestBookHistoryNotFound(t *testing.T) {
+	rec := do(t, adminRouter(deps{moderation: &fakeModeration{err: books.ErrNotFound}}), http.MethodGet, "/api/admin/books/5/audit", "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("bilinmeyen kitap 404 olmalı: %d %s", rec.Code, rec.Body)
+	}
+}

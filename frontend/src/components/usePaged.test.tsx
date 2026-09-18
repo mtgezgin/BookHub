@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Page } from "../api/types";
-import { usePaged } from "./usePaged";
+import { Pager, usePaged } from "./usePaged";
 
 // React'e "test ortamındayız" de: act() dışı güncelleme uyarısı basmasın.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,5 +60,87 @@ describe("usePaged", () => {
     expect(h.current!.showPager).toBe(false); // tek sayfa, ilk sayfadayız
     await act(async () => h.current!.setOffset(2));
     expect(h.current!.showPager).toBe(true); // geri dönüş yolu açık kalmalı
+  });
+});
+
+describe("usePaged — hata ve sıfırlama", () => {
+  function mountWith(fetch: (offset: number) => Promise<Page<number>>, onError: (e: unknown) => void, resetKey = "k") {
+    const box: { current?: Hook; key: string } = { key: resetKey };
+    function Harness({ k }: { k: string }) {
+      box.current = usePaged(fetch, k, onError);
+      return null;
+    }
+    const el = document.createElement("div");
+    const root = createRoot(el);
+    act(() => root.render(<Harness k={resetKey} />));
+    cleanup.push(() => act(() => root.unmount()));
+    return { box, rerender: (k: string) => act(() => root.render(<Harness k={k} />)) };
+  }
+
+  it("reddedilen istek onError'u çağırır", async () => {
+    const errors: unknown[] = [];
+    const boom = new Error("ağ hatası");
+    mountWith(() => Promise.reject(boom), (e) => errors.push(e));
+    await flush();
+    expect(errors).toEqual([boom]);
+  });
+
+  it("yerini yenisine bırakmış (bayat) isteğin reddi onError'u ÇAĞIRMAZ", async () => {
+    const errors: unknown[] = [];
+    const rejecters: Record<number, (e: unknown) => void> = {};
+    const resolvers: Record<number, (p: Page<number>) => void> = {};
+    const fetch = (offset: number) =>
+      new Promise<Page<number>>((res, rej) => {
+        resolvers[offset] = res;
+        rejecters[offset] = rej;
+      });
+    const { box } = mountWith(fetch, (e) => errors.push(e));
+    await act(async () => box.current!.setOffset(2)); // offset 0 isteği bayatladı
+    await act(async () => resolvers[2](page([3], 3)));
+    await act(async () => rejecters[0](new Error("bayat")));
+    expect(errors).toEqual([]);
+  });
+
+  it("resetKey değişince offset 0'a döner", async () => {
+    const { box, rerender } = mountWith(async () => page([1, 2], 10), () => {}, "PENDING");
+    await flush();
+    await act(async () => box.current!.setOffset(4));
+    expect(box.current!.offset).toBe(4);
+    rerender("APPROVED");
+    await flush();
+    expect(box.current!.offset).toBe(0);
+  });
+});
+
+describe("Pager", () => {
+  function render(p: Page<number>, offset: number, onChange: (o: number) => void) {
+    const el = document.createElement("div");
+    const root = createRoot(el);
+    act(() => root.render(<Pager page={p} offset={offset} onChange={onChange} />));
+    cleanup.push(() => act(() => root.unmount()));
+    const [prev, next] = Array.from(el.querySelectorAll("button"));
+    return { el, prev, next };
+  }
+
+  it("offset 0'da önceki devre dışı, etiket a–b / toplam", () => {
+    const { el, prev, next } = render({ items: [1, 2], total: 5, limit: 2, offset: 0 }, 0, () => {});
+    expect(prev.disabled).toBe(true);
+    expect(next.disabled).toBe(false);
+    expect(el.querySelector("span")!.textContent).toBe("1–2 / 5");
+  });
+
+  it("son sayfada sonraki devre dışı, etiket toplamda biter", () => {
+    const { el, prev, next } = render({ items: [5], total: 5, limit: 2, offset: 4 }, 4, () => {});
+    expect(next.disabled).toBe(true);
+    expect(prev.disabled).toBe(false);
+    expect(el.querySelector("span")!.textContent).toBe("5–5 / 5");
+  });
+
+  it("tıklamalar onChange(offset ± limit) çağırır", () => {
+    const calls: number[] = [];
+    const { prev, next } = render({ items: [3, 4], total: 9, limit: 2, offset: 2 }, 2, (o) => calls.push(o));
+    act(() => prev.click());
+    act(() => next.click());
+    expect(calls).toEqual([0, 4]);
   });
 });

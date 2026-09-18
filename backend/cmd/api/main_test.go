@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest" // gerçek port/sunucu açmadan handler test etmeyi sağlar
 	"testing"           // Go'nun standart test paketi (stdlib)
@@ -41,5 +42,37 @@ func TestHandleHealth(t *testing.T) {
 	}
 	if body["status"] != "ok" {
 		t.Errorf("status alanı yanlış: istenen \"ok\", gelen %q", body["status"])
+	}
+}
+
+func TestSetupLogging(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	setupLogging("json")
+	if _, ok := slog.Default().Handler().(*slog.JSONHandler); !ok {
+		t.Errorf("\"json\" JSONHandler kurmalı, gelen %T", slog.Default().Handler())
+	}
+	setupLogging("text")
+	if _, ok := slog.Default().Handler().(*slog.TextHandler); !ok {
+		t.Errorf("json dışı değer TextHandler kurmalı, gelen %T", slog.Default().Handler())
+	}
+}
+
+func TestEnvOr(t *testing.T) {
+	const key = "BOOKHUB_TEST_ENVOR"
+	t.Setenv(key, "")
+	if got := envOr(key, "varsayılan"); got != "varsayılan" {
+		t.Errorf("boş değer fallback dönmeli: %q", got)
+	}
+	t.Setenv(key, "ayarlı")
+	if got := envOr(key, "varsayılan"); got != "ayarlı" {
+		t.Errorf("ayarlı değer kazanmalı: %q", got)
+	}
+}
+
+func TestEnvOrUnset(t *testing.T) {
+	if got := envOr("BOOKHUB_TEST_ENVOR_KESIN_YOK", "varsayılan"); got != "varsayılan" {
+		t.Errorf("ayarsız değer fallback dönmeli: %q", got)
 	}
 }
