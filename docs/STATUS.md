@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme:** Faz 6 ✅ TAMAM. Sırada **Faz 7 — Redis cache + rate limit (MVP sonu)**.
+**Son güncelleme:** Faz 7 ✅ — **MVP TAMAM** 🎉 (brief §15, `backend/scripts/mvp_smoke.sh` 21/21). Sırada opsiyonel altyapı rayı: **Faz 8 — Docker**.
 **Hedef (kullanıcı talebi, 2026-09):** projeyi baştan sona bitir — MVP (Faz 1–7) + opsiyonel
 altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push.
 
@@ -23,8 +23,8 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
 | 4 | Öneri + moderasyon (state machine, audit log) | ✅ |
 | 5 | Yorum + puan (ON CONFLICT, tx-içi agregat, eşzamanlılık) | ✅ |
 | 6 | Ağırlıklı puan (Bayesian, top-rated) | ✅ |
-| 7 | Redis cache + rate limit + yük testi — **MVP sonu** | ⏭️ sırada |
-| 8–12 | Docker imajı · Frontend · CI/CD · NGINX · Kubernetes | ⏳ |
+| 7 | Redis cache + rate limit + yük testi — **MVP sonu** | ✅ |
+| 8–12 | Docker imajı · Frontend · CI/CD · NGINX · Kubernetes | ⏭️ sırada |
 
 ## Faz 2'de ne oldu (özet)
 
@@ -77,12 +77,21 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
   düzeltildi (6.5 → 0.06 ms), C hesabı 43 → 5.7 ms. Top-rated sıralaması 14 ms — index'le hızlanamaz.
 - **Commit'ler:** `1e4ab05` · `4e3217a` · `06f9ec8` · (docs).
 
-## Sıradaki: Faz 7 — Redis + rate limit (plan)
+## Faz 7'de ne oldu (özet)
 
-1. Önce ÖLÇ: `hey`/`ab` ile top-rated yük testi (cache'siz), sayıları WHY §12'ye.
-2. docker-compose'a Redis (127.0.0.1:6379), `REDIS_URL` (opsiyonel — yoksa cache kapalı), go-redis/v9.
-3. Top-rated cache (TTL + puan yazımında invalidation), sonra aynı yük testi → öncesi/sonrası.
-4. Rate limit: login/register — önce in-memory token bucket, sonra Redis (çok-instance).
+- Redis (compose, **127.0.0.1:6380** — 6379 başka projenin): top-rated cache-aside (60 sn TTL +
+  invalidation), login/register rate limit (Redis varsa paylaşılan, yoksa bellek içi).
+- Yük testi: 327 → 2892 istek/sn (~8.8×). Rate limit canlı: bellek 10 vs Redis 5 (sınır 5, iki instance).
+- **MVP DoD:** `set -a; source .env; set +a; API=http://localhost:8080 backend/scripts/mvp_smoke.sh`
+- **Commit'ler:** `5e1a179` · `5a223d8` · `62c7c28` · `3376982` · (docs).
+
+## Sıradaki: altyapı rayı (Faz 8–12, brief §18.2'ye göre opsiyonel)
+
+8. Docker: çok aşamalı `Dockerfile` (distroless/scratch), compose'a `api` servisi, `Makefile`.
+9. Frontend: React + Vite (liste, detay, giriş/kayıt, öneri, admin kuyruğu).
+10. CI/CD: GitHub Actions (test + imaj build); gerçek bulut deploy'u hesap gerektirir (kullanıcıda).
+11. NGINX: reverse proxy + statik frontend, güvenilir proxy başlığı.
+12. Kubernetes: manifest'ler (Deployment/Service/ConfigMap/Secret şablonu), kind ile yerel deneme.
 
 ## Ortam / gerçekler
 

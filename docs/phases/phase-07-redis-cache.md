@@ -1,6 +1,6 @@
 # Faz 7 — Redis Cache + Rate Limit (MVP'nin son fazı)
 
-> Durum: 📝 taslak · Önkoşul: Faz 6 ✅
+> Durum: ✅ TAMAM — **MVP TAMAM** 🎉 · Önkoşul: Faz 6 ✅
 > İlgili: [WHY_GO_VS_TS](../WHY_GO_VS_TS.md) §7/§12/§14 · [GO_CONVENTIONS](../GO_CONVENTIONS.md) · [PROJECT_BRIEF](../PROJECT_BRIEF.md) §6.9, §7.3
 
 ## 🎯 Amaç
@@ -24,12 +24,21 @@ Redis'i **gerçek bir performans/durum problemi çözdüğü için** ekle — ha
 - Redis'i Faz 7'den önce ekleme — Upstash'i seçmiş olman onu erken bağlamak demek değil. (§14.5)
 - Redis çağrılarına da `ctx` ilet (timeout/iptal). (WHY_GO_VS_TS §7)
 
-## ✅ Tamamlanma (taslak)
+## ✅ Tamamlanma
 
-- [ ] Top-rated cache'leniyor; puan değişince invalidate ediliyor.
-- [ ] Yük testiyle "öncesi/sonrası" gerçek sayı kaydedildi.
-- [ ] Login/register için temel rate limit.
-- [ ] **MVP tamam** (PROJECT_BRIEF §15 Definition of Done karşılandı). 🎉
+- [x] Top-rated cache'leniyor (`books:top-rated:v1`, TTL 60 sn); puan yazımı ve moderasyon commit'i invalidate ediyor.
+- [x] Yük testi öncesi/sonrası: 327 → 2892 istek/sn, p95 236 → 27 ms (WHY §12).
+- [x] Login/register rate limit: bellek içi (tek instance) + Redis (paylaşılan) — iki instance'la canlı fark: 10 vs 5.
+- [x] **MVP tamam:** `backend/scripts/mvp_smoke.sh` brief §15'in her maddesini uçtan uca doğruluyor (21/21).
+
+## 🧾 Ne yapıldı
+
+| Commit | İçerik |
+|---|---|
+| `5e1a179` | Redis (compose, 127.0.0.1:6380), opsiyonel `REDIS_URL`, `internal/cache` |
+| `5a223d8` | Top-rated cache-aside + invalidation (moderasyon kancası) + yük testi |
+| `62c7c28` | Rate limit (bellek/Redis), 429 + Retry-After, fail-open |
+| `3376982` | MVP DoD smoke betiği |
 
 ## 📒 WHY_GO_VS_TS güncellemesi
 

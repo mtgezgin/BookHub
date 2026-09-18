@@ -12,6 +12,7 @@ Dil-bağımsız backend/web kavramları: HTTP, API tasarımı, config/12-factor,
 5. [HTTP hata kodları: bu kimin hatası? (400 / 409 / 500)](#5-http-hata-kodları-bu-kimin-hatası-400--409--500)
 6. [Middleware ve context: kimlik isteğe nasıl taşınır? (401 vs 403)](#6-middleware-ve-context-kimlik-isteğe-nasıl-taşınır-401-vs-403)
 7. [Ağırlıklı (Bayes) puan: neden basit ortalama sıralamaya yetmez?](#7-ağırlıklı-bayes-puan-neden-basit-ortalama-sıralamaya-yetmez)
+8. [Cache-aside ve rate limit: neden paylaşılan state (Redis)?](#8-cache-aside-ve-rate-limit-neden-paylaşılan-state-redis)
 
 ---
 
@@ -341,3 +342,51 @@ Sorgu anında hesaplamak ucuz (14 ms/20 bin kitap); yavaşlarsa cache (Faz 7).
 - [backend/internal/ratings/score.go](../../backend/internal/ratings/score.go) — saf fonksiyon (spesifikasyon)
 - [backend/sql/queries/ratings.sql](../../backend/sql/queries/ratings.sql) — `ListTopRated` (SQL'de aynı formül)
 - `TestTopRatedRealDB` — SQL ↔ Go karşılaştırması
+
+---
+
+## 8. Cache-aside ve rate limit: neden paylaşılan state (Redis)?
+
+**🗓️ Bağlam:** Faz 7'de (MVP'nin son fazı) top-rated'ı cache'lerken ve login'e sınır koyarken.
+İki API örneğini yan yana çalıştırıp farkı ölçtük.
+
+**⚡ Kısa cevap:** Cache'i ve sınır sayaçlarını **süreç belleğinde** tutarsan her API örneği kendi
+kopyasını görür: sınır N değil N × örnek sayısı olur, cache tutarsızlaşır. Redis, bütün örneklerin
+**ortak** gördüğü bellek.
+
+**📖 Açıklama:**
+
+**Cache-aside (en yaygın desen):**
+
+```
+okuma:  Redis'te var mı? → evet: dön (hit)
+                         → hayır: DB'den hesapla → Redis'e yaz (TTL) → dön (miss)
+yazma:  DB'ye yaz → COMMIT → Redis'teki anahtarı SİL (bir sonraki okuma taze hesaplar)
+```
+
+- **Neden commit'ten SONRA sil:** önce silersen, commit'i beklemeyen bir okuyucu eski veriyi
+  hemen yeniden cache'e yazabilir.
+- **Yine de kalan yarış:** yavaş bir okuyucu eski listeyi okur → biz sileriz → o eski listeyi yazar.
+  Sonuç: en çok TTL (60 sn) bayatlık. Sıralama için kabul edilebilir; bu yüzden TTL = güvenlik ağı.
+- **Cache hatası isteği düşürmez:** Redis çökerse miss sayılır, DB cevaplar. Cache bir hızlandırıcı,
+  doğruluk kaynağı değil.
+
+Ölçüm (20 bin kitap, 50 eşzamanlı): 327 → 2892 istek/sn; p95 236 → 27 ms.
+
+**Rate limit — canlı deney (sınır 5/dk, 20 deneme iki örneğe sırayla):**
+
+| Sınırlayıcı | Geçen | Neden |
+|---|---|---|
+| bellek içi | 10 | her örnek kendi 5'ini verdi |
+| Redis | 5 | tek, paylaşılan sayaç (`INCR` atomik) |
+
+**İki güvenlik detayı:**
+- IP'yi `X-Forwarded-For`'dan OKUMUYORUZ: o başlığı istemci yazabilir; güvenseydik her istekte sahte
+  IP yollayarak sınırı atlatırdı. Proxy arkasında (Faz 11) yalnız proxy'nin başlığına güvenilir.
+- Redis arızasında sınırlayıcı **izin verir** (fail-open): aksi hâlde Redis kesintisi herkesin
+  girişini kilitlerdi. Kaba kuvvete karşı asıl duvar bcrypt'in yavaşlığı; sınır ikinci hat.
+
+**🔗 İlgili:**
+- [backend/internal/ratings/cached.go](../../backend/internal/ratings/cached.go)
+- [backend/internal/ratelimit/ratelimit.go](../../backend/internal/ratelimit/ratelimit.go)
+- [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §12

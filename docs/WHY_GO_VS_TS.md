@@ -241,7 +241,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 7. context.Context propagation: cancellation, timeouts, deadlines
 
-**Status:** `PARTIAL` (Faz 2) · **Illustration:** `backend/cmd/api/books.go` (`r.Context()` → `store.Get(ctx, ...)`), `backend/internal/database/tx.go:WithTx`, `backend/internal/database/database.go` (5 sn Ping deadline); `[Phase 7 — Redis call with ctx deadline — TBD]`
+**Status:** `PARTIAL` (Faz 2 + Faz 7) · **Illustration:** `backend/cmd/api/books.go` (`r.Context()` → `store.Get(ctx, ...)`), `backend/internal/database/tx.go:WithTx`, `backend/internal/cache/cache.go:NewRedis` (3 sn PING deadline + 500 ms okuma/yazma zaman aşımı)
+>
+> **🟡 Faz 7:** Redis'te ctx + kısa zaman aşımları işe yaradı: yavaş bir Redis'i beklemek yerine "miss" sayıp DB'ye düşüyoruz; cache hatası isteği asla düşürmüyor (testli). Hâlâ ölçmediğimiz: istemci bağlantıyı kesince uçuştaki bir sorgunun GERÇEKTEN iptal edildiği — bu yüzden PARTIAL kalıyor.
 >
 > **◑ Faz 2:** `ctx` handler'dan pgx'e kadar kesintisiz iniyor ve transaction'lar da (`WithTx`) aynı ctx'e bağlı. Açılıştaki `Ping` gerçek bir deadline kullanıyor. **Ama dürüst olmak gerekirse** iptal edilen bir isteğin DB sorgusunu iptal ettiğini henüz ÖLÇMEDİK — kısa DB okumalarında bu disiplinin getirisi bu ölçekte görünmüyor. Kısmi: yapı hazır, kanıt Faz 7'de (Redis deadline) aranacak. Yan kazanç: review paneli, `ReadTimeout` dolunca gövde okumasının `i/o timeout` verdiğini ve hatanın iç IP:port'u sızdırdığını bulmuştu — deadline'lar gerçekten tetikleniyor.
 
@@ -367,9 +369,18 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 12. Performance & memory under load on read-hot endpoints
 
-**Status:** `PARTIAL` (Faz 6 ölçümü; yük testi Faz 7) · **Illustration:** `backend/migrations/0005_listing_indexes.sql`, `backend/scripts/perf_seed.sql`
+**Status:** `CONFIRMED-MEASURED` (Faz 6 + Faz 7) · **Illustration:** `backend/migrations/0005_listing_indexes.sql`, `backend/scripts/perf_seed.sql`, `backend/internal/ratings/cached.go`
 >
 > **🟡 Faz 6 — EXPLAIN ANALYZE (20 bin kitap, ~209 bin oy):** En büyük kazanımlar dilden değil SORGUDAN geldi: (1) public liste Faz 2'deki index'i hiç kullanmıyordu — `ORDER BY created_at DESC, id DESC`'in ikinci anahtarı index'te yoktu; `(created_at DESC, id DESC)` ile 6.5 ms → 0.06 ms. (2) Genel ortalama C her istekte 209 bin oyu tarıyordu (43 ms); kitap agregatlarından hesaplayınca 5.7 ms. (3) Top-rated sorgusunun kendisi (14 ms) index'le hızlanamaz — sıralama anahtarı global C'ye bağlı. Faz 7'de cache'lenecek olan tam da bu, ve karar ÖLÇÜLDÜ. Go vs Node farkı bu uçta ölçülemez: süre DB'de geçiyor.
+>
+> **✅ Faz 7 — yük testi (`ab -n 3000 -c 50`, top-rated, 20 bin kitap / 209 bin oy, lokal Docker):**
+>
+> | | istek/sn | p50 | p95 | p99 |
+> |---|---|---|---|---|
+> | cache yok | 327 | 138 ms | 236 ms | 332 ms |
+> | Redis cache | 2892 | 16 ms | 27 ms | 40 ms |
+>
+> ~8.8×. Sıra doğruydu: önce EXPLAIN ANALYZE (index + agregat düzeltmeleri, Redis'siz), sonra ölçüm, sonra cache — yalnızca index'le hızlanamayan sorguya. Dil karşılaştırması açısından dürüst sonuç: kazançların hepsi mimari (index, cache); Go'ya özgü bir performans kazancı bu uçlarda ölçülmedi.
 
 - **Hypothesis:** On read-hot paths Go's per-request allocation/GC profile is leaner than an
   equivalent Express handler — but for DB-bound endpoints the **database, not the language,**
@@ -417,7 +428,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 14. Structured concurrency for background work & lifecycle
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 7+ — backend/internal/ratings cache-invalidation goroutine — TBD]`
+**Status:** `NOT-NEEDED` (Faz 7) · **Illustration:** yok — bilerek.
+>
+> **➖ Faz 7:** Cache invalidation arka plan goroutine'i GEREKMEDİ: yazım commit edilince anahtar senkron olarak siliniyor (tek `DEL`, ~0.1 ms) ve TTL güvenlik ağı. Arka plan işi bir kuyruk, yeniden deneme ve kapanışta boşaltma (graceful drain) gerektirirdi — gerçek bir problem çözmeden. Uydurmuyoruz; gerçek bir arka plan işi çıkarsa (ör. e-posta gönderimi) bu bölüm o zaman doldurulur.
 
 - **Hypothesis:** `errgroup`, bounded worker pools, and graceful-shutdown context
   cancellation tie background work's lifetime to a context cleanly.
@@ -507,6 +520,11 @@ Seed entries:
     Aynı API Node'da aynı sorgularla aynı sürede cevap verirdi; darboğaz dil değil DB.
 22. **Tablo testi (§13):** `it.each` ile Jest'te aynı test aynı kısalıkta yazılır. Go'nun avantajı
     yalnızca sıfır bağımlılık — ifade gücü değil.
+
+**Faz 7'de eklenen dürüst gözlemler:**
+23. **Cache/rate limit (§12):** `ioredis` + `express-rate-limit` + `rate-limit-redis` ile Node'da
+    aynı mimari birkaç satırda kurulur ve olgun paketler hazır. Go'da sınırlayıcıyı kendimiz
+    yazdık (öğretici ama daha çok kod). Bu uçta ekosistem hazırlığında TS önde.
 
 > **Refleksiyon (TR):** Buraya her Go bölümü doldurduğunda en az bir dürüst "TS/JS kazanırdı"
 > girdisi ekle. Bu bölüm büyümüyorsa, doküman Go reklamına kaymış demektir.
