@@ -114,9 +114,12 @@ services:
     networks:
       default:
         ipv4_address: 172.28.0.10
+    # restart: true — API konteyneri yeniden oluşturulunca (yeni IP) web de yeniden başlasın.
+    # NGINX "api" adını açılışta BİR KEZ çözer; yeniden başlamazsa eski IP'ye gidip 502 verirdi.
     depends_on:
       api:
         condition: service_healthy
+        restart: true
     restart: unless-stopped
 
 # Varsayılan ağ için SABİT alt ağ: NGINX'e sabit IP verebilmek (ve API'nin güveneceği adresi
