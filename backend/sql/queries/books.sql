@@ -59,10 +59,59 @@ WHERE b.status = 'APPROVED'
        OR b.title  ILIKE '%' || sqlc.narg('query') || '%'
        OR b.author ILIKE '%' || sqlc.narg('query') || '%');
 
+-- submitted_by: kitabı kim getirdi (öneren kullanıcı ya da doğrudan ekleyen admin).
 -- name: CreateBook :one
 INSERT INTO books (
     title, slug, author, description, cover_url, publication_year,
-    page_count, language, status
+    page_count, language, status, submitted_by
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 ) RETURNING *;
+
+-- ADMIN tekil okuma: statüden bağımsız. Public GetApprovedBook'un ayrı kalması bilinçli —
+-- görünürlük kuralı bir parametreye ("includeHidden bool") indirgenirse bir handler'ın
+-- yanlış değeri geçmesi BOLA'yı geri getirir. İki sorgu, iki ayrı niyet.
+-- name: GetBook :one
+SELECT * FROM books WHERE id = $1;
+
+-- Moderasyon için kilitli okuma: statü kontrolü + güncelleme arasına başka bir admin
+-- giremesin (iki admin aynı anda approve/reject → ikisi de "PENDING" görüp ikisi de yazardı).
+-- name: LockBookForModeration :one
+SELECT * FROM books WHERE id = $1 FOR UPDATE;
+
+-- name: SetBookStatus :one
+UPDATE books
+SET status           = sqlc.arg('status'),
+    rejection_reason = sqlc.narg('rejection_reason'),
+    moderated_by     = sqlc.arg('moderated_by'),
+    moderated_at     = now(),
+    updated_at       = now()
+WHERE id = sqlc.arg('id')
+RETURNING *;
+
+-- Kısmi güncelleme (PATCH): gönderilmeyen alan (NULL) mevcut değeri korur.
+-- Sınır: bu desenle bir alanı NULL'A ÇEKMEK mümkün değil (publication_year'ı "bilinmiyor"
+-- yapmak gibi) — NULL "dokunma" anlamına geliyor. Gerekirse ayrı bir "clear" bayrağı gerekir.
+-- name: UpdateBookDetails :one
+UPDATE books
+SET title            = COALESCE(sqlc.narg('title'), title),
+    slug             = COALESCE(sqlc.narg('slug'), slug),
+    author           = COALESCE(sqlc.narg('author'), author),
+    description      = COALESCE(sqlc.narg('description'), description),
+    cover_url        = COALESCE(sqlc.narg('cover_url'), cover_url),
+    publication_year = COALESCE(sqlc.narg('publication_year'), publication_year),
+    page_count       = COALESCE(sqlc.narg('page_count'), page_count),
+    language         = COALESCE(sqlc.narg('language'), language),
+    updated_at       = now()
+WHERE id = sqlc.arg('id')
+RETURNING *;
+
+-- Admin listesi: tek statüye göre (bekleyen kuyruğu, arşiv, reddedilenler...).
+-- name: ListBooksByStatus :many
+SELECT * FROM books
+WHERE status = sqlc.arg('status')
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: CountBooksByStatus :one
+SELECT count(*) FROM books WHERE status = $1;

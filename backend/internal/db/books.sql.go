@@ -34,13 +34,24 @@ func (q *Queries) CountBooks(ctx context.Context, arg CountBooksParams) (int64, 
 	return count, err
 }
 
+const countBooksByStatus = `-- name: CountBooksByStatus :one
+SELECT count(*) FROM books WHERE status = $1
+`
+
+func (q *Queries) CountBooksByStatus(ctx context.Context, status string) (int64, error) {
+	row := q.db.QueryRow(ctx, countBooksByStatus, status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createBook = `-- name: CreateBook :one
 INSERT INTO books (
     title, slug, author, description, cover_url, publication_year,
-    page_count, language, status
+    page_count, language, status, submitted_by
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9
-) RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+) RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at
 `
 
 type CreateBookParams struct {
@@ -53,8 +64,10 @@ type CreateBookParams struct {
 	PageCount       *int32 `json:"page_count"`
 	Language        string `json:"language"`
 	Status          string `json:"status"`
+	SubmittedBy     *int64 `json:"submitted_by"`
 }
 
+// submitted_by: kitabı kim getirdi (öneren kullanıcı ya da doğrudan ekleyen admin).
 func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (Book, error) {
 	row := q.db.QueryRow(ctx, createBook,
 		arg.Title,
@@ -66,6 +79,7 @@ func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (Book, e
 		arg.PageCount,
 		arg.Language,
 		arg.Status,
+		arg.SubmittedBy,
 	)
 	var i Book
 	err := row.Scan(
@@ -81,13 +95,17 @@ func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (Book, e
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SubmittedBy,
+		&i.RejectionReason,
+		&i.ModeratedBy,
+		&i.ModeratedAt,
 	)
 	return i, err
 }
 
 const getApprovedBook = `-- name: GetApprovedBook :one
 
-SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at FROM books
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at FROM books
 WHERE id = $1
   AND status = 'APPROVED'
 `
@@ -128,12 +146,47 @@ func (q *Queries) GetApprovedBook(ctx context.Context, id int64) (Book, error) {
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SubmittedBy,
+		&i.RejectionReason,
+		&i.ModeratedBy,
+		&i.ModeratedAt,
+	)
+	return i, err
+}
+
+const getBook = `-- name: GetBook :one
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at FROM books WHERE id = $1
+`
+
+// ADMIN tekil okuma: statüden bağımsız. Public GetApprovedBook'un ayrı kalması bilinçli —
+// görünürlük kuralı bir parametreye ("includeHidden bool") indirgenirse bir handler'ın
+// yanlış değeri geçmesi BOLA'yı geri getirir. İki sorgu, iki ayrı niyet.
+func (q *Queries) GetBook(ctx context.Context, id int64) (Book, error) {
+	row := q.db.QueryRow(ctx, getBook, id)
+	var i Book
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Slug,
+		&i.Author,
+		&i.Description,
+		&i.CoverUrl,
+		&i.PublicationYear,
+		&i.PageCount,
+		&i.Language,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SubmittedBy,
+		&i.RejectionReason,
+		&i.ModeratedBy,
+		&i.ModeratedAt,
 	)
 	return i, err
 }
 
 const listBooks = `-- name: ListBooks :many
-SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at FROM books b
+SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at FROM books b
 WHERE b.status = 'APPROVED'
   AND ($1::text IS NULL OR EXISTS (
         SELECT 1 FROM book_genres bg
@@ -194,6 +247,10 @@ func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]Book, e
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SubmittedBy,
+			&i.RejectionReason,
+			&i.ModeratedBy,
+			&i.ModeratedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -203,4 +260,196 @@ func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]Book, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const listBooksByStatus = `-- name: ListBooksByStatus :many
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at FROM books
+WHERE status = $1
+ORDER BY created_at DESC, id DESC
+LIMIT $3 OFFSET $2
+`
+
+type ListBooksByStatusParams struct {
+	Status string `json:"status"`
+	Offset int32  `json:"offset"`
+	Limit  int32  `json:"limit"`
+}
+
+// Admin listesi: tek statüye göre (bekleyen kuyruğu, arşiv, reddedilenler...).
+func (q *Queries) ListBooksByStatus(ctx context.Context, arg ListBooksByStatusParams) ([]Book, error) {
+	rows, err := q.db.Query(ctx, listBooksByStatus, arg.Status, arg.Offset, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Book
+	for rows.Next() {
+		var i Book
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Slug,
+			&i.Author,
+			&i.Description,
+			&i.CoverUrl,
+			&i.PublicationYear,
+			&i.PageCount,
+			&i.Language,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SubmittedBy,
+			&i.RejectionReason,
+			&i.ModeratedBy,
+			&i.ModeratedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockBookForModeration = `-- name: LockBookForModeration :one
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at FROM books WHERE id = $1 FOR UPDATE
+`
+
+// Moderasyon için kilitli okuma: statü kontrolü + güncelleme arasına başka bir admin
+// giremesin (iki admin aynı anda approve/reject → ikisi de "PENDING" görüp ikisi de yazardı).
+func (q *Queries) LockBookForModeration(ctx context.Context, id int64) (Book, error) {
+	row := q.db.QueryRow(ctx, lockBookForModeration, id)
+	var i Book
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Slug,
+		&i.Author,
+		&i.Description,
+		&i.CoverUrl,
+		&i.PublicationYear,
+		&i.PageCount,
+		&i.Language,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SubmittedBy,
+		&i.RejectionReason,
+		&i.ModeratedBy,
+		&i.ModeratedAt,
+	)
+	return i, err
+}
+
+const setBookStatus = `-- name: SetBookStatus :one
+UPDATE books
+SET status           = $1,
+    rejection_reason = $2,
+    moderated_by     = $3,
+    moderated_at     = now(),
+    updated_at       = now()
+WHERE id = $4
+RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at
+`
+
+type SetBookStatusParams struct {
+	Status          string  `json:"status"`
+	RejectionReason *string `json:"rejection_reason"`
+	ModeratedBy     *int64  `json:"moderated_by"`
+	ID              int64   `json:"id"`
+}
+
+func (q *Queries) SetBookStatus(ctx context.Context, arg SetBookStatusParams) (Book, error) {
+	row := q.db.QueryRow(ctx, setBookStatus,
+		arg.Status,
+		arg.RejectionReason,
+		arg.ModeratedBy,
+		arg.ID,
+	)
+	var i Book
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Slug,
+		&i.Author,
+		&i.Description,
+		&i.CoverUrl,
+		&i.PublicationYear,
+		&i.PageCount,
+		&i.Language,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SubmittedBy,
+		&i.RejectionReason,
+		&i.ModeratedBy,
+		&i.ModeratedAt,
+	)
+	return i, err
+}
+
+const updateBookDetails = `-- name: UpdateBookDetails :one
+UPDATE books
+SET title            = COALESCE($1, title),
+    slug             = COALESCE($2, slug),
+    author           = COALESCE($3, author),
+    description      = COALESCE($4, description),
+    cover_url        = COALESCE($5, cover_url),
+    publication_year = COALESCE($6, publication_year),
+    page_count       = COALESCE($7, page_count),
+    language         = COALESCE($8, language),
+    updated_at       = now()
+WHERE id = $9
+RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at
+`
+
+type UpdateBookDetailsParams struct {
+	Title           *string `json:"title"`
+	Slug            *string `json:"slug"`
+	Author          *string `json:"author"`
+	Description     *string `json:"description"`
+	CoverUrl        *string `json:"cover_url"`
+	PublicationYear *int32  `json:"publication_year"`
+	PageCount       *int32  `json:"page_count"`
+	Language        *string `json:"language"`
+	ID              int64   `json:"id"`
+}
+
+// Kısmi güncelleme (PATCH): gönderilmeyen alan (NULL) mevcut değeri korur.
+// Sınır: bu desenle bir alanı NULL'A ÇEKMEK mümkün değil (publication_year'ı "bilinmiyor"
+// yapmak gibi) — NULL "dokunma" anlamına geliyor. Gerekirse ayrı bir "clear" bayrağı gerekir.
+func (q *Queries) UpdateBookDetails(ctx context.Context, arg UpdateBookDetailsParams) (Book, error) {
+	row := q.db.QueryRow(ctx, updateBookDetails,
+		arg.Title,
+		arg.Slug,
+		arg.Author,
+		arg.Description,
+		arg.CoverUrl,
+		arg.PublicationYear,
+		arg.PageCount,
+		arg.Language,
+		arg.ID,
+	)
+	var i Book
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Slug,
+		&i.Author,
+		&i.Description,
+		&i.CoverUrl,
+		&i.PublicationYear,
+		&i.PageCount,
+		&i.Language,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SubmittedBy,
+		&i.RejectionReason,
+		&i.ModeratedBy,
+		&i.ModeratedAt,
+	)
+	return i, err
 }

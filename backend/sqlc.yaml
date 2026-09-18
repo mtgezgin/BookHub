@@ -40,6 +40,30 @@ sql:
             go_type:
               type: "int32"
               pointer: true
+          # Faz 4: NULL olabilen FK'ler ve zaman → pointer (nil = yok).
+          - column: "books.submitted_by"
+            go_type:
+              type: "int64"
+              pointer: true
+          - column: "books.moderated_by"
+            go_type:
+              type: "int64"
+              pointer: true
+          - column: "books.moderated_at"
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
+          - column: "audit_logs.actor_id"
+            go_type:
+              type: "int64"
+              pointer: true
+          # jsonb → json.RawMessage: DB'deki JSON, cevaba yeniden kodlanmadan AYNEN gömülür
+          # ([]byte olsaydı encoding/json onu base64 string'e çevirirdi).
+          - db_type: "jsonb"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
           # NULL olabilen metin (sqlc.narg parametreleri ve nullable text kolonlar) →
           # *string. Override olmasa pgtype.Text ({String, Valid}) üretirdi — JSON'da çirkin.
           - db_type: "text"

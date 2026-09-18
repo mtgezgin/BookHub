@@ -5,22 +5,37 @@
 package db
 
 import (
+	"encoding/json"
 	"time"
 )
 
+type AuditLog struct {
+	ID         int64           `json:"id"`
+	ActorID    *int64          `json:"actor_id"`
+	Action     string          `json:"action"`
+	EntityType string          `json:"entity_type"`
+	EntityID   int64           `json:"entity_id"`
+	Details    json.RawMessage `json:"details"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
 type Book struct {
-	ID              int64     `json:"id"`
-	Title           string    `json:"title"`
-	Slug            string    `json:"slug"`
-	Author          string    `json:"author"`
-	Description     string    `json:"description"`
-	CoverUrl        string    `json:"cover_url"`
-	PublicationYear *int32    `json:"publication_year"`
-	PageCount       *int32    `json:"page_count"`
-	Language        string    `json:"language"`
-	Status          string    `json:"status"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              int64      `json:"id"`
+	Title           string     `json:"title"`
+	Slug            string     `json:"slug"`
+	Author          string     `json:"author"`
+	Description     string     `json:"description"`
+	CoverUrl        string     `json:"cover_url"`
+	PublicationYear *int32     `json:"publication_year"`
+	PageCount       *int32     `json:"page_count"`
+	Language        string     `json:"language"`
+	Status          string     `json:"status"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	SubmittedBy     *int64     `json:"submitted_by"`
+	RejectionReason *string    `json:"rejection_reason"`
+	ModeratedBy     *int64     `json:"moderated_by"`
+	ModeratedAt     *time.Time `json:"moderated_at"`
 }
 
 type BookGenre struct {

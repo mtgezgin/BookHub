@@ -38,7 +38,22 @@ const (
 	StatusPending  = "PENDING"
 	StatusApproved = "APPROVED"
 	StatusRejected = "REJECTED"
+	StatusArchived = "ARCHIVED" // Faz 4: yayından kaldırıldı (silinmedi)
 )
+
+// ErrUnknownStatus, dışarıdan gelen (ör. ?status=) geçersiz statü değeri.
+var ErrUnknownStatus = errors.New("bilinmeyen statü")
+
+// ParseStatus, dış dünyadan gelen bir statü metnini SINIRDA doğrular (WHY_GO_VS_TS §1):
+// içeri giren her değer bu dört sabitten biridir; "approved" / "APROVED" gibi yazımlar
+// sorguya ulaşıp sessizce boş liste döndürmez, 400 olur.
+func ParseStatus(s string) (string, error) {
+	switch s {
+	case StatusPending, StatusApproved, StatusRejected, StatusArchived:
+		return s, nil
+	}
+	return "", fmt.Errorf("%w: %q", ErrUnknownStatus, s)
+}
 
 // Repository, kitap verisine erişimin tek kapısı. sqlc'nin ürettiği Queries'i
 // sarar; katma değeri ŞU AN iki şey: (1) sürücü hatalarını domain hatasına
