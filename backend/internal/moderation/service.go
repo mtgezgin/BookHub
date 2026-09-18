@@ -2,19 +2,16 @@ package moderation
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mtgezgin/bookhub/backend/internal/audit"
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/database"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
 )
-
-// entityBook, audit_logs.entity_type değeri.
-const entityBook = "book"
 
 // Service, kitabın yaşam döngüsündeki YAZMA işlemlerini ve admin okumalarını yönetir.
 //
@@ -55,7 +52,7 @@ func (s *Service) create(ctx context.Context, actorID int64, action string, p db
 			return err
 		}
 		book = b
-		return writeAudit(ctx, db.New(tx), actorID, action, b.ID, map[string]any{"status": b.Status})
+		return audit.Write(ctx, db.New(tx), actorID, action, audit.EntityBook, b.ID, map[string]any{"status": b.Status})
 	})
 	return book, err
 }
@@ -120,7 +117,7 @@ func (s *Service) transition(ctx context.Context, actorID, bookID int64, a Actio
 		if reason != nil {
 			details["reason"] = *reason
 		}
-		return writeAudit(ctx, q, actorID, "book."+string(a), bookID, details)
+		return audit.Write(ctx, q, actorID, "book."+string(a), audit.EntityBook, bookID, details)
 	})
 	return book, err
 }
@@ -143,7 +140,7 @@ func (s *Service) Update(ctx context.Context, actorID, bookID int64, p db.Update
 			return fmt.Errorf("kitap güncellenemedi (id=%d): %w", bookID, err)
 		}
 		book = b
-		return writeAudit(ctx, q, actorID, "book.update", bookID, map[string]any{"fields": changedFields(p)})
+		return audit.Write(ctx, q, actorID, "book.update", audit.EntityBook, bookID, map[string]any{"fields": changedFields(p)})
 	})
 	return book, err
 }
@@ -198,27 +195,9 @@ func (s *Service) History(ctx context.Context, bookID int64) ([]db.AuditLog, err
 	if _, err := s.Get(ctx, bookID); err != nil {
 		return nil, err
 	}
-	logs, err := s.q.ListAuditLogs(ctx, db.ListAuditLogsParams{EntityType: entityBook, EntityID: bookID})
+	logs, err := s.q.ListAuditLogs(ctx, db.ListAuditLogsParams{EntityType: audit.EntityBook, EntityID: bookID})
 	if err != nil {
 		return nil, fmt.Errorf("denetim kaydı okunamadı (id=%d): %w", bookID, err)
 	}
 	return logs, nil
-}
-
-func writeAudit(ctx context.Context, q *db.Queries, actorID int64, action string, bookID int64, details map[string]any) error {
-	raw, err := json.Marshal(details)
-	if err != nil {
-		return fmt.Errorf("denetim detayı kodlanamadı: %w", err)
-	}
-	err = q.InsertAuditLog(ctx, db.InsertAuditLogParams{
-		ActorID:    &actorID,
-		Action:     action,
-		EntityType: entityBook,
-		EntityID:   bookID,
-		Details:    raw,
-	})
-	if err != nil {
-		return fmt.Errorf("denetim kaydı yazılamadı: %w", err)
-	}
-	return nil
 }
