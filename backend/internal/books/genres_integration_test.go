@@ -146,3 +146,95 @@ func TestSetGenresConcurrentReplace(t *testing.T) {
 		}
 	}
 }
+
+// TestListFiltersRealDB, liste ucunun tür filtresi, metin araması ve sayfalamasını gerçek
+// Postgres'le doğrular. Aramalar bu teste özgü benzersiz bir işaretle yapılır ki DB'deki
+// başka satırlar sonucu kirletmesin.
+func TestListFiltersRealDB(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	marker := testdb.Unique("isaret")
+
+	mk := func(title, author, status string) db.Book {
+		t.Helper()
+		b, err := f.repo.Create(ctx, db.CreateBookParams{
+			Title: title, Slug: testdb.Unique("liste"), Author: author, Language: "tr", Status: status,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { testdb.Exec(t, f.pool, "DELETE FROM books WHERE id = $1", b.ID) })
+		return b
+	}
+	dune := mk("Dune "+marker, "Frank Herbert", StatusApproved)
+	foundation := mk("Vakıf "+marker, "Isaac Asimov", StatusApproved)
+	mk("Gizli "+marker, "Frank Herbert", StatusPending) // görünmemeli
+	percent := mk("%100 Gerçek "+marker, "Anonim", StatusApproved)
+
+	genre := f.createGenre(t)
+	if err := f.repo.SetGenres(ctx, dune.ID, []int64{genre}); err != nil {
+		t.Fatal(err)
+	}
+	var genreSlug string
+	if err := f.pool.QueryRow(ctx, "SELECT slug FROM genres WHERE id=$1", genre).Scan(&genreSlug); err != nil {
+		t.Fatal(err)
+	}
+
+	ids := func(list []db.Book) []int64 {
+		out := make([]int64, 0, len(list))
+		for _, b := range list {
+			out = append(out, b.ID)
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+		return out
+	}
+	sorted := func(v ...int64) []int64 { sort.Slice(v, func(i, j int) bool { return v[i] < v[j] }); return v }
+
+	tests := []struct {
+		name      string
+		filter    ListFilter
+		wantIDs   []int64
+		wantTotal int64
+	}{
+		{"arama: başlıkta işaret → onaylılar (PENDING hariç)", ListFilter{Query: marker, Limit: 50}, sorted(dune.ID, foundation.ID, percent.ID), 3},
+		{"arama: yazar adı, büyük/küçük harf duyarsız", ListFilter{Query: "frank herbert", Limit: 50}, nil, -1},
+		{"tür filtresi", ListFilter{Genre: genreSlug, Limit: 50}, []int64{dune.ID}, 1},
+		{"% joker DEĞİL, düz karakter", ListFilter{Query: "%100 Gerçek " + marker, Limit: 50}, []int64{percent.ID}, 1},
+		{"sayfalama: limit 2 → 2 kayıt ama toplam 3", ListFilter{Query: marker, Limit: 2}, nil, 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			list, total, err := f.repo.List(ctx, tt.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantIDs != nil && !equalIDs(ids(list), tt.wantIDs) {
+				t.Errorf("id'ler: istenen %v, gelen %v", tt.wantIDs, ids(list))
+			}
+			if tt.wantTotal >= 0 && total != tt.wantTotal {
+				t.Errorf("toplam: istenen %d, gelen %d", tt.wantTotal, total)
+			}
+			if tt.filter.Limit == 2 && len(list) != 2 {
+				t.Errorf("limit 2: istenen 2 kayıt, gelen %d", len(list))
+			}
+			for _, b := range list {
+				if b.Status != StatusApproved {
+					t.Errorf("onaylanmamış kitap listede: %+v", b)
+				}
+			}
+		})
+	}
+
+	// Yazar araması: bizim onaylı Dune'umuz sonuçta olmalı, PENDING kopyası olmamalı.
+	list, _, err := f.repo.List(ctx, ListFilter{Query: "frank herbert", Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, b := range list {
+		found = found || b.ID == dune.ID
+	}
+	if !found {
+		t.Error("yazar araması (küçük harf) Dune'u bulamadı")
+	}
+}

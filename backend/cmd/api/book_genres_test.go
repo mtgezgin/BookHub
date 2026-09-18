@@ -45,10 +45,11 @@ func TestListBooksLoadsGenresInOneQuery(t *testing.T) {
 		t.Errorf("N+1: istenen 0 tekil + 1 toplu sorgu, gelen %d tekil + %d toplu", store.single, store.batch)
 	}
 
-	var got []bookResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+	var page bookPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
 		t.Fatalf("geçersiz JSON: %v", err)
 	}
+	got := page.Items
 	if len(got[0].Genres) != 1 || got[0].Genres[0].Slug != "roman" {
 		t.Errorf("1. kitabın türleri yanlış: %+v", got[0].Genres)
 	}

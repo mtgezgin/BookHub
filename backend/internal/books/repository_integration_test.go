@@ -104,7 +104,7 @@ func TestRepositoryListOrderAndVisibility(t *testing.T) {
 		testdb.Exec(t, f.pool, "UPDATE books SET created_at = $1 WHERE id = $2", at, id)
 	}
 
-	got, err := f.repo.List(context.Background())
+	got, _, err := f.repo.List(context.Background(), ListFilter{Limit: 1000})
 	if err != nil {
 		t.Fatalf("liste okunamadı: %v", err)
 	}

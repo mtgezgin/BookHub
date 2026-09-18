@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -92,16 +93,45 @@ func (r *Repository) Create(ctx context.Context, params db.CreateBookParams) (db
 	return book, nil
 }
 
-// List, onaylı kitapları en yeniden eskiye döner.
-// Get'ten farklı olarak ErrNotFound çevirisi YOK: boş sonuç bir hata değildir,
-// ":many" sorgusu satır bulamazsa boş liste döner. (Hata yolunda slice'ın zero
-// value'su nil'dir — çağıran zaten önce err'e bakar.)
-func (r *Repository) List(ctx context.Context) ([]db.Book, error) {
-	books, err := r.q.ListBooks(ctx)
+// ListFilter, public kitap listesinin filtre ve sayfalama parametreleri.
+// Boş string = o filtre yok. Sınırların doğrulanması (limit ≤ 100 vb.) HTTP katmanının işi.
+type ListFilter struct {
+	Genre  string // tür slug'ı
+	Query  string // başlık/yazar içinde aranan metin
+	Limit  int32
+	Offset int32
+}
+
+// List, filtreye uyan onaylı kitapların bir SAYFASINI ve filtreye uyan TOPLAM sayıyı
+// döner (en yeniden eskiye). Boş sonuç hata değildir; ErrNotFound çevirisi yoktur.
+func (r *Repository) List(ctx context.Context, f ListFilter) ([]db.Book, int64, error) {
+	genre, query := optional(f.Genre), optional(escapeLike(f.Query))
+
+	list, err := r.q.ListBooks(ctx, db.ListBooksParams{Genre: genre, Query: query, Limit: f.Limit, Offset: f.Offset})
 	if err != nil {
-		return nil, fmt.Errorf("kitap listeleme sorgusu: %w", err)
+		return nil, 0, fmt.Errorf("kitap listeleme sorgusu: %w", err)
 	}
-	return books, nil
+	total, err := r.q.CountBooks(ctx, db.CountBooksParams{Genre: genre, Query: query})
+	if err != nil {
+		return nil, 0, fmt.Errorf("kitap sayma sorgusu: %w", err)
+	}
+	return list, total, nil
+}
+
+// optional, boş string'i NULL'a (nil) çevirir: SQL'deki `param IS NULL OR ...` deseni
+// filtreyi böylece devre dışı bırakır.
+func optional(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// escapeLike, kullanıcının aradığı metindeki LIKE jokerlerini (%, _) ve kaçış karakterini
+// (\) kaçışlar. Güvenlik açığı değil (sorgu zaten parametreli) ama anlam hatası: "%50"
+// araması "50 ile biten her şey" demek olmamalı.
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
 // GenresForBook, tek kitabın türlerini ada göre sıralı döner.

@@ -9,6 +9,31 @@ import (
 	"context"
 )
 
+const countBooks = `-- name: CountBooks :one
+SELECT count(*) FROM books b
+WHERE b.status = 'APPROVED'
+  AND ($1::text IS NULL OR EXISTS (
+        SELECT 1 FROM book_genres bg
+        JOIN genres g ON g.id = bg.genre_id
+        WHERE bg.book_id = b.id AND g.slug = $1))
+  AND ($2::text IS NULL
+       OR b.title  ILIKE '%' || $2 || '%'
+       OR b.author ILIKE '%' || $2 || '%')
+`
+
+type CountBooksParams struct {
+	Genre *string `json:"genre"`
+	Query *string `json:"query"`
+}
+
+// Aynı filtrelerle toplam sayı (sayfalama arayüzü "57 sonuçtan 1-20" diyebilsin).
+func (q *Queries) CountBooks(ctx context.Context, arg CountBooksParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countBooks, arg.Genre, arg.Query)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createBook = `-- name: CreateBook :one
 INSERT INTO books (
     title, slug, author, description, cover_url, publication_year,
@@ -108,16 +133,47 @@ func (q *Queries) GetApprovedBook(ctx context.Context, id int64) (Book, error) {
 }
 
 const listBooks = `-- name: ListBooks :many
-SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at FROM books
-WHERE status = 'APPROVED'
-ORDER BY created_at DESC
+SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at FROM books b
+WHERE b.status = 'APPROVED'
+  AND ($1::text IS NULL OR EXISTS (
+        SELECT 1 FROM book_genres bg
+        JOIN genres g ON g.id = bg.genre_id
+        WHERE bg.book_id = b.id AND g.slug = $1))
+  AND ($2::text IS NULL
+       OR b.title  ILIKE '%' || $2 || '%'
+       OR b.author ILIKE '%' || $2 || '%')
+ORDER BY b.created_at DESC, b.id DESC
+LIMIT $4 OFFSET $3
 `
 
-// Ana liste: sadece onaylılar, en yeniden eskiye. Bilerek parametresiz —
-// migration'daki partial index'in ((created_at DESC) WHERE status='APPROVED')
-// birebir karşılığı. (Admin'in TÜM statüleri listelemesi ileride ayrı sorgu olur.)
-func (q *Queries) ListBooks(ctx context.Context) ([]Book, error) {
-	rows, err := q.db.Query(ctx, listBooks)
+type ListBooksParams struct {
+	Genre  *string `json:"genre"`
+	Query  *string `json:"query"`
+	Offset int32   `json:"offset"`
+	Limit  int32   `json:"limit"`
+}
+
+// Ana liste: sadece onaylılar, en yeniden eskiye; opsiyonel TÜR filtresi, METİN araması
+// ve SAYFALAMA ile.
+//
+// Opsiyonel filtre deseni: `(param IS NULL OR koşul)`. Parametre gönderilmezse (NULL)
+// koşul devre dışı kalır. sqlc'nin "dinamik sorgularda hantal" dediğimiz zayıflığının
+// standart çözümü bu: sorgu metni sabit kalır, filtreyi DEĞER açıp kapatır — string
+// birleştirerek SQL kurmaya (injection kapısı) hiç gerek kalmaz.
+//
+// Arama ILIKE ile (büyük/küçük harf duyarsız). `%` ve `_` istemci girdisinde joker
+// olmasın diye Go tarafında kaçışlanıyor (bkz. books.escapeLike).
+//
+// Sıralamada id ikincil anahtar: aynı created_at'e sahip iki kitap sayfalar arasında
+// yer değiştirmesin (kararlı sayfalama). Partial index (created_at DESC) WHERE
+// status='APPROVED' bu sorguya hizmet ediyor.
+func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]Book, error) {
+	rows, err := q.db.Query(ctx, listBooks,
+		arg.Genre,
+		arg.Query,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -22,7 +22,7 @@ import (
 // tek metotlu interface konvansiyonudur.
 type bookStore interface {
 	Get(ctx context.Context, id int64) (db.Book, error)
-	List(ctx context.Context) ([]db.Book, error)
+	List(ctx context.Context, f books.ListFilter) ([]db.Book, int64, error)
 	Create(ctx context.Context, params db.CreateBookParams) (db.Book, error)
 	GenresForBook(ctx context.Context, bookID int64) ([]db.Genre, error)
 	GenresForBooks(ctx context.Context, bookIDs []int64) (map[int64][]db.Genre, error)
@@ -114,11 +114,62 @@ func handleGetBook(store bookStore) http.HandlerFunc {
 	}
 }
 
-// handleListBooks, GET /api/books — onaylı kitapları en yeniden eskiye listeler.
+// Sayfalama sınırları: limit tavanı tek istekte çekilebilecek veriyi sınırlar; offset
+// tavanı ise pahalı derin taramayı (OFFSET 1.000.000 = milyon satır okuyup atmak) keser.
+const (
+	defaultPageLimit = 20
+	maxPageLimit     = 100
+	maxPageOffset    = 10_000
+	maxQueryLen      = 100
+)
+
+// bookPage, sayfalanmış liste cevabı. Düz dizi yerine zarf: istemci toplam sonuç sayısını
+// ve hangi dilimi gördüğünü bilir ("57 sonuçtan 1-20").
+type bookPage struct {
+	Items  []bookResponse `json:"items"`
+	Total  int64          `json:"total"`
+	Limit  int32          `json:"limit"`
+	Offset int32          `json:"offset"`
+}
+
+// parseListFilter, ?genre=&q=&limit=&offset= parametrelerini doğrulayıp filtreye çevirir.
+func parseListFilter(r *http.Request) (books.ListFilter, error) {
+	q := r.URL.Query()
+	f := books.ListFilter{
+		Genre:  strings.TrimSpace(q.Get("genre")),
+		Query:  strings.TrimSpace(q.Get("q")),
+		Limit:  defaultPageLimit,
+		Offset: 0,
+	}
+
+	var v validator
+	v.match("genre", f.Genre, slugPattern, "tür slug'ı; ör. bilim-kurgu")
+	v.maxLen("q", f.Query, maxQueryLen)
+	if raw := q.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		v.check(err == nil && n >= 1 && n <= maxPageLimit, "limit 1-%d arasında bir sayı olmalı", maxPageLimit)
+		f.Limit = int32(n)
+	}
+	if raw := q.Get("offset"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		v.check(err == nil && n >= 0 && n <= maxPageOffset, "offset 0-%d arasında bir sayı olmalı", maxPageOffset)
+		f.Offset = int32(n)
+	}
+	return f, v.err()
+}
+
+// handleListBooks, GET /api/books — onaylı kitapları en yeniden eskiye, sayfalı listeler.
+// Opsiyonel: ?genre=<slug> (türe göre), ?q=<metin> (başlık/yazar), ?limit=&offset=.
 // Görünürlük sınırı (yalnızca APPROVED) burada değil SQL'de yaşıyor (ListBooks sorgusu).
 func handleListBooks(store bookStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		list, err := store.List(r.Context())
+		filter, err := parseListFilter(r)
+		if err != nil {
+			writeRequestError(w, err)
+			return
+		}
+
+		list, total, err := store.List(r.Context(), filter)
 		if err != nil {
 			writeInternalError(w, "ListBooks", err)
 			return
@@ -135,13 +186,12 @@ func handleListBooks(store bookStore) http.HandlerFunc {
 			return
 		}
 
-		// make(..., 0, n): liste BOŞ olsa bile JSON'da "null" değil "[]" çıkar.
-		// (nil slice "null" olarak serileşir ve istemcinin books.map(...)'ini patlatır.)
-		out := make([]bookResponse, 0, len(list))
+		// make(..., 0, n): sayfa BOŞ olsa bile JSON'da "null" değil "[]" çıkar.
+		items := make([]bookResponse, 0, len(list))
 		for _, b := range list {
-			out = append(out, toBookResponse(b, genresByBook[b.ID]))
+			items = append(items, toBookResponse(b, genresByBook[b.ID]))
 		}
-		writeJSON(w, http.StatusOK, out)
+		writeJSON(w, http.StatusOK, bookPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset})
 	}
 }
 

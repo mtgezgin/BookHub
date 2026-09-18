@@ -139,7 +139,7 @@ func TestRepositoryListErrorWrapping(t *testing.T) {
 
 	repo := NewRepository(fakeDBTX{queryErr: errConn})
 
-	got, err := repo.List(context.Background())
+	got, _, err := repo.List(context.Background(), ListFilter{Limit: 20})
 
 	if err == nil {
 		t.Fatalf("hata bekleniyordu ama gelmedi (gelen liste: %+v)", got)

@@ -19,6 +19,8 @@ import (
 type fakeBooks struct {
 	book     db.Book
 	list     []db.Book
+	total    int64
+	filter   *books.ListFilter // List'e gelen filtreyi yakalamak için (nil = yakalama)
 	genres   map[int64][]db.Genre
 	err      error
 	setErr   error
@@ -26,7 +28,12 @@ type fakeBooks struct {
 }
 
 func (f fakeBooks) Get(context.Context, int64) (db.Book, error) { return f.book, f.err }
-func (f fakeBooks) List(context.Context) ([]db.Book, error)     { return f.list, f.err }
+func (f fakeBooks) List(_ context.Context, lf books.ListFilter) ([]db.Book, int64, error) {
+	if f.filter != nil {
+		*f.filter = lf
+	}
+	return f.list, f.total, f.err
+}
 func (f fakeBooks) Create(context.Context, db.CreateBookParams) (db.Book, error) {
 	return f.book, f.err
 }
@@ -134,33 +141,72 @@ func TestHandlersDoNotLeakInternalErrors(t *testing.T) {
 	}
 }
 
-// TestHandleListBooks: boş liste "[]" (null DEĞİL), dolu listede İÇERİK ve SIRA
-// korunur (yalnızca eleman sayısına bakmak, boş kayıtlar dönen bir hatayı kaçırırdı).
+// TestHandleListBooks: boş sayfada items "[]" (null DEĞİL); dolu sayfada İÇERİK, SIRA ve
+// sayfalama bilgisi korunur (yalnızca eleman sayısına bakmak, boş kayıtlar dönen bir
+// hatayı kaçırırdı).
 func TestHandleListBooks(t *testing.T) {
-	t.Run("boş liste → [] (null değil)", func(t *testing.T) {
-		rec := do(t, newRouter(deps{books: fakeBooks{list: nil}}), http.MethodGet, "/api/books", "")
-		if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
-			t.Fatalf("istenen 200 + [], gelen %d %q", rec.Code, rec.Body.String())
+	t.Run("boş sayfa → items [] (null değil)", func(t *testing.T) {
+		rec := do(t, newRouter(deps{books: fakeBooks{}}), http.MethodGet, "/api/books", "")
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"items":[]`) {
+			t.Fatalf("istenen 200 + items:[], gelen %d %s", rec.Code, rec.Body)
 		}
 	})
 
-	t.Run("dolu liste → içerik ve sıra korunur", func(t *testing.T) {
-		fake := fakeBooks{list: []db.Book{
+	t.Run("dolu sayfa → içerik, sıra ve toplam korunur", func(t *testing.T) {
+		fake := fakeBooks{total: 42, list: []db.Book{
 			{ID: 7, Title: "The Go Programming Language"},
 			{ID: 3, Title: "Clean Code"},
 		}}
 		rec := do(t, newRouter(deps{books: fake}), http.MethodGet, "/api/books", "")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("durum kodu: istenen 200, gelen %d", rec.Code)
+		var got bookPage
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("istenen 200 + JSON, gelen %d %v", rec.Code, err)
 		}
-		var got []bookResponse
-		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-			t.Fatalf("cevap geçerli JSON değil: %v", err)
+		if len(got.Items) != 2 || got.Items[0].ID != 7 || got.Items[1].ID != 3 {
+			t.Errorf("içerik/sıra bozuldu: %+v", got.Items)
 		}
-		if len(got) != 2 || got[0].ID != 7 || got[0].Title != "The Go Programming Language" || got[1].ID != 3 {
-			t.Errorf("liste içeriği/sırası bozuldu: %+v", got)
+		if got.Total != 42 || got.Limit != defaultPageLimit || got.Offset != 0 {
+			t.Errorf("sayfa bilgisi yanlış: total=%d limit=%d offset=%d", got.Total, got.Limit, got.Offset)
 		}
 	})
+}
+
+// TestListBooksQueryParams, sorgu parametrelerinin filtreye DOĞRU aktarıldığını ve
+// geçersiz değerlerin sorguya hiç gitmeden 400 aldığını doğrular.
+func TestListBooksQueryParams(t *testing.T) {
+	valid := []struct {
+		url  string
+		want books.ListFilter
+	}{
+		{"/api/books", books.ListFilter{Limit: 20}},
+		{"/api/books?genre=bilim-kurgu&q=%20dune%20&limit=5&offset=10", books.ListFilter{Genre: "bilim-kurgu", Query: "dune", Limit: 5, Offset: 10}},
+		{"/api/books?limit=100", books.ListFilter{Limit: 100}},
+	}
+	for _, tc := range valid {
+		t.Run(tc.url, func(t *testing.T) {
+			var got books.ListFilter
+			rec := do(t, newRouter(deps{books: fakeBooks{filter: &got}}), http.MethodGet, tc.url, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("durum kodu: istenen 200, gelen %d (%s)", rec.Code, rec.Body)
+			}
+			if got != tc.want {
+				t.Errorf("filtre: istenen %+v, gelen %+v", tc.want, got)
+			}
+		})
+	}
+
+	for _, url := range []string{
+		"/api/books?limit=0", "/api/books?limit=101", "/api/books?limit=abc",
+		"/api/books?offset=-1", "/api/books?offset=10001",
+		"/api/books?genre=Kötü%20Slug", "/api/books?q=" + strings.Repeat("a", maxQueryLen+1),
+	} {
+		t.Run("400: "+url[:min(len(url), 40)], func(t *testing.T) {
+			rec := do(t, newRouter(deps{books: fakeBooks{}}), http.MethodGet, url, "")
+			if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "validation_error" {
+				t.Errorf("istenen 400 validation_error, gelen %d %s", rec.Code, rec.Body)
+			}
+		})
+	}
 }
 
 // TestHandleCreateBook, create ucunun girdi doğrulamasını ve hata haritalamasını doğrular.
