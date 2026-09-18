@@ -25,6 +25,10 @@ type Config struct {
 	JWTSecret       string
 	AccessTokenTTL  time.Duration // kısa: çalınan access token'ın ömrü bu kadar
 	RefreshTokenTTL time.Duration // uzun: kullanıcı bu süre boyunca tekrar giriş yapmaz
+
+	// RatingMinVotes: ağırlıklı puandaki m ("güvenilir sayılmak için gereken oy sayısı").
+	// Veri büyüdükçe artırılır; küçük başlar (bkz. ratings.DefaultMinVotes).
+	RatingMinVotes int
 }
 
 // minJWTSecretLen, auth.MinSecretLen ile aynı sınır. config'i auth'a bağımlı yapmamak için
@@ -47,6 +51,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("geçersiz config: %w", err)
 	}
+	minVotes, err := getenvInt("RATING_MIN_VOTES", 10)
+	if err != nil {
+		return Config{}, fmt.Errorf("geçersiz config: %w", err)
+	}
 
 	// Config{...} = "struct literal" (JS'teki nesne literali { } gibi).
 	cfg := Config{
@@ -57,6 +65,7 @@ func Load() (Config, error) {
 		JWTSecret:       os.Getenv("JWT_SECRET"), // varsayılan YOK: zayıf bir varsayılan, hiç olmamasından kötüdür
 		AccessTokenTTL:  accessTTL,
 		RefreshTokenTTL: refreshTTL,
+		RatingMinVotes:  minVotes,
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -89,6 +98,9 @@ func (c *Config) validate() error {
 	}
 	if c.AccessTokenTTL <= 0 || c.RefreshTokenTTL <= 0 {
 		return fmt.Errorf("JWT_ACCESS_TTL ve JWT_REFRESH_TTL pozitif olmalı")
+	}
+	if c.RatingMinVotes < 0 {
+		return fmt.Errorf("RATING_MIN_VOTES negatif olamaz, gelen %d", c.RatingMinVotes)
 	}
 	if c.AccessTokenTTL >= c.RefreshTokenTTL {
 		return fmt.Errorf("JWT_ACCESS_TTL (%s), JWT_REFRESH_TTL'den (%s) kısa olmalı", c.AccessTokenTTL, c.RefreshTokenTTL)
@@ -133,4 +145,17 @@ func getenvDuration(key string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s süre olmalı (ör. 15m, 168h), gelen %q", key, v)
 	}
 	return d, nil
+}
+
+// getenvInt, env değişkenini tam sayı olarak okur (tanımsızsa varsayılan, geçersizse hata).
+func getenvInt(key string, fallback int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s tam sayı olmalı, gelen %q", key, v)
+	}
+	return n, nil
 }

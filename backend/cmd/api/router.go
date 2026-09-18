@@ -45,7 +45,8 @@ func newRouter(d deps) http.Handler {
 
 	// Herkese açık okuma uçları.
 	r.Get("/api/books", handleListBooks(d.books))
-	r.Get("/api/books/{id}", handleGetBook(d.books)) // {id} = Chi URL parametresi
+	r.Get("/api/books/top-rated", handleTopRated(d.books, d.ratings)) // statik yol {id}'den önce eşleşir
+	r.Get("/api/books/{id}", handleGetBook(d.books))                  // {id} = Chi URL parametresi
 	r.Get("/api/genres", handleListGenres(d.genres))
 
 	// Giriş yapmış herkes kitap önerebilir; öneri PENDING doğar (public listede görünmez).

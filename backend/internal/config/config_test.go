@@ -143,3 +143,31 @@ func TestLoadJWT(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadRatingMinVotes(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    int
+		wantErr bool
+	}{
+		{"", 10, false},
+		{"25", 25, false},
+		{"0", 0, false},
+		{"-1", 0, true},
+		{"on", 0, true},
+	}
+	for _, tt := range tests {
+		t.Run("RATING_MIN_VOTES="+tt.value, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("JWT_SECRET", testJWTSecret)
+			t.Setenv("RATING_MIN_VOTES", tt.value)
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("hata beklentisi %v, gelen %v", tt.wantErr, err)
+			}
+			if err == nil && cfg.RatingMinVotes != tt.want {
+				t.Errorf("istenen %d, gelen %d", tt.want, cfg.RatingMinVotes)
+			}
+		})
+	}
+}

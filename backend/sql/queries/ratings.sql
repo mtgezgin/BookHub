@@ -50,3 +50,31 @@ FROM ratings
 WHERE book_id = $1
 GROUP BY score
 ORDER BY score;
+
+-- Genel ortalama C: onaylı kitaplara verilmiş TÜM oyların ortalaması. Hiç oy yoksa
+-- avg() NULL döner → COALESCE ile COLD-START varsayılanı (ölçeğin ortası). Veri azken C
+-- zaten tek tük oydan oluşur; bu doğru ve beklenen davranış.
+-- name: GlobalAverageRating :one
+SELECT COALESCE(avg(r.score)::float8, sqlc.arg('fallback')::float8)::float8 AS c
+FROM ratings r
+JOIN books b ON b.id = r.book_id AND b.status = 'APPROVED';
+
+-- En iyi kitaplar, AĞIRLIKLI skora göre — QUERY-TIME hesap (saklanan kolon YOK).
+--
+-- Neden saklamıyoruz: C (genel ortalama) GLOBAL. Herhangi bir kitaba verilen tek oy C'yi
+-- değiştirir ve dolayısıyla BÜTÜN kitapların doğru skorunu değiştirir; her yazımda tüm
+-- tabloyu güncellemek ya da bayat skor tutmak gerekirdi. Hesaplamak ucuz (oylu, onaylı
+-- kitaplar üzerinde tek geçiş + LIMIT); yavaşladığı ÖLÇÜLÜRSE cache (Faz 7) ya da
+-- materialized view düşünülür — önce değil.
+--
+-- Formül internal/ratings.WeightedScore ile AYNI (entegrasyon testi ikisini karşılaştırır).
+-- Eşitlikte daha çok oylu önce, sonra id: sayfalar arası kararlı sıra.
+-- name: ListTopRated :many
+SELECT b.*,
+       ((b.rating_count::float8 / (b.rating_count + sqlc.arg('m')::float8)) * b.average_rating::float8
+        + (sqlc.arg('m')::float8 / (b.rating_count + sqlc.arg('m')::float8)) * sqlc.arg('c')::float8
+       )::float8 AS weighted_score
+FROM books b
+WHERE b.status = 'APPROVED' AND b.rating_count > 0
+ORDER BY weighted_score DESC, b.rating_count DESC, b.id DESC
+LIMIT sqlc.arg('limit');

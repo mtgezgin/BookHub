@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +27,7 @@ type ratingService interface {
 	Remove(ctx context.Context, userID, bookID int64) (ratings.Stats, error)
 	Mine(ctx context.Context, userID, bookID int64) (db.GetUserRatingRow, error)
 	Summary(ctx context.Context, bookID int64) (ratings.Summary, error)
+	TopRated(ctx context.Context, limit int32) (ratings.TopRated, error)
 }
 
 // commentAuthor: yazarın public bilgisi. Hesabı silinmiş yazarın yorumunda author = null.
@@ -296,5 +299,61 @@ func handleRatingSummary(svc ratingService) http.HandlerFunc {
 			dist = append(dist, scoreVotes{Score: i + ratings.MinScore, Votes: votes})
 		}
 		writeJSON(w, http.StatusOK, summaryResponse{statsResponse: statsResponse{sum.Average, sum.Count}, Distribution: dist})
+	}
+}
+
+const (
+	defaultTopRatedLimit = 10
+	maxTopRatedLimit     = 50
+)
+
+type topRatedItem struct {
+	bookResponse
+	WeightedScore float64 `json:"weighted_score"`
+}
+
+// topRatedResponse, sıralamayı üreten parametreleri de döner (m, c): "neden bu kitap
+// birinci?" sorusu cevaplanabilsin — sıralama bir kara kutu olmasın.
+type topRatedResponse struct {
+	Items []topRatedItem `json:"items"`
+	M     int64          `json:"m"`
+	C     float64        `json:"c"`
+}
+
+func round4(x float64) float64 { return math.Round(x*10000) / 10000 }
+
+// handleTopRated, GET /api/books/top-rated?limit= — ağırlıklı (Bayes) skora göre, basit
+// ortalamaya göre DEĞİL: 1 oyla 10 alan kitap, 200 oyla 8.7 alanın önüne geçemez.
+func handleTopRated(store bookStore, svc ratingService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := int32(defaultTopRatedLimit)
+		if raw := r.URL.Query().Get("limit"); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 1 || n > maxTopRatedLimit {
+				writeError(w, http.StatusBadRequest, "validation_error", "limit 1-50 arasında bir sayı olmalı")
+				return
+			}
+			limit = int32(n)
+		}
+
+		top, err := svc.TopRated(r.Context(), limit)
+		if err != nil {
+			writeInternalError(w, "TopRated", err)
+			return
+		}
+		ids := make([]int64, 0, len(top.Books))
+		for _, b := range top.Books {
+			ids = append(ids, b.Book.ID)
+		}
+		genresByBook, err := store.GenresForBooks(r.Context(), ids)
+		if err != nil {
+			writeInternalError(w, "GenresForBooks", err)
+			return
+		}
+		items := make([]topRatedItem, 0, len(top.Books))
+		for _, b := range top.Books {
+			items = append(items, topRatedItem{bookResponse: toBookResponse(b.Book, genresByBook[b.Book.ID]), WeightedScore: round4(b.WeightedScore)})
+		}
+		writeJSON(w, http.StatusOK, topRatedResponse{Items: items, M: top.M, C: round4(top.C)})
 	}
 }

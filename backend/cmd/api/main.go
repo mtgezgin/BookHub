@@ -60,7 +60,7 @@ func main() {
 		genres:     genres.NewRepository(pool),
 		moderation: moderation.NewService(pool),
 		comments:   comments.NewService(pool),
-		ratings:    ratings.NewService(pool),
+		ratings:    ratings.NewService(pool, int64(cfg.RatingMinVotes)),
 		auth:       auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL),
 		tokens:     tokens,
 	}

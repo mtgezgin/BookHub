@@ -40,11 +40,13 @@ func (f *fakeComments) Delete(_ context.Context, admin, id int64) error {
 }
 
 type fakeRatings struct {
-	result  ratings.Result
-	stats   ratings.Stats
-	mine    db.GetUserRatingRow
-	summary ratings.Summary
-	err     error
+	result   ratings.Result
+	stats    ratings.Stats
+	mine     db.GetUserRatingRow
+	summary  ratings.Summary
+	top      ratings.TopRated
+	err      error
+	gotLimit int32
 
 	gotUser, gotBook int64
 	gotScore         int
@@ -70,6 +72,11 @@ func (f *fakeRatings) Summary(_ context.Context, book int64) (ratings.Summary, e
 	f.calls++
 	f.gotBook = book
 	return f.summary, f.err
+}
+func (f *fakeRatings) TopRated(_ context.Context, limit int32) (ratings.TopRated, error) {
+	f.calls++
+	f.gotLimit = limit
+	return f.top, f.err
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -211,4 +218,29 @@ func TestRatingReadAndRemove(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestTopRated(t *testing.T) {
+	avg := 8.5
+	fake := &fakeRatings{top: ratings.TopRated{M: 10, C: 7.123456, Books: []ratings.TopRatedBook{
+		{Book: db.Book{ID: 2, Title: "Çok oylu", AverageRating: &avg, RatingCount: 2000}, WeightedScore: 8.49253731},
+	}}}
+	rec := do(t, newRouter(deps{books: fakeBooks{}, ratings: fake}), http.MethodGet, "/api/books/top-rated", "")
+	if rec.Code != http.StatusOK || fake.gotLimit != defaultTopRatedLimit {
+		t.Fatalf("status %d, limit %d (%s)", rec.Code, fake.gotLimit, rec.Body)
+	}
+	var got topRatedResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	if got.M != 10 || got.C != 7.1235 || len(got.Items) != 1 || got.Items[0].WeightedScore != 8.4925 || got.Items[0].RatingCount != 2000 {
+		t.Errorf("cevap (4 haneye yuvarlanmış): %+v", got)
+	}
+
+	for _, bad := range []string{"0", "51", "abc"} {
+		f := &fakeRatings{}
+		if rec := do(t, newRouter(deps{books: fakeBooks{}, ratings: f}), http.MethodGet, "/api/books/top-rated?limit="+bad, ""); rec.Code != http.StatusBadRequest || f.calls != 0 {
+			t.Errorf("limit=%s → 400 bekleniyordu: %d", bad, rec.Code)
+		}
+	}
 }

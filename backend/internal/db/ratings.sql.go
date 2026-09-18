@@ -50,6 +50,111 @@ func (q *Queries) GetUserRating(ctx context.Context, arg GetUserRatingParams) (G
 	return i, err
 }
 
+const globalAverageRating = `-- name: GlobalAverageRating :one
+SELECT COALESCE(avg(r.score)::float8, $1::float8)::float8 AS c
+FROM ratings r
+JOIN books b ON b.id = r.book_id AND b.status = 'APPROVED'
+`
+
+// Genel ortalama C: onaylı kitaplara verilmiş TÜM oyların ortalaması. Hiç oy yoksa
+// avg() NULL döner → COALESCE ile COLD-START varsayılanı (ölçeğin ortası). Veri azken C
+// zaten tek tük oydan oluşur; bu doğru ve beklenen davranış.
+func (q *Queries) GlobalAverageRating(ctx context.Context, fallback float64) (float64, error) {
+	row := q.db.QueryRow(ctx, globalAverageRating, fallback)
+	var c float64
+	err := row.Scan(&c)
+	return c, err
+}
+
+const listTopRated = `-- name: ListTopRated :many
+SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count,
+       ((b.rating_count::float8 / (b.rating_count + $1::float8)) * b.average_rating::float8
+        + ($1::float8 / (b.rating_count + $1::float8)) * $2::float8
+       )::float8 AS weighted_score
+FROM books b
+WHERE b.status = 'APPROVED' AND b.rating_count > 0
+ORDER BY weighted_score DESC, b.rating_count DESC, b.id DESC
+LIMIT $3
+`
+
+type ListTopRatedParams struct {
+	M     float64 `json:"m"`
+	C     float64 `json:"c"`
+	Limit int32   `json:"limit"`
+}
+
+type ListTopRatedRow struct {
+	ID              int64      `json:"id"`
+	Title           string     `json:"title"`
+	Slug            string     `json:"slug"`
+	Author          string     `json:"author"`
+	Description     string     `json:"description"`
+	CoverUrl        string     `json:"cover_url"`
+	PublicationYear *int32     `json:"publication_year"`
+	PageCount       *int32     `json:"page_count"`
+	Language        string     `json:"language"`
+	Status          string     `json:"status"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	SubmittedBy     *int64     `json:"submitted_by"`
+	RejectionReason *string    `json:"rejection_reason"`
+	ModeratedBy     *int64     `json:"moderated_by"`
+	ModeratedAt     *time.Time `json:"moderated_at"`
+	AverageRating   *float64   `json:"average_rating"`
+	RatingCount     int32      `json:"rating_count"`
+	WeightedScore   float64    `json:"weighted_score"`
+}
+
+// En iyi kitaplar, AĞIRLIKLI skora göre — QUERY-TIME hesap (saklanan kolon YOK).
+//
+// Neden saklamıyoruz: C (genel ortalama) GLOBAL. Herhangi bir kitaba verilen tek oy C'yi
+// değiştirir ve dolayısıyla BÜTÜN kitapların doğru skorunu değiştirir; her yazımda tüm
+// tabloyu güncellemek ya da bayat skor tutmak gerekirdi. Hesaplamak ucuz (oylu, onaylı
+// kitaplar üzerinde tek geçiş + LIMIT); yavaşladığı ÖLÇÜLÜRSE cache (Faz 7) ya da
+// materialized view düşünülür — önce değil.
+//
+// Formül internal/ratings.WeightedScore ile AYNI (entegrasyon testi ikisini karşılaştırır).
+// Eşitlikte daha çok oylu önce, sonra id: sayfalar arası kararlı sıra.
+func (q *Queries) ListTopRated(ctx context.Context, arg ListTopRatedParams) ([]ListTopRatedRow, error) {
+	rows, err := q.db.Query(ctx, listTopRated, arg.M, arg.C, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTopRatedRow
+	for rows.Next() {
+		var i ListTopRatedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Slug,
+			&i.Author,
+			&i.Description,
+			&i.CoverUrl,
+			&i.PublicationYear,
+			&i.PageCount,
+			&i.Language,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SubmittedBy,
+			&i.RejectionReason,
+			&i.ModeratedBy,
+			&i.ModeratedAt,
+			&i.AverageRating,
+			&i.RatingCount,
+			&i.WeightedScore,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockApprovedBook = `-- name: LockApprovedBook :one
 
 SELECT id FROM books

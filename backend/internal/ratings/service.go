@@ -46,13 +46,62 @@ type Summary struct {
 	Distribution [MaxScore]int32
 }
 
+// ColdStartMean, hiç oy yokken genel ortalama C yerine kullanılan değer (1-10 ölçeğinin ortası).
+const ColdStartMean = 5.5
+
+// DefaultMinVotes, ağırlıklı puandaki m'nin varsayılanı. KÜÇÜK başlıyor (brief'teki 100 değil):
+// az veride m=100, her kitabın skorunu C'ye çökertir ve sıralama anlamsızlaşır.
+const DefaultMinVotes = 10
+
 type Service struct {
-	conn db.DBTX
-	q    *db.Queries
+	conn     db.DBTX
+	q        *db.Queries
+	minVotes int64
 }
 
-func NewService(conn db.DBTX) *Service {
-	return &Service{conn: conn, q: db.New(conn)}
+// NewService, m (minVotes) ayarıyla bir Service kurar; negatif m 0 sayılır.
+func NewService(conn db.DBTX, minVotes int64) *Service {
+	return &Service{conn: conn, q: db.New(conn), minVotes: max(minVotes, 0)}
+}
+
+// TopRatedBook, sıralamadaki bir kitap ve ağırlıklı skoru.
+type TopRatedBook struct {
+	Book          db.Book
+	WeightedScore float64
+}
+
+// TopRated, sıralama + onu üreten parametreler (şeffaflık: istemci m ve C'yi görebilir).
+type TopRated struct {
+	Books []TopRatedBook
+	M     int64
+	C     float64
+}
+
+// TopRated, onaylı ve en az bir oyu olan kitapları AĞIRLIKLI skora göre sıralar.
+// Skor query-time hesaplanır (bkz. sql/queries/ratings.sql ListTopRated).
+//
+// C ve liste iki ayrı sorgu: arada gelen bir oy C'yi çok az kaydırabilir. Sıralama için
+// önemsiz; kesinlik gerekseydi ikisi tek REPEATABLE READ transaction'da okunurdu.
+func (s *Service) TopRated(ctx context.Context, limit int32) (TopRated, error) {
+	c, err := s.q.GlobalAverageRating(ctx, ColdStartMean)
+	if err != nil {
+		return TopRated{}, fmt.Errorf("genel ortalama okunamadı: %w", err)
+	}
+	rows, err := s.q.ListTopRated(ctx, db.ListTopRatedParams{M: float64(s.minVotes), C: c, Limit: limit})
+	if err != nil {
+		return TopRated{}, fmt.Errorf("sıralama okunamadı: %w", err)
+	}
+	out := TopRated{M: s.minVotes, C: c, Books: make([]TopRatedBook, 0, len(rows))}
+	for _, r := range rows {
+		out.Books = append(out.Books, TopRatedBook{Book: db.Book{
+			ID: r.ID, Title: r.Title, Slug: r.Slug, Author: r.Author, Description: r.Description,
+			CoverUrl: r.CoverUrl, PublicationYear: r.PublicationYear, PageCount: r.PageCount,
+			Language: r.Language, Status: r.Status, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+			SubmittedBy: r.SubmittedBy, RejectionReason: r.RejectionReason, ModeratedBy: r.ModeratedBy,
+			ModeratedAt: r.ModeratedAt, AverageRating: r.AverageRating, RatingCount: r.RatingCount,
+		}, WeightedScore: r.WeightedScore})
+	}
+	return out, nil
 }
 
 // Rate, kullanıcının kitaba puanını verir ya da günceller ve istatistikleri yeniler.

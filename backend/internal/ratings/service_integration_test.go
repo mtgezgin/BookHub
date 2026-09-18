@@ -41,7 +41,7 @@ func createBook(t *testing.T, pool *pgxpool.Pool, status string) int64 {
 
 func TestRateLifecycleRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
-	s := NewService(pool)
+	s := NewService(pool, DefaultMinVotes)
 	ctx := context.Background()
 	book := createBook(t, pool, books.StatusApproved)
 	u1, u2 := createUser(t, pool), createUser(t, pool)
@@ -86,7 +86,7 @@ func TestRateLifecycleRealDB(t *testing.T) {
 
 func TestRateRulesRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
-	s := NewService(pool)
+	s := NewService(pool, DefaultMinVotes)
 	ctx := context.Background()
 	user := createUser(t, pool)
 
@@ -110,7 +110,7 @@ func TestRateRulesRealDB(t *testing.T) {
 // hesaplar, sonra yazan öncekinin sayımını ezerdi (kayıp güncelleme).
 func TestConcurrentRatingsRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
-	s := NewService(pool)
+	s := NewService(pool, DefaultMinVotes)
 	ctx := context.Background()
 	book := createBook(t, pool, books.StatusApproved)
 
@@ -156,5 +156,62 @@ func TestConcurrentRatingsRealDB(t *testing.T) {
 	}
 	if got.Count != n || gotAvg != want {
 		t.Errorf("kayıp güncelleme: istenen count=%d avg=%.2f, gelen count=%d avg=%.2f", n, want, got.Count, gotAvg)
+	}
+}
+
+// TestTopRatedRealDB: (1) SQL'in hesapladığı skor, spesifikasyon olan saf WeightedScore ile
+// AYNI olmalı; (2) brief'in iddiası gerçekçi bir katalogda tutmalı: 1 oyla 10 alan kitap,
+// 30 oyla 9 alan kitabın ÖNÜNE geçemez (basit ortalamada geçerdi).
+//
+// "GERÇEKÇİ KATALOG" NEDEN ŞART — testin ilk hâlinden öğrendiğimiz: yalnız bu iki kitap
+// varken genel ortalama C ≈ 9.03 çıkıyordu (oyların 30'u 9'luk kitaptan). O zaman 9'luk kitap
+// C'nin ALTINDA kalır ve formül onu ~9.01'de tutarken, 1 oylu 10'luk kitap ~9.12 alır —
+// ve bu istatistiksel olarak DOĞRU: katalog ortalaması 9 olan bir dünyada "10 veren tek kişi"
+// zayıf ama olumlu bir kanıttır. Brief'in iddiası C her iki kitabın da altındayken geçerli
+// (brief'in örneğinde C=7). Bu yüzden 40 oyla 5 alan bir "arka plan" kitabı ekliyoruz: C ≈ 6.9.
+func TestTopRatedRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	s := NewService(pool, DefaultMinVotes)
+	ctx := context.Background()
+
+	rateN := func(book int64, n, score int) {
+		t.Helper()
+		for range n {
+			if _, err := s.Rate(ctx, createUser(t, pool), book, score); err != nil {
+				t.Fatalf("Rate: %v", err)
+			}
+		}
+	}
+	lucky := createBook(t, pool, books.StatusApproved)  // 1 oy, 10
+	steady := createBook(t, pool, books.StatusApproved) // 30 oy, 9
+	rateN(lucky, 1, 10)
+	rateN(steady, 30, 9)
+	rateN(createBook(t, pool, books.StatusApproved), 40, 5) // arka plan: C'yi gerçekçi seviyeye çeker
+
+	top, err := s.TopRated(ctx, 50)
+	if err != nil {
+		t.Fatalf("TopRated: %v", err)
+	}
+	pos := map[int64]int{}
+	for i, b := range top.Books {
+		pos[b.Book.ID] = i
+		want := WeightedScore(*b.Book.AverageRating, int64(b.Book.RatingCount), top.M, top.C)
+		if math.Abs(want-b.WeightedScore) > 1e-9 {
+			t.Errorf("kitap %d: SQL skoru %.6f ≠ Go spesifikasyonu %.6f", b.Book.ID, b.WeightedScore, want)
+		}
+		if i > 0 && b.WeightedScore > top.Books[i-1].WeightedScore {
+			t.Errorf("sıralama azalan değil: %d. sırada %.4f > %.4f", i, b.WeightedScore, top.Books[i-1].WeightedScore)
+		}
+	}
+	pl, okL := pos[lucky]
+	ps, okS := pos[steady]
+	if !okL || !okS {
+		t.Fatalf("iki kitap da listede olmalı (lucky=%v steady=%v)", okL, okS)
+	}
+	if top.C >= 9 {
+		t.Fatalf("test kurgusu bozuk: C=%.2f, 9'un altında olmalı", top.C)
+	}
+	if ps > pl {
+		t.Errorf("C=%.2f iken 30 oyla 9 (sıra %d), 1 oyla 10'un (sıra %d) önünde olmalı", top.C, ps, pl)
 	}
 }
