@@ -62,18 +62,37 @@ export function refreshSession(): Promise<boolean> {
   return refreshing;
 }
 
+// SEKMELER ARASI: yukarıdaki Promise yalnız BU sekmeyi korur. Aynı localStorage'ı paylaşan
+// üç sekme aynı anda açılırsa üçü de aynı tek kullanımlık token'la /refresh yapar; biri
+// kazanır, diğer ikisi 401 alır. Web Locks API ile yenilemeyi TÜM sekmelerde sıraya sokuyoruz:
+// kilidi alan sekme token'ı localStorage'dan KİLİT İÇİNDE okur — önceki sekme döndürdüyse
+// yenisini görür. (Kilit desteklenmiyorsa — eski tarayıcı, test ortamı — doğrudan çalışır.)
 async function doRefresh(): Promise<boolean> {
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  return locks ? locks.request("bookhub-refresh", refreshOnce) : refreshOnce();
+}
+
+async function refreshOnce(): Promise<boolean> {
   const token = localStorage.getItem(REFRESH_KEY);
   if (!token) return false;
-  const res = await fetch("/api/auth/refresh", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: token }),
-  });
-  if (!res.ok) {
-    clearSession();
+  let res: Response;
+  try {
+    res = await fetch("/api/auth/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: token }),
+    });
+  } catch {
+    return false; // ağ hatası: token hâlâ geçerli olabilir, SİLME
+  }
+  if (res.status === 401) {
+    // Yalnız "token geçersiz" oturumu bitirir — ve yalnız hâlâ BİZİM gönderdiğimiz token
+    // saklıysa: arada başka bir sekme döndürdüyse onun yeni token'ını silmeyelim.
+    if (localStorage.getItem(REFRESH_KEY) === token) clearSession();
     return false;
   }
+  // 429 (NGINX sınırı), 502/5xx (API yeniden başlıyor): geçici — token'ı koru, sonra yeniden dene.
+  if (!res.ok) return false;
   storeSession((await res.json()) as Session);
   return true;
 }

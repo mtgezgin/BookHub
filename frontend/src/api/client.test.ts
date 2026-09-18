@@ -63,7 +63,35 @@ describe("api client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("yenileme reddedilirse oturum temizlenir", async () => {
+  // Review bulgusu F3: 429/5xx/ağ hatası GEÇİCİDİR — sunucuda hâlâ geçerli olan token'ı
+  // silmek kullanıcıyı sebepsiz yere oturumdan atardı.
+  it.each([429, 502, 500])("yenileme %i dönerse token KORUNUR", async (status) => {
+    localStorage.setItem("bookhub.refresh", "refresh-0");
+    fetchMock.mockResolvedValueOnce(json(status, { error: { code: "x", message: "" } }));
+    expect(await refreshSession()).toBe(false);
+    expect(localStorage.getItem("bookhub.refresh")).toBe("refresh-0");
+  });
+
+  it("ağ hatasında token korunur", async () => {
+    localStorage.setItem("bookhub.refresh", "refresh-0");
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    expect(await refreshSession()).toBe(false);
+    expect(localStorage.getItem("bookhub.refresh")).toBe("refresh-0");
+  });
+
+  // Review bulgusu F5: başka bir sekme arada token'ı döndürdüyse (yeni token saklı), bizim
+  // eski token'la aldığımız 401 onun oturumunu SİLMEMELİ.
+  it("401 geldiğinde saklı token değişmişse (başka sekme döndürdü) silinmez", async () => {
+    localStorage.setItem("bookhub.refresh", "refresh-0");
+    fetchMock.mockImplementationOnce(async () => {
+      localStorage.setItem("bookhub.refresh", "refresh-from-other-tab");
+      return json(401, { error: { code: "invalid_token", message: "" } });
+    });
+    expect(await refreshSession()).toBe(false);
+    expect(localStorage.getItem("bookhub.refresh")).toBe("refresh-from-other-tab");
+  });
+
+  it("yenileme 401 ile reddedilirse oturum temizlenir", async () => {
     localStorage.setItem("bookhub.refresh", "refresh-0");
     fetchMock.mockResolvedValueOnce(json(401, { error: { code: "invalid_token", message: "" } }));
     expect(await refreshSession()).toBe(false);

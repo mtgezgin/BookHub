@@ -40,6 +40,17 @@ export function BookDetail() {
     }
   };
 
+  const unrate = async () => {
+    setError(null);
+    try {
+      await api.removeRating(id);
+      setMine(null);
+      reload();
+    } catch (e) {
+      setError(e);
+    }
+  };
+
   const post = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -94,7 +105,7 @@ export function BookDetail() {
             {Array.from({ length: 10 }, (_, i) => i + 1).map((s) => (
               <button key={s} className={mine === s ? "active" : ""} onClick={() => rate(s)}>{s}</button>
             ))}
-            {mine !== null && <button className="link" onClick={async () => { await api.removeRating(id); setMine(null); reload(); }}>kaldır</button>}
+            {mine !== null && <button className="link" onClick={unrate}>kaldır</button>}
           </div>
         ) : (
           <p className="muted">Puan vermek için giriş yap.</p>

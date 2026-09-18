@@ -13,13 +13,14 @@ const TABS: { status: BookStatus; label: string }[] = [
 /** Admin moderasyon ekranı: statüye göre kuyruk + durum makinesindeki geçişler. */
 export function Moderation() {
   const [status, setStatus] = useState<BookStatus>("PENDING");
+  const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<Page<AdminBook> | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [genre, setGenre] = useState("");
 
   const load = useCallback(() => {
-    api.adminBooks(status).then(setPage).catch(setError);
-  }, [status]);
+    api.adminBooks(status, offset).then(setPage).catch(setError);
+  }, [status, offset]);
   useEffect(load, [load]);
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -37,7 +38,7 @@ export function Moderation() {
       <h1>Moderasyon</h1>
       <div className="tabs">
         {TABS.map((t) => (
-          <button key={t.status} className={t.status === status ? "active" : ""} onClick={() => setStatus(t.status)}>{t.label}</button>
+          <button key={t.status} className={t.status === status ? "active" : ""} onClick={() => { setStatus(t.status); setOffset(0); }}>{t.label}</button>
         ))}
       </div>
       <ErrorBox error={error} />
@@ -52,7 +53,10 @@ export function Moderation() {
                 <>
                   <button onClick={() => act(() => api.approve(b.id))}>Onayla</button>
                   <button className="danger" onClick={() => {
-                    const reason = window.prompt("Red gerekçesi (opsiyonel):") ?? "";
+                    // İptal = null → HİÇBİR ŞEY yapma. REJECTED son durak (durum makinesinde
+                    // çıkışı yok); "vazgeç" tıklaması kalıcı bir karara dönüşmemeli.
+                    const reason = window.prompt("Red gerekçesi (opsiyonel):");
+                    if (reason === null) return;
                     act(() => api.reject(b.id, reason));
                   }}>Reddet</button>
                 </>
@@ -63,6 +67,13 @@ export function Moderation() {
           </li>
         ))}
       </ul>
+      {page && page.total > page.limit && (
+        <div className="pager">
+          <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - page.limit))}>← Önceki</button>
+          <span className="muted">{offset + 1}–{Math.min(offset + page.limit, page.total)} / {page.total}</span>
+          <button disabled={offset + page.limit >= page.total} onClick={() => setOffset(offset + page.limit)}>Sonraki →</button>
+        </div>
+      )}
 
       <h2>Yeni tür</h2>
       <form className="search" onSubmit={(e) => { e.preventDefault(); act(async () => { await api.createGenre(genre); setGenre(""); }); }}>
