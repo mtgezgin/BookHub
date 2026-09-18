@@ -93,13 +93,7 @@ func (s *Service) TopRated(ctx context.Context, limit int32) (TopRated, error) {
 	}
 	out := TopRated{M: s.minVotes, C: c, Books: make([]TopRatedBook, 0, len(rows))}
 	for _, r := range rows {
-		out.Books = append(out.Books, TopRatedBook{Book: db.Book{
-			ID: r.ID, Title: r.Title, Slug: r.Slug, Author: r.Author, Description: r.Description,
-			CoverUrl: r.CoverUrl, PublicationYear: r.PublicationYear, PageCount: r.PageCount,
-			Language: r.Language, Status: r.Status, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
-			SubmittedBy: r.SubmittedBy, RejectionReason: r.RejectionReason, ModeratedBy: r.ModeratedBy,
-			ModeratedAt: r.ModeratedAt, AverageRating: r.AverageRating, RatingCount: r.RatingCount,
-		}, WeightedScore: r.WeightedScore})
+		out.Books = append(out.Books, TopRatedBook{Book: bookFromTopRatedRow(r), WeightedScore: r.WeightedScore})
 	}
 	return out, nil
 }
@@ -207,4 +201,19 @@ func refresh(ctx context.Context, q *db.Queries, bookID int64) (Stats, error) {
 		return Stats{}, fmt.Errorf("puan istatistiği yenilenemedi: %w", err)
 	}
 	return Stats{Average: row.AverageRating, Count: row.RatingCount}, nil
+}
+
+// bookFromTopRatedRow, sqlc'nin top-rated satırını (b.* + weighted_score) db.Book'a çevirir.
+// ELLE kopya: books'a yeni bir kolon eklenirse burası derlenmeye devam eder ama yeni alanı
+// sıfır bırakır — top-rated, kitap detayından sessizce ayrışırdı (review bulgusu R5).
+// Bu yüzden TestBookFromTopRatedRowCopiesEveryField, db.Book'un HER alanının taşındığını
+// reflection ile doğruluyor: yeni kolon eklenip burası unutulursa test kırılır.
+func bookFromTopRatedRow(r db.ListTopRatedRow) db.Book {
+	return db.Book{
+		ID: r.ID, Title: r.Title, Slug: r.Slug, Author: r.Author, Description: r.Description,
+		CoverUrl: r.CoverUrl, PublicationYear: r.PublicationYear, PageCount: r.PageCount,
+		Language: r.Language, Status: r.Status, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		SubmittedBy: r.SubmittedBy, RejectionReason: r.RejectionReason, ModeratedBy: r.ModeratedBy,
+		ModeratedAt: r.ModeratedAt, AverageRating: r.AverageRating, RatingCount: r.RatingCount,
+	}
 }
