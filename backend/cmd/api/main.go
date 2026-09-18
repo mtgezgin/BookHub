@@ -12,6 +12,7 @@ import (
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
 	"github.com/mtgezgin/bookhub/backend/internal/books"
+	"github.com/mtgezgin/bookhub/backend/internal/cache"
 	"github.com/mtgezgin/bookhub/backend/internal/comments"
 	"github.com/mtgezgin/bookhub/backend/internal/config"
 	"github.com/mtgezgin/bookhub/backend/internal/database"
@@ -47,6 +48,18 @@ func main() {
 	}
 	defer pool.Close() // kapanışta havuzdaki bağlantıları düzgün bırak
 
+	// Cache (Faz 7): REDIS_URL yoksa Noop — uygulama Redis'siz de doğru çalışır.
+	var appCache cache.Cache = cache.Noop{}
+	if cfg.RedisURL != "" {
+		rc, err := cache.NewRedis(ctx, cfg.RedisURL)
+		if err != nil {
+			log.Fatalf("redis hazır değil: %v", err)
+		}
+		defer func() { _ = rc.Close() }()
+		appCache = rc
+		log.Println("redis cache açık")
+	}
+
 	tokens, err := auth.NewTokenManager([]byte(cfg.JWTSecret), cfg.AccessTokenTTL)
 	if err != nil {
 		log.Fatalf("token yöneticisi kurulamadı: %v", err)
@@ -55,12 +68,17 @@ func main() {
 	// ELLE DI ZİNCİRİ (GO_CONVENTIONS §3): pool → repository'ler → (servis) → router.
 	// Framework yok; bağımlılık grafiğinin tamamı burada, tek yerde okunuyor.
 	// Auth ve moderasyonun araya bir servisi var (gerçek iş mantığı); okuma/tür CRUD'unun yok.
+	// Puan servisi cache'le sarılı; moderasyon, public görünümü değiştiren her commit'te
+	// top-rated cache'ini geçersiz kılar. İki servis birbirini tanımıyor — bağ burada kuruluyor.
+	ratingSvc := ratings.NewCached(ratings.NewService(pool, int64(cfg.RatingMinVotes)), appCache)
+	moderationSvc := moderation.NewService(pool, moderation.WithPublicChangeHook(ratingSvc.InvalidateTopRated))
+
 	d := deps{
 		books:      books.NewRepository(pool),
 		genres:     genres.NewRepository(pool),
-		moderation: moderation.NewService(pool),
+		moderation: moderationSvc,
 		comments:   comments.NewService(pool),
-		ratings:    ratings.NewService(pool, int64(cfg.RatingMinVotes)),
+		ratings:    ratingSvc,
 		auth:       auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL),
 		tokens:     tokens,
 	}

@@ -215,3 +215,34 @@ func TestTopRatedRealDB(t *testing.T) {
 		t.Errorf("C=%.2f iken 30 oyla 9 (sıra %d), 1 oyla 10'un (sıra %d) önünde olmalı", top.C, ps, pl)
 	}
 }
+
+// TestCachedInvalidationRealDB: gerçek DB + sahte cache — başarılı puan yazımı cache'i siler,
+// başarısız (onaysız kitap) yazım silmez.
+func TestCachedInvalidationRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	c := newMemCache()
+	s := NewCached(NewService(pool, DefaultMinVotes), c)
+	ctx := context.Background()
+	user := createUser(t, pool)
+
+	if _, err := s.TopRated(ctx, 5); err != nil {
+		t.Fatalf("TopRated: %v", err)
+	}
+	if _, ok := c.data[TopRatedCacheKey]; !ok {
+		t.Fatal("ilk okuma cache'e yazmalı")
+	}
+
+	if _, err := s.Rate(ctx, user, createBook(t, pool, books.StatusPending), 7); err == nil {
+		t.Fatal("onaysız kitaba puan reddedilmeli")
+	}
+	if _, ok := c.data[TopRatedCacheKey]; !ok {
+		t.Error("BAŞARISIZ yazım cache'i silmemeli")
+	}
+
+	if _, err := s.Rate(ctx, user, createBook(t, pool, books.StatusApproved), 7); err != nil {
+		t.Fatalf("Rate: %v", err)
+	}
+	if _, ok := c.data[TopRatedCacheKey]; ok {
+		t.Error("başarılı puan yazımı top-rated cache'ini silmeli")
+	}
+}

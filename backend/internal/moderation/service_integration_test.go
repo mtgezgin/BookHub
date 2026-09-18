@@ -241,3 +241,34 @@ func TestNotFoundRealDB(t *testing.T) {
 		t.Errorf("History: ErrNotFound bekleniyordu, gelen %v", err)
 	}
 }
+
+// TestPublicChangeHookRealDB: kanca yalnız BAŞARILI geçiş/düzenlemeden sonra çağrılır.
+func TestPublicChangeHookRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	calls := 0
+	s := NewService(pool, WithPublicChangeHook(func(context.Context) { calls++ }))
+	ctx := context.Background()
+	user, admin := createUser(t, pool), createUser(t, pool)
+
+	b, err := s.Suggest(ctx, user, params(t))
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	cleanupBook(t, pool, b.ID)
+	if calls != 0 {
+		t.Errorf("öneri public görünümü değiştirmez, kanca çağrılmamalı: %d", calls)
+	}
+	if _, err := s.Approve(ctx, admin, b.ID); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	if _, err := s.Approve(ctx, admin, b.ID); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("ikinci onay reddedilmeli: %v", err)
+	}
+	title := "Düzeltilmiş"
+	if _, err := s.Update(ctx, admin, b.ID, db.UpdateBookDetailsParams{Title: &title}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("onay + düzenleme = 2 çağrı bekleniyordu (başarısız onay sayılmaz), gelen %d", calls)
+	}
+}

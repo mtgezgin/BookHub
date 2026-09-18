@@ -21,10 +21,34 @@ import (
 type Service struct {
 	conn db.DBTX
 	q    *db.Queries
+	// onPublicChange: public görünümü etkileyen bir yazım COMMIT edildikten sonra çağrılır
+	// (ör. top-rated cache'ini geçersiz kılmak). Moderasyon cache'i tanımaz — yalnızca
+	// "bir şey değişti" der; ne yapılacağına main.go'daki bağlantı karar verir.
+	onPublicChange func(ctx context.Context)
 }
 
-func NewService(conn db.DBTX) *Service {
-	return &Service{conn: conn, q: db.New(conn)}
+// Option, Service'i kurarken opsiyonel davranış ekler (functional options deseni).
+type Option func(*Service)
+
+// WithPublicChangeHook, onay/arşiv/geri alma/düzenleme commit edilince fn'i çağırır.
+func WithPublicChangeHook(fn func(ctx context.Context)) Option {
+	return func(s *Service) { s.onPublicChange = fn }
+}
+
+func NewService(conn db.DBTX, opts ...Option) *Service {
+	s := &Service{conn: conn, q: db.New(conn)}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// publicChanged, kancayı (varsa) çağırır. Yalnız BAŞARILI commit'ten sonra: başarısız bir
+// geçiş hiçbir şeyi değiştirmedi, cache'i boşaltmak için sebep yok.
+func (s *Service) publicChanged(ctx context.Context, err error) {
+	if err == nil && s.onPublicChange != nil {
+		s.onPublicChange(ctx)
+	}
 }
 
 // Suggest, kullanıcının önerisini PENDING olarak kaydeder. Statü ve öneren BURADA
@@ -119,6 +143,7 @@ func (s *Service) transition(ctx context.Context, actorID, bookID int64, a Actio
 		}
 		return audit.Write(ctx, q, actorID, "book."+string(a), audit.EntityBook, bookID, details)
 	})
+	s.publicChanged(ctx, err)
 	return book, err
 }
 
@@ -142,6 +167,7 @@ func (s *Service) Update(ctx context.Context, actorID, bookID int64, p db.Update
 		book = b
 		return audit.Write(ctx, q, actorID, "book.update", audit.EntityBook, bookID, map[string]any{"fields": changedFields(p)})
 	})
+	s.publicChanged(ctx, err)
 	return book, err
 }
 
