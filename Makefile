@@ -34,8 +34,13 @@ run: ## API'yi host'ta çalıştır (hızlı geliştirme döngüsü)
 test: ## Birim testleri (DB'siz, CI gibi)
 	$(GO) test -race ./...
 
-test-db: ## Tüm testler (Postgres + Redis entegrasyonu dahil)
-	$(ENV); TEST_DATABASE_URL="$$DATABASE_URL" TEST_REDIS_URL="$$REDIS_URL" $(GO) test -race ./...
+# Testler dev veritabanına DEĞİL, ayrı bir bookhub_test'e koşar (CI'daki gibi): dev verisini
+# kirletmesinler, dev'deki yüksek puanlı kitaplar top-rated testlerini bozmasın.
+TEST_DB_URL := postgres://bookhub:bookhub_dev@localhost:5432/bookhub_test?sslmode=disable
+
+test-db: ## Tüm testler (ayrı bookhub_test veritabanı + Redis entegrasyonu dahil)
+	docker exec bookhub-postgres createdb -U bookhub bookhub_test 2>/dev/null || true
+	$(ENV); TEST_DATABASE_URL="$(TEST_DB_URL)" TEST_REDIS_URL="$$REDIS_URL" $(GO) test -race ./...
 
 lint: ## gofmt + vet + golangci-lint
 	cd backend && test -z "$$(gofmt -l .)" && go vet ./... && golangci-lint run ./...
