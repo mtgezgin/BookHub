@@ -51,14 +51,21 @@ func (q *Queries) GetUserRating(ctx context.Context, arg GetUserRatingParams) (G
 }
 
 const globalAverageRating = `-- name: GlobalAverageRating :one
-SELECT COALESCE(avg(r.score)::float8, $1::float8)::float8 AS c
-FROM ratings r
-JOIN books b ON b.id = r.book_id AND b.status = 'APPROVED'
+SELECT COALESCE(
+           sum(average_rating * rating_count)::float8 / NULLIF(sum(rating_count), 0),
+           $1::float8
+       )::float8 AS c
+FROM books
+WHERE status = 'APPROVED' AND rating_count > 0
 `
 
-// Genel ortalama C: onaylı kitaplara verilmiş TÜM oyların ortalaması. Hiç oy yoksa
-// avg() NULL döner → COALESCE ile COLD-START varsayılanı (ölçeğin ortası). Veri azken C
-// zaten tek tük oydan oluşur; bu doğru ve beklenen davranış.
+// Genel ortalama C: onaylı kitaplara verilmiş TÜM oyların ortalaması.
+//
+// ratings tablosunu (oy başına bir satır) değil, books'taki türetilmiş agregatları okur:
+// Σ(ortalama × oy sayısı) / Σ(oy sayısı) matematiksel olarak aynı ortalama. EXPLAIN ANALYZE
+// (209 bin oy, 20 bin kitap): ratings JOIN books ile 43 ms → agregatlardan 5.7 ms. Fark
+// yalnızca average_rating'in 2 haneye yuvarlanmasından: 5.998415 vs 5.998631.
+// Hiç oy yoksa NULL → COALESCE ile COLD-START varsayılanı (ölçeğin ortası).
 func (q *Queries) GlobalAverageRating(ctx context.Context, fallback float64) (float64, error) {
 	row := q.db.QueryRow(ctx, globalAverageRating, fallback)
 	var c float64
