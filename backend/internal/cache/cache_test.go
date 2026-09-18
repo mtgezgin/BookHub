@@ -95,3 +95,21 @@ func TestRedisDeleteNoKeys(t *testing.T) {
 		t.Errorf("anahtarsız Delete nil dönmeli (DEL gönderilmemeli): %v", err)
 	}
 }
+
+// TestRedisGetErrorIsNotAMiss: redis.Nil DIŞINDAKİ bir hata (kapalı istemci, bağlantı kopması)
+// "miss" diye yutulmamalı — çağıran loglayıp DB'ye düşebilsin diye hata olarak dönmeli.
+func TestRedisGetErrorIsNotAMiss(t *testing.T) {
+	url := os.Getenv("TEST_REDIS_URL")
+	if url == "" {
+		t.Skip("TEST_REDIS_URL tanımlı değil → Redis testi atlanıyor")
+	}
+	r, err := NewRedis(context.Background(), url)
+	if err != nil {
+		t.Fatalf("NewRedis: %v", err)
+	}
+	_ = r.Close()
+	val, ok, err := r.Get(context.Background(), "herhangi")
+	if err == nil || ok || val != nil {
+		t.Errorf("kapalı istemcide (nil, false, err) bekleniyordu: %q %v %v", val, ok, err)
+	}
+}

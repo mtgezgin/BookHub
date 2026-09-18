@@ -148,3 +148,32 @@ func TestCachedTopRatedSetFailure(t *testing.T) {
 		t.Errorf("Set hatasında yüklenen liste hatasız dönmeli: loads=%d len=%d err=%v", loads, len(got.Books), err)
 	}
 }
+
+// failingDeleteCache, Delete'te hata dönen bir cache (Redis kesintisi).
+type failingDeleteCache struct{ memCache }
+
+func (*failingDeleteCache) Delete(context.Context, ...string) error {
+	return errors.New("redis: connection refused")
+}
+
+func TestCachedErrorBranches(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("yükleme hatası döner, cache'e YAZILMAZ", func(t *testing.T) {
+		c := newMemCache()
+		s := NewCached(&Service{}, c)
+		dbErr := errors.New("db down")
+		s.load = func(context.Context, int32) (TopRated, error) { return TopRated{}, dbErr }
+		if _, err := s.TopRated(ctx, 5); !errors.Is(err, dbErr) {
+			t.Errorf("yükleme hatası dönmeli: %v", err)
+		}
+		if c.sets != 0 {
+			t.Errorf("hata durumunda cache'e yazılmamalı (%d yazım)", c.sets)
+		}
+	})
+
+	t.Run("silme hatası paniklemez, yayılmaz", func(t *testing.T) {
+		s := NewCached(&Service{}, &failingDeleteCache{memCache: memCache{data: map[string][]byte{}}})
+		s.InvalidateTopRated(ctx) // yalnız loglar; dönüş değeri yok, panik yok
+	})
+}

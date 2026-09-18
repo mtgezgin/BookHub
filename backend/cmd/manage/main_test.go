@@ -179,3 +179,22 @@ func TestMigrateCommandRealDB(t *testing.T) {
 		}
 	}
 }
+
+// TestMigrateCommandFailure: ulaşılamayan veritabanında migrate komutu sarılı bir hata döner
+// (sessizce "güncel" demez).
+func TestMigrateCommandFailure(t *testing.T) {
+	env := func(k string) string {
+		if k == "DATABASE_URL" {
+			return "postgres://x:y@127.0.0.1:1/x?sslmode=disable&connect_timeout=1"
+		}
+		return ""
+	}
+	var out bytes.Buffer
+	err := run(context.Background(), []string{"migrate"}, strings.NewReader(""), &out, env)
+	if err == nil || !strings.Contains(err.Error(), "migration başarısız") {
+		t.Errorf("'migration başarısız' içeren hata bekleniyordu, gelen %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("başarısızlıkta 'güncel' yazılmamalı: %q", out.String())
+	}
+}
