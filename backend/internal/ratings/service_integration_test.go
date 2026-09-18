@@ -6,10 +6,12 @@ import (
 	"math"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/mtgezgin/bookhub/backend/internal/books"
+	"github.com/mtgezgin/bookhub/backend/internal/db"
 	"github.com/mtgezgin/bookhub/backend/internal/testdb"
 )
 
@@ -277,5 +279,61 @@ func TestUserDeletionRefreshesStatsRealDB(t *testing.T) {
 	sum, err = s.Summary(ctx, book)
 	if err != nil || sum.Count != 0 || sum.Average != nil {
 		t.Errorf("son oy da gidince count=0, ortalama NULL olmalı: %+v %v", sum.Stats, err)
+	}
+}
+
+// TestDeleteTriggerWaitsForBookLockRealDB (review bulgusu R3): bir puan yazımı kitabı
+// FOR UPDATE ile tutarken başka bir kullanıcı silinirse, trigger agregatı kilit ALINDIKTAN
+// sonra hesaplamalı. Kilitsiz trigger, bekleyen UPDATE'i ESKİ agregatla uygular ve az önce
+// yazılan oy istatistikten düşer (Faz 5'teki kayıp güncelleme).
+func TestDeleteTriggerWaitsForBookLockRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	s := NewService(pool, DefaultMinVotes)
+	ctx := context.Background()
+	book := createBook(t, pool, books.StatusApproved)
+	rater, leaver := createUser(t, pool), createUser(t, pool)
+	if _, err := s.Rate(ctx, leaver, book, 5); err != nil {
+		t.Fatalf("Rate: %v", err)
+	}
+
+	// Rate'in yaptığını elle, adım adım: kitabı kilitle ...
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT id FROM books WHERE id = $1 FOR UPDATE`, book); err != nil {
+		t.Fatalf("kilit: %v", err)
+	}
+
+	// ... bu sırada başka bir oturum puan vermiş kullanıcıyı siler (trigger kilidi bekler) ...
+	done := make(chan error, 1)
+	go func() {
+		_, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, leaver)
+		done <- err
+	}()
+	time.Sleep(300 * time.Millisecond) // silme trigger'ı kitap kilidinde beklesin
+
+	// ... kilit sahibi kendi oyunu yazar, istatistiği yeniler ve commit eder.
+	q := db.New(tx)
+	if _, err := q.UpsertRating(ctx, db.UpsertRatingParams{UserID: rater, BookID: book, Score: 9}); err != nil {
+		t.Fatalf("UpsertRating: %v", err)
+	}
+	if _, err := q.RefreshBookRatingStats(ctx, book); err != nil {
+		t.Fatalf("RefreshBookRatingStats: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+
+	sum, err := s.Summary(ctx, book)
+	if err != nil {
+		t.Fatalf("Summary: %v", err)
+	}
+	if sum.Count != 1 || sum.Average == nil || *sum.Average != 9 {
+		t.Errorf("kalan tek oy (9) sayılmalı: count=%d avg=%v", sum.Count, sum.Average)
 	}
 }

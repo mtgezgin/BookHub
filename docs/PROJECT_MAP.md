@@ -19,7 +19,7 @@ gerçek bir problem doğunca eklendi; kodun içi Türkçe "neden böyle" yorumla
 - **Kapsam:** MVP (Faz 1–7) + altyapı rayı (Faz 8–12) tamam. Buluta deploy rehberi hazır, deploy
   edilmedi (hesap gerektirir).
 - **Boyut:** ~6.5k satır Go (+ ~6k satır test, 151 test fonksiyonu), ~1k satır TypeScript,
-  6 migration, 41 öğrenme notu.
+  7 migration, 41 öğrenme notu.
 
 ---
 
@@ -134,6 +134,7 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `0004` | ratings (`(user_id, book_id)` PK), comments (+ `visible_comments` VIEW), avg/count kolonları |
 | `0005` | liste index'leri `(created_at DESC, id DESC)` — EXPLAIN ANALYZE bulgusu |
 | `0006` | puan silinince (CASCADE dahil) kitap istatistiklerini yenileyen trigger |
+| `0007` | o trigger önce kitabı kilitlesin (eşzamanlı oyla kayıp güncelleme olmasın) |
 
 `sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
 
