@@ -14,10 +14,11 @@ import (
 // Struct ile testler yalnızca ihtiyaç duydukları alanı doldurur: deps{books: fake}.
 // Yine de elle DI: grafın tamamı main.go'da tek yerde kuruluyor (GO_CONVENTIONS §3).
 type deps struct {
-	books  bookStore
-	genres genreStore
-	auth   authService
-	tokens tokenVerifier
+	books      bookStore
+	genres     genreStore
+	moderation moderationService
+	auth       authService
+	tokens     tokenVerifier
 }
 
 // newRouter, uygulamanın HTTP router'ını (yönlendiricisini) kurar.
@@ -45,6 +46,10 @@ func newRouter(d deps) http.Handler {
 	r.Get("/api/books/{id}", handleGetBook(d.books)) // {id} = Chi URL parametresi
 	r.Get("/api/genres", handleListGenres(d.genres))
 
+	// Giriş yapmış herkes kitap önerebilir; öneri PENDING doğar (public listede görünmez).
+	// Statik "suggestions" segmenti Chi'de {id}'den önce eşleşir.
+	r.With(requireAuth(d.tokens)).Post("/api/books/suggestions", handleSuggestBook(d.moderation))
+
 	// Kimlik uçları. /me dışındakiler bilerek açık: token'ı zaten bunlar veriyor.
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/register", handleRegister(d.auth))
@@ -63,7 +68,16 @@ func newRouter(d deps) http.Handler {
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Use(requireAuth(d.tokens), requireAdmin)
 
-		r.Post("/books", handleCreateBook(d.books))
+		// Kitap yaşam döngüsü (Faz 4). Her yazım bir denetim kaydıyla aynı transaction'da.
+		r.Get("/books", handleAdminListBooks(d.moderation, d.books))
+		r.Post("/books", handleCreateBook(d.moderation))
+		r.Get("/books/{id}", handleAdminGetBook(d.moderation, d.books))
+		r.Patch("/books/{id}", handleAdminUpdateBook(d.moderation, d.books))
+		r.Delete("/books/{id}", handleTransition("ArchiveBook", d.moderation, moderationService.Archive, d.books))
+		r.Post("/books/{id}/approve", handleTransition("ApproveBook", d.moderation, moderationService.Approve, d.books))
+		r.Post("/books/{id}/reject", handleRejectBook(d.moderation, d.books))
+		r.Post("/books/{id}/restore", handleTransition("RestoreBook", d.moderation, moderationService.Restore, d.books))
+		r.Get("/books/{id}/audit", handleBookHistory(d.moderation))
 		r.Put("/books/{id}/genres", handleSetBookGenres(d.books))
 
 		r.Post("/genres", handleCreateGenre(d.genres))

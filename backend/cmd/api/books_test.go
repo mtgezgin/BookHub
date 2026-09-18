@@ -34,9 +34,6 @@ func (f fakeBooks) List(_ context.Context, lf books.ListFilter) ([]db.Book, int6
 	}
 	return f.list, f.total, f.err
 }
-func (f fakeBooks) Create(context.Context, db.CreateBookParams) (db.Book, error) {
-	return f.book, f.err
-}
 func (f fakeBooks) GenresForBook(_ context.Context, id int64) ([]db.Genre, error) {
 	return f.genres[id], f.genreErr
 }
@@ -44,18 +41,6 @@ func (f fakeBooks) GenresForBooks(context.Context, []int64) (map[int64][]db.Genr
 	return f.genres, f.genreErr
 }
 func (f fakeBooks) SetGenres(context.Context, int64, []int64) error { return f.setErr }
-
-// capturingBooks, Create'e GEÇİLEN params'ı kaydeden sahte (pointer receiver: duruma
-// yazması gerekiyor). "Handler DB'ye ne yazıyor" iddiası ancak böyle kanıtlanır.
-type capturingBooks struct {
-	fakeBooks
-	got db.CreateBookParams
-}
-
-func (f *capturingBooks) Create(_ context.Context, p db.CreateBookParams) (db.Book, error) {
-	f.got = p
-	return f.book, f.err
-}
 
 func do(t *testing.T, h http.Handler, method, url, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -119,7 +104,8 @@ func TestHandleGetBook(t *testing.T) {
 func TestHandlersDoNotLeakInternalErrors(t *testing.T) {
 	const driverDetail = `ERROR: relation "books" does not exist (SQLSTATE 42P01) @ 10.0.0.7:5432`
 	fake := fakeBooks{err: fmt.Errorf("kitap sorgusu (id=1): %w", errors.New(driverDetail))}
-	router := adminRouter(deps{books: fake}) // admin token'ı public uçlarda etkisiz, admin ucunda gerekli
+	// admin token'ı public uçlarda etkisiz, admin ucunda gerekli.
+	router := adminRouter(deps{books: fake, moderation: &fakeModeration{err: fake.err}})
 
 	for _, c := range []struct{ method, url, body string }{
 		{http.MethodGet, "/api/books/1", ""},
@@ -219,11 +205,11 @@ func TestHandleCreateBook(t *testing.T) {
 	tests := []struct {
 		name       string
 		body       string
-		fake       fakeBooks
+		fake       fakeModeration
 		wantStatus int
 		wantCode   string // "" = başarı
 	}{
-		{name: "geçerli gövde → 201", body: valid, fake: fakeBooks{book: db.Book{ID: 7}}, wantStatus: http.StatusCreated},
+		{name: "geçerli gövde → 201", body: valid, fake: fakeModeration{book: db.Book{ID: 7}}, wantStatus: http.StatusCreated},
 		{name: "yayın yılı alt sınırı 1450 kabul", body: `{"title":"T","slug":"t","author":"a","publication_year":1450}`, wantStatus: http.StatusCreated},
 		{name: "tam sınırda başlık (300 karakter) kabul", body: `{"title":"` + strings.Repeat("ş", maxTitleLen) + `","slug":"t","author":"a"}`, wantStatus: http.StatusCreated},
 
@@ -245,12 +231,12 @@ func TestHandleCreateBook(t *testing.T) {
 		{name: "yayın yılı 1449 → 400", body: `{"title":"T","slug":"t","author":"a","publication_year":1449}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
 		{name: "yayın yılı 9999 → 400", body: `{"title":"T","slug":"t","author":"a","publication_year":9999}`, wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
 
-		{name: "aynı slug → 409 (500 değil)", body: valid, fake: fakeBooks{err: books.ErrDuplicateSlug}, wantStatus: http.StatusConflict, wantCode: "slug_conflict"},
-		{name: "repo hatası → 500", body: valid, fake: fakeBooks{err: errors.New("x")}, wantStatus: http.StatusInternalServerError, wantCode: "internal"},
+		{name: "aynı slug → 409 (500 değil)", body: valid, fake: fakeModeration{err: books.ErrDuplicateSlug}, wantStatus: http.StatusConflict, wantCode: "slug_conflict"},
+		{name: "repo hatası → 500", body: valid, fake: fakeModeration{err: errors.New("x")}, wantStatus: http.StatusInternalServerError, wantCode: "internal"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := do(t, adminRouter(deps{books: tt.fake}), http.MethodPost, "/api/admin/books", tt.body)
+			rec := do(t, adminRouter(deps{books: fakeBooks{}, moderation: &tt.fake}), http.MethodPost, "/api/admin/books", tt.body)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("durum kodu: istenen %d, gelen %d (gövde: %s)", tt.wantStatus, rec.Code, rec.Body)
 			}
@@ -263,37 +249,42 @@ func TestHandleCreateBook(t *testing.T) {
 	}
 }
 
-// TestHandleCreateBookWritesExactParams, handler'ın DB'ye NE YAZDIĞINI alan alan
+// TestHandleCreateBookWritesExactParams, handler'ın servise NE GEÇTİĞİNİ alan alan
 // doğrular (cevaba değil). Bir alanı karıştırmak (slug↔author), düşürmek (yıl=nil)
-// ya da istemcinin değerini ezmek (language hep "tr") bu testi kırar.
+// ya da istemcinin değerini ezmek (language hep "tr") bu testi kırar. Statü artık
+// handler'ın değil servisin kararı (bkz. moderation.Service.CreateApproved) — handler
+// onu BOŞ geçmeli; aktör ise token'daki admin olmalı.
 func TestHandleCreateBookWritesExactParams(t *testing.T) {
 	year, pages := int32(2015), int32(380)
 
-	t.Run("tüm alanlar aynen, trim uygulanmış, statü sunucudan", func(t *testing.T) {
-		fake := &capturingBooks{fakeBooks: fakeBooks{book: db.Book{ID: 1}}}
+	t.Run("tüm alanlar aynen, trim uygulanmış, statü handler'da belirlenmiyor", func(t *testing.T) {
+		fake := &fakeModeration{book: db.Book{ID: 1}}
 		body := `{"title":"  The Go Programming Language  ","slug":"gopl","author":" Donovan ",
 			"description":" Go'nun kutsal kitabı ","cover_url":"https://example.test/gopl.jpg",
 			"publication_year":2015,"page_count":380,"language":"en"}`
-		rec := do(t, adminRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", body)
+		rec := do(t, adminRouter(deps{moderation: fake}), http.MethodPost, "/api/admin/books", body)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("durum kodu: istenen 201, gelen %d (gövde: %s)", rec.Code, rec.Body)
 		}
 		want := db.CreateBookParams{
 			Title: "The Go Programming Language", Slug: "gopl", Author: "Donovan",
 			Description: "Go'nun kutsal kitabı", CoverUrl: "https://example.test/gopl.jpg",
-			PublicationYear: &year, PageCount: &pages, Language: "en", Status: books.StatusApproved,
+			PublicationYear: &year, PageCount: &pages, Language: "en",
 		}
-		assertParams(t, fake.got, want)
+		assertParams(t, fake.gotCreate, want)
+		if fake.gotActor != 1 || fake.calls[0] != "CreateApproved" {
+			t.Errorf("CreateApproved token'daki admin (1) ile çağrılmalı: aktör %d, çağrılar %v", fake.gotActor, fake.calls)
+		}
 	})
 
 	t.Run("slug gönderilmezse başlıktan türetilir (Türkçe karakterler dahil)", func(t *testing.T) {
-		fake := &capturingBooks{fakeBooks: fakeBooks{book: db.Book{ID: 1}}}
-		rec := do(t, adminRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", `{"title":"Şeker Portakalı","author":"José Mauro"}`)
+		fake := &fakeModeration{book: db.Book{ID: 1}}
+		rec := do(t, adminRouter(deps{moderation: fake}), http.MethodPost, "/api/admin/books", `{"title":"Şeker Portakalı","author":"José Mauro"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("durum kodu: istenen 201, gelen %d (%s)", rec.Code, rec.Body)
 		}
-		if fake.got.Slug != "seker-portakali" {
-			t.Errorf("türetilen slug: istenen %q, gelen %q", "seker-portakali", fake.got.Slug)
+		if fake.gotCreate.Slug != "seker-portakali" {
+			t.Errorf("türetilen slug: istenen %q, gelen %q", "seker-portakali", fake.gotCreate.Slug)
 		}
 	})
 
@@ -312,13 +303,13 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 	})
 
 	t.Run("language gönderilmezse varsayılan tr (DB DEFAULT devreye girmez)", func(t *testing.T) {
-		fake := &capturingBooks{fakeBooks: fakeBooks{book: db.Book{ID: 1}}}
-		rec := do(t, adminRouter(deps{books: fake}), http.MethodPost, "/api/admin/books", `{"title":"T","slug":"t","author":"a"}`)
+		fake := &fakeModeration{book: db.Book{ID: 1}}
+		rec := do(t, adminRouter(deps{moderation: fake}), http.MethodPost, "/api/admin/books", `{"title":"T","slug":"t","author":"a"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("durum kodu: istenen 201, gelen %d", rec.Code)
 		}
-		if fake.got.Language != defaultLanguage || fake.got.PublicationYear != nil || fake.got.PageCount != nil {
-			t.Errorf("varsayılanlar yanlış: %+v", fake.got)
+		if fake.gotCreate.Language != defaultLanguage || fake.gotCreate.PublicationYear != nil || fake.gotCreate.PageCount != nil {
+			t.Errorf("varsayılanlar yanlış: %+v", fake.gotCreate)
 		}
 	})
 }

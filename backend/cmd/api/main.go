@@ -15,6 +15,7 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/config"
 	"github.com/mtgezgin/bookhub/backend/internal/database"
 	"github.com/mtgezgin/bookhub/backend/internal/genres"
+	"github.com/mtgezgin/bookhub/backend/internal/moderation"
 )
 
 func main() {
@@ -51,12 +52,13 @@ func main() {
 
 	// ELLE DI ZİNCİRİ (GO_CONVENTIONS §3): pool → repository'ler → (servis) → router.
 	// Framework yok; bağımlılık grafiğinin tamamı burada, tek yerde okunuyor.
-	// Auth'un araya bir servisi var (gerçek iş mantığı); kitap/tür CRUD'unun yok.
+	// Auth ve moderasyonun araya bir servisi var (gerçek iş mantığı); okuma/tür CRUD'unun yok.
 	d := deps{
-		books:  books.NewRepository(pool),
-		genres: genres.NewRepository(pool),
-		auth:   auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL),
-		tokens: tokens,
+		books:      books.NewRepository(pool),
+		genres:     genres.NewRepository(pool),
+		moderation: moderation.NewService(pool),
+		auth:       auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL),
+		tokens:     tokens,
 	}
 
 	// http.Server'ı elle kuruyoruz: timeout'lar + Shutdown() erişimi.

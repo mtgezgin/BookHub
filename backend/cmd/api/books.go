@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -18,12 +19,12 @@ import (
 // bookStore, kitap handler'larının repository'den ihtiyaç duyduğu davranışlar.
 // Interface TÜKETEN tarafta tanımlı (GO_CONVENTIONS §3): *books.Repository bunu
 // "implements" demeden sağlar (yapısal tipleme); testlerde sahte takılabilir.
-// Adı "Getter" değil "Store": artık yazma (Create) da içeriyor — Go'da "-er" soneki
-// tek metotlu interface konvansiyonudur.
+// Adı "Getter" değil "Store": tür bağlama (SetGenres) gibi yazma da içeriyor — Go'da
+// "-er" soneki tek metotlu interface konvansiyonudur. Kitap OLUŞTURMA/moderasyon ise
+// Faz 4'ten beri moderationService'te (her yazım bir denetim kaydıyla birlikte).
 type bookStore interface {
 	Get(ctx context.Context, id int64) (db.Book, error)
 	List(ctx context.Context, f books.ListFilter) ([]db.Book, int64, error)
-	Create(ctx context.Context, params db.CreateBookParams) (db.Book, error)
 	GenresForBook(ctx context.Context, bookID int64) ([]db.Genre, error)
 	GenresForBooks(ctx context.Context, bookIDs []int64) (map[int64][]db.Genre, error)
 	SetGenres(ctx context.Context, bookID int64, genreIDs []int64) error
@@ -136,26 +137,32 @@ type bookPage struct {
 func parseListFilter(r *http.Request) (books.ListFilter, error) {
 	q := r.URL.Query()
 	f := books.ListFilter{
-		Genre:  strings.TrimSpace(q.Get("genre")),
-		Query:  strings.TrimSpace(q.Get("q")),
-		Limit:  defaultPageLimit,
-		Offset: 0,
+		Genre: strings.TrimSpace(q.Get("genre")),
+		Query: strings.TrimSpace(q.Get("q")),
 	}
 
 	var v validator
 	v.match("genre", f.Genre, slugPattern, "tür slug'ı; ör. bilim-kurgu")
 	v.maxLen("q", f.Query, maxQueryLen)
+	f.Limit, f.Offset = parsePage(q, &v)
+	return f, v.err()
+}
+
+// parsePage, ?limit=&offset= okur (varsayılan: 20, 0). Public liste ve admin listesi
+// aynı kuralları kullansın diye tek yerde.
+func parsePage(q url.Values, v *validator) (limit, offset int32) {
+	limit = defaultPageLimit
 	if raw := q.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		v.check(err == nil && n >= 1 && n <= maxPageLimit, "limit 1-%d arasında bir sayı olmalı", maxPageLimit)
-		f.Limit = int32(n)
+		limit = int32(n)
 	}
 	if raw := q.Get("offset"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		v.check(err == nil && n >= 0 && n <= maxPageOffset, "offset 0-%d arasında bir sayı olmalı", maxPageOffset)
-		f.Offset = int32(n)
+		offset = int32(n)
 	}
-	return f, v.err()
+	return limit, offset
 }
 
 // handleListBooks, GET /api/books — onaylı kitapları en yeniden eskiye, sayfalı listeler.
@@ -248,74 +255,119 @@ func (req *createBookRequest) normalize() {
 // validate, normalize edilmiş gövdeyi denetler; TÜM problemleri tek hatada toplar.
 func (req createBookRequest) validate() error {
 	var v validator
-	v.required("title", req.Title)
-	v.maxLen("title", req.Title, maxTitleLen)
-	v.required("slug", req.Slug) // title'dan türetilemediyse (ör. yalnız emoji) boş kalır
-	v.maxLen("slug", req.Slug, maxSlugLen)
-	v.match("slug", req.Slug, slugPattern, "küçük harf, rakam ve tek tire; ör. clean-code")
-	v.required("author", req.Author)
-	v.maxLen("author", req.Author, maxAuthorLen)
-	v.maxLen("description", req.Description, maxDescriptionLen)
-	v.maxLen("cover_url", req.CoverURL, maxURLLen)
-	v.httpURL("cover_url", req.CoverURL)
-	v.match("language", req.Language, languagePattern, "ör. tr, en, en-US")
-
-	// Opsiyonel sayılar: nil = "bilinmiyor" (geçerli), ama VERİLDİYSE anlamlı olmalı.
-	// Pointer kullanmamızın sebebi tam bu ayrım — 0 ile "gönderilmedi" ayrı şeyler.
-	if req.PublicationYear != nil {
-		maxYear := int32(time.Now().Year() + 1) // gelecek yıl = ön sipariş, makul
-		y := *req.PublicationYear
-		v.check(y >= minPublicationYear && y <= maxYear,
-			"publication_year %d-%d aralığında olmalı", minPublicationYear, maxYear)
-	}
-	if req.PageCount != nil {
-		v.check(*req.PageCount >= 1, "page_count pozitif olmalı")
-	}
+	checkTitle(&v, req.Title)
+	checkSlug(&v, req.Slug) // title'dan türetilemediyse (ör. yalnız emoji) boş kalır
+	checkAuthor(&v, req.Author)
+	checkDescription(&v, req.Description)
+	checkCoverURL(&v, req.CoverURL)
+	checkLanguage(&v, req.Language)
+	checkPublicationYear(&v, req.PublicationYear)
+	checkPageCount(&v, req.PageCount)
 	return v.err()
+}
+
+// toParams, doğrulanmış gövdeyi sorgu parametrelerine ELLE eşler. Angarya gibi görünür
+// ama asıl korumadır: yeni bir DB kolonu otomatik olarak istemciye AÇILMAZ, buraya
+// bilinçli bir satır eklemek gerekir. Status/SubmittedBy BİLEREK boş: onları servis
+// belirler (admin → APPROVED, öneri → PENDING).
+func (req createBookRequest) toParams() db.CreateBookParams {
+	return db.CreateBookParams{
+		Title:           req.Title,
+		Slug:            req.Slug,
+		Author:          req.Author,
+		Description:     req.Description,
+		CoverUrl:        req.CoverURL,
+		PublicationYear: req.PublicationYear,
+		PageCount:       req.PageCount,
+		Language:        req.Language,
+	}
+}
+
+// Kitap alanlarının kuralları — create (tüm alanlar) ve PATCH (yalnız gönderilenler)
+// AYNI fonksiyonları çağırır: iki uçta kuralların ayrışması (biri 300, öteki 500
+// karakter) böyle imkânsız olur.
+func checkTitle(v *validator, s string) {
+	v.required("title", s)
+	v.maxLen("title", s, maxTitleLen)
+}
+
+func checkSlug(v *validator, s string) {
+	v.required("slug", s)
+	v.maxLen("slug", s, maxSlugLen)
+	v.match("slug", s, slugPattern, "küçük harf, rakam ve tek tire; ör. clean-code")
+}
+
+func checkAuthor(v *validator, s string) {
+	v.required("author", s)
+	v.maxLen("author", s, maxAuthorLen)
+}
+
+func checkDescription(v *validator, s string) { v.maxLen("description", s, maxDescriptionLen) }
+
+func checkCoverURL(v *validator, s string) {
+	v.maxLen("cover_url", s, maxURLLen)
+	v.httpURL("cover_url", s)
+}
+
+func checkLanguage(v *validator, s string) {
+	v.required("language", s)
+	v.match("language", s, languagePattern, "ör. tr, en, en-US")
+}
+
+// Opsiyonel sayılar: nil = "bilinmiyor" (geçerli), ama VERİLDİYSE anlamlı olmalı.
+// Pointer kullanmamızın sebebi tam bu ayrım — 0 ile "gönderilmedi" ayrı şeyler.
+func checkPublicationYear(v *validator, y *int32) {
+	if y == nil {
+		return
+	}
+	maxYear := int32(time.Now().Year() + 1) // gelecek yıl = ön sipariş, makul
+	v.check(*y >= minPublicationYear && *y <= maxYear,
+		"publication_year %d-%d aralığında olmalı", minPublicationYear, maxYear)
+}
+
+func checkPageCount(v *validator, n *int32) {
+	if n != nil {
+		v.check(*n >= 1, "page_count pozitif olmalı")
+	}
+}
+
+// readBookRequest, create ve öneri uçlarının ortak gövde okuma + doğrulama adımı.
+func readBookRequest(w http.ResponseWriter, r *http.Request) (createBookRequest, bool) {
+	var req createBookRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeRequestError(w, err)
+		return req, false
+	}
+	req.normalize()
+	if err := req.validate(); err != nil {
+		writeRequestError(w, err)
+		return req, false
+	}
+	return req, true
 }
 
 // handleCreateBook, POST /api/admin/books — admin doğrudan (onaylı) kitap ekler.
 // Rota /api/admin altında: yetkilendirme middleware olarak routing tablosunda durur,
 // handler gövdesinde "if user.IsAdmin" olarak DEĞİL.
-func handleCreateBook(store bookStore) http.HandlerFunc {
+func handleCreateBook(svc moderationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req createBookRequest
-		if err := readJSON(w, r, &req); err != nil {
-			writeRequestError(w, err)
+		actor, ok := actorFrom(w, r)
+		if !ok {
 			return
 		}
-		req.normalize()
-		if err := req.validate(); err != nil {
-			writeRequestError(w, err)
+		req, ok := readBookRequest(w, r)
+		if !ok {
 			return
 		}
 
-		// ELLE eşleme: angarya gibi görünür ama asıl korumadır — yeni bir DB kolonu
-		// otomatik olarak istemciye AÇILMAZ, buraya bilinçli bir satır eklemek gerekir.
-		book, err := store.Create(r.Context(), db.CreateBookParams{
-			Title:           req.Title,
-			Slug:            req.Slug,
-			Author:          req.Author,
-			Description:     req.Description,
-			CoverUrl:        req.CoverURL,
-			PublicationYear: req.PublicationYear,
-			PageCount:       req.PageCount,
-			Language:        req.Language,
-			// Statüyü SUNUCU belirler. Admin doğrudan eklediği için onaylı başlar;
-			// kullanıcı önerileri (Faz 4) PENDING başlar.
-			Status: books.StatusApproved,
-		})
-
-		// Hata haritalama: önce istemcinin düzeltebileceği durumlar, en sonda bilinmeyenler.
-		switch {
-		case errors.Is(err, books.ErrDuplicateSlug):
-			writeError(w, http.StatusConflict, "slug_conflict", "bu slug zaten kullanılıyor")
-		case err != nil:
-			writeInternalError(w, "CreateBook", err)
-		default:
-			// 201 Created: "istek işlendi VE yeni bir kaynak doğdu".
-			writeJSON(w, http.StatusCreated, toBookResponse(book, nil))
+		// Statüyü (APPROVED) ve ekleyeni SERVİS belirler; kayıt ile denetim satırı aynı tx.
+		book, err := svc.CreateApproved(r.Context(), actor, req.toParams())
+		if err != nil {
+			writeBookWriteError(w, "CreateBook", err)
+			return
 		}
+		// 201 Created: "istek işlendi VE yeni bir kaynak doğdu".
+		writeJSON(w, http.StatusCreated, toBookResponse(book, nil))
 	}
 }
 

@@ -23,7 +23,15 @@ func adminRouter(d deps) http.Handler {
 // adminRoutes, /api/admin altındaki TÜM rotalar. Yeni admin rotası eklenince buraya da
 // eklenmeli — eklenmezse korumasız kalma riski testsiz kalır.
 var adminRoutes = []struct{ method, path string }{
+	{http.MethodGet, "/api/admin/books"},
 	{http.MethodPost, "/api/admin/books"},
+	{http.MethodGet, "/api/admin/books/1"},
+	{http.MethodPatch, "/api/admin/books/1"},
+	{http.MethodDelete, "/api/admin/books/1"},
+	{http.MethodPost, "/api/admin/books/1/approve"},
+	{http.MethodPost, "/api/admin/books/1/reject"},
+	{http.MethodPost, "/api/admin/books/1/restore"},
+	{http.MethodGet, "/api/admin/books/1/audit"},
 	{http.MethodPut, "/api/admin/books/1/genres"},
 	{http.MethodPost, "/api/admin/genres"},
 	{http.MethodPatch, "/api/admin/genres/1"},
