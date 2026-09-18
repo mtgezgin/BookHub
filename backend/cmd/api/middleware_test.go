@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
+	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
 )
 
 // adminRouter, admin rotalarını test eden (handler davranışına odaklı) testler için:
@@ -132,5 +137,68 @@ func TestPrincipalRoundTrip(t *testing.T) {
 	got, ok := principalFrom(withPrincipal(req.Context(), want))
 	if !ok || got != want {
 		t.Errorf("istenen %+v, gelen %+v (ok=%v)", want, got, ok)
+	}
+}
+
+// TestLoginRateLimit: aynı IP'den sınırı aşan login denemesi 429 + Retry-After alır ve
+// servise HİÇ ulaşmaz; başka bir IP etkilenmez; register kotası ayrıdır.
+func TestLoginRateLimit(t *testing.T) {
+	svc := &fakeAuth{err: auth.ErrInvalidCredentials}
+	h := newRouter(deps{auth: svc, tokens: fakeVerifier{}, limiter: ratelimit.NewMemory(3, time.Minute)})
+	login := func(ip string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"email":"a@b.co","password":"x"}`))
+		req.RemoteAddr = ip + ":51234"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	for i := 1; i <= 3; i++ {
+		if rec := login("10.0.0.1"); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%d. deneme sınır içinde (401 beklenir): %d", i, rec.Code)
+		}
+	}
+	svc.gotEmail = ""
+	rec := login("10.0.0.1")
+	if rec.Code != http.StatusTooManyRequests || errorCode(t, rec) != "rate_limited" || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("4. deneme 429 + Retry-After olmalı: %d %v", rec.Code, rec.Header())
+	}
+	if svc.gotEmail != "" {
+		t.Error("sınırı aşan istek servise ulaşmamalı")
+	}
+	if rec := login("10.0.0.2"); rec.Code != http.StatusUnauthorized {
+		t.Errorf("başka IP etkilenmemeli: %d", rec.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{}`))
+	req.RemoteAddr = "10.0.0.1:51234"
+	regRec := httptest.NewRecorder()
+	h.ServeHTTP(regRec, req)
+	if regRec.Code == http.StatusTooManyRequests {
+		t.Error("login denemeleri register kotasını tüketmemeli")
+	}
+}
+
+type failingLimiter struct{}
+
+func (failingLimiter) Allow(context.Context, string) (ratelimit.Decision, error) {
+	return ratelimit.Decision{}, errors.New("redis: connection refused")
+}
+
+// TestRateLimitFailsOpen: sınırlayıcı arızası girişleri kilitlemez (bilinçli ödünleşim).
+func TestRateLimitFailsOpen(t *testing.T) {
+	h := newRouter(deps{auth: &fakeAuth{err: auth.ErrInvalidCredentials}, tokens: fakeVerifier{}, limiter: failingLimiter{}})
+	rec := do(t, h, http.MethodPost, "/api/auth/login", `{"email":"a@b.co","password":"x"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("arızada istek geçmeli (401 servis cevabı): %d", rec.Code)
+	}
+}
+
+func TestClientIP(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "[2001:db8::1]:443"
+	req.Header.Set("X-Forwarded-For", "6.6.6.6") // istemci yazabilir → YOK SAYILMALI
+	if got := clientIP(req); got != "2001:db8::1" {
+		t.Errorf("IPv6 host bekleniyordu, gelen %q", got)
 	}
 }

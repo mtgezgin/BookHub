@@ -2,10 +2,15 @@ package main
 
 import (
 	"context"
+	"log"
+	"math"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
+	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
 )
 
 // tokenVerifier, middleware'in token doğrulayıcıdan beklediği tek davranış.
@@ -92,4 +97,43 @@ func requireAdmin(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// clientIP, isteğin geldiği adres (port hariç).
+//
+// BİLEREK RemoteAddr: X-Forwarded-For / X-Real-IP başlıklarını İSTEMCİ yazabilir; onlara
+// körü körüne güvenmek, her istekte farklı sahte IP yollayarak rate limit'i atlatmak demek.
+// Bir reverse proxy (NGINX, Faz 11) arkasına geçince yalnız o proxy'nin eklediği başlığa,
+// yalnız proxy'nin adresinden gelen isteklerde güvenilir.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// rateLimit, kaba kuvvet (brute force) ve toplu hesap açmaya karşı IP başına sınır koyar.
+// Aşılınca 429 + Retry-After (istemci ne kadar beklemesi gerektiğini bilsin).
+//
+// Sınırlayıcı arızası (Redis düştü) → İSTEĞE İZİN VER (fail-open) ve logla. Ödünleşim bilinçli:
+// fail-closed, Redis'in her kesintisini TÜM kullanıcılar için "giriş yapılamıyor"a çevirirdi.
+// Parola kaba kuvvetine karşı asıl duvar zaten bcrypt'in yavaşlığı; rate limit ikinci hat.
+func rateLimit(l ratelimit.Limiter, name string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			d, err := l.Allow(r.Context(), name+":"+clientIP(r))
+			if err != nil {
+				log.Printf("rate limit kontrol edilemedi (izin veriliyor): %v", err)
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !d.Allowed {
+				w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(d.RetryAfter.Seconds()))))
+				writeError(w, http.StatusTooManyRequests, "rate_limited", "çok fazla deneme; biraz bekleyip tekrar dene")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

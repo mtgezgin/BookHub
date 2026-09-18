@@ -5,6 +5,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
 )
 
 // deps, HTTP katmanının ihtiyaç duyduğu tüm bağımlılıklar.
@@ -21,6 +23,7 @@ type deps struct {
 	ratings    ratingService
 	auth       authService
 	tokens     tokenVerifier
+	limiter    ratelimit.Limiter // nil → sınırsız (yalnız bir alanı dolduran testler)
 }
 
 // newRouter, uygulamanın HTTP router'ını (yönlendiricisini) kurar.
@@ -66,10 +69,17 @@ func newRouter(d deps) http.Handler {
 		r.Delete("/api/books/{id}/rating", handleRemoveRating(d.ratings))
 	})
 
+	limiter := d.limiter
+	if limiter == nil {
+		limiter = ratelimit.Unlimited{}
+	}
+
 	// Kimlik uçları. /me dışındakiler bilerek açık: token'ı zaten bunlar veriyor.
+	// login/register IP başına sınırlı (Faz 7): parola denemesi ve toplu hesap açma.
+	// Ayrı anahtar adları: login denemeleri register kotasını tüketmesin.
 	r.Route("/api/auth", func(r chi.Router) {
-		r.Post("/register", handleRegister(d.auth))
-		r.Post("/login", handleLogin(d.auth))
+		r.With(rateLimit(limiter, "register")).Post("/register", handleRegister(d.auth))
+		r.With(rateLimit(limiter, "login")).Post("/login", handleLogin(d.auth))
 		r.Post("/refresh", handleRefresh(d.auth))
 		r.Post("/logout", handleLogout(d.auth))
 		// r.With(mw): middleware'i YALNIZCA bu rotaya uygula.

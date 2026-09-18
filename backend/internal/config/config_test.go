@@ -171,3 +171,24 @@ func TestLoadRatingMinVotes(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadAuthRateLimit(t *testing.T) {
+	for _, tt := range []struct {
+		value   string
+		want    int
+		wantErr bool
+	}{{"", 10, false}, {"3", 3, false}, {"0", 0, true}, {"çok", 0, true}} {
+		t.Run("AUTH_RATE_LIMIT_PER_MIN="+tt.value, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("JWT_SECRET", testJWTSecret)
+			t.Setenv("AUTH_RATE_LIMIT_PER_MIN", tt.value)
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("hata beklentisi %v, gelen %v", tt.wantErr, err)
+			}
+			if err == nil && cfg.AuthRateLimit != tt.want {
+				t.Errorf("istenen %d, gelen %d", tt.want, cfg.AuthRateLimit)
+			}
+		})
+	}
+}

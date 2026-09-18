@@ -18,6 +18,7 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/database"
 	"github.com/mtgezgin/bookhub/backend/internal/genres"
 	"github.com/mtgezgin/bookhub/backend/internal/moderation"
+	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
 	"github.com/mtgezgin/bookhub/backend/internal/ratings"
 )
 
@@ -48,8 +49,11 @@ func main() {
 	}
 	defer pool.Close() // kapanışta havuzdaki bağlantıları düzgün bırak
 
-	// Cache (Faz 7): REDIS_URL yoksa Noop — uygulama Redis'siz de doğru çalışır.
+	// Cache + rate limit (Faz 7): REDIS_URL yoksa Noop cache ve bellek içi sınırlayıcı —
+	// uygulama Redis'siz de doğru çalışır (tek instance için). Redis varsa ikisi de
+	// paylaşılır: birden çok API örneği aynı sayaçları ve aynı cache'i görür.
 	var appCache cache.Cache = cache.Noop{}
+	var limiter ratelimit.Limiter = ratelimit.NewMemory(cfg.AuthRateLimit, time.Minute)
 	if cfg.RedisURL != "" {
 		rc, err := cache.NewRedis(ctx, cfg.RedisURL)
 		if err != nil {
@@ -57,7 +61,8 @@ func main() {
 		}
 		defer func() { _ = rc.Close() }()
 		appCache = rc
-		log.Println("redis cache açık")
+		limiter = ratelimit.NewRedis(rc.Client(), cfg.AuthRateLimit, time.Minute)
+		log.Println("redis açık: cache + paylaşılan rate limit")
 	}
 
 	tokens, err := auth.NewTokenManager([]byte(cfg.JWTSecret), cfg.AccessTokenTTL)
@@ -81,6 +86,7 @@ func main() {
 		ratings:    ratingSvc,
 		auth:       auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL),
 		tokens:     tokens,
+		limiter:    limiter,
 	}
 
 	// http.Server'ı elle kuruyoruz: timeout'lar + Shutdown() erişimi.

@@ -30,6 +30,9 @@ type Config struct {
 	// Redis'siz de doğru çalışır. Doluysa açılışta PING atılır (fail-fast).
 	RedisURL string
 
+	// AuthRateLimit: login ve register için IP başına dakikada en çok istek (ayrı ayrı).
+	AuthRateLimit int
+
 	// RatingMinVotes: ağırlıklı puandaki m ("güvenilir sayılmak için gereken oy sayısı").
 	// Veri büyüdükçe artırılır; küçük başlar (bkz. ratings.DefaultMinVotes).
 	RatingMinVotes int
@@ -59,6 +62,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("geçersiz config: %w", err)
 	}
+	authLimit, err := getenvInt("AUTH_RATE_LIMIT_PER_MIN", 10)
+	if err != nil {
+		return Config{}, fmt.Errorf("geçersiz config: %w", err)
+	}
 
 	// Config{...} = "struct literal" (JS'teki nesne literali { } gibi).
 	cfg := Config{
@@ -71,6 +78,7 @@ func Load() (Config, error) {
 		RefreshTokenTTL: refreshTTL,
 		RatingMinVotes:  minVotes,
 		RedisURL:        os.Getenv("REDIS_URL"),
+		AuthRateLimit:   authLimit,
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -103,6 +111,9 @@ func (c *Config) validate() error {
 	}
 	if c.AccessTokenTTL <= 0 || c.RefreshTokenTTL <= 0 {
 		return fmt.Errorf("JWT_ACCESS_TTL ve JWT_REFRESH_TTL pozitif olmalı")
+	}
+	if c.AuthRateLimit < 1 {
+		return fmt.Errorf("AUTH_RATE_LIMIT_PER_MIN en az 1 olmalı, gelen %d", c.AuthRateLimit)
 	}
 	if c.RatingMinVotes < 0 {
 		return fmt.Errorf("RATING_MIN_VOTES negatif olamaz, gelen %d", c.RatingMinVotes)
