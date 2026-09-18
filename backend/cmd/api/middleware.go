@@ -124,8 +124,8 @@ func resolveClientIP(trusted []netip.Prefix) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := remoteHost(r)
 			if addr, err := netip.ParseAddr(ip); err == nil && isTrusted(addr, trusted) {
-				if real, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("X-Real-IP"))); err == nil {
-					ip = real.String()
+				if realIP, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("X-Real-IP"))); err == nil {
+					ip = realIP.String()
 				}
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientIPKey{}, ip)))

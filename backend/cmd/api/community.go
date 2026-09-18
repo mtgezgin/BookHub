@@ -329,8 +329,10 @@ func handleTopRated(store bookStore, svc ratingService) http.HandlerFunc {
 		limit := int32(defaultTopRatedLimit)
 		if raw := r.URL.Query().Get("limit"); raw != "" {
 			n, err := strconv.Atoi(raw)
-			if err != nil || n < 1 || n > maxTopRatedLimit {
-				writeError(w, http.StatusBadRequest, "validation_error", "limit 1-50 arasında bir sayı olmalı")
+			var v validator
+			v.check(err == nil && n >= 1 && n <= maxTopRatedLimit, "limit 1-%d arasında bir sayı olmalı", maxTopRatedLimit)
+			if err := v.err(); err != nil {
+				writeRequestError(w, err)
 				return
 			}
 			limit = int32(n)
