@@ -45,11 +45,30 @@ function storeSession(s: Session) {
 // gelen yenileme cevabı oturumu geri diriltirdi (review bulgusu R4).
 let sessionEpoch = 0;
 
-function clearSession() {
+function dropLocalSession() {
   sessionEpoch++;
   accessToken = null;
-  localStorage.removeItem(REFRESH_KEY);
   onSessionChange(null);
+}
+
+function clearSession() {
+  localStorage.removeItem(REFRESH_KEY);
+  dropLocalSession();
+}
+
+// Başka bir SEKME çıkış yaptı (refresh token localStorage'dan silindi): bu sekme de oturumu
+// bıraksın. "storage" olayı yalnız DİĞER sekmelerin yaptığı değişiklikte tetiklenir.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === REFRESH_KEY && e.newValue === null) dropLocalSession();
+  });
+}
+
+async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  if (!locks) return fn();
+  // locks.request'in tipi callback'in dönüşünü Promise içinde Promise olarak görüyor; await ile düzleştir.
+  return (await locks.request("bookhub-refresh", fn)) as T;
 }
 
 // TEK UÇUŞLU YENİLEME (single-flight): backend'de refresh token TEK KULLANIMLIK (her
@@ -74,8 +93,7 @@ export function refreshSession(): Promise<boolean> {
 // kilidi alan sekme token'ı localStorage'dan KİLİT İÇİNDE okur — önceki sekme döndürdüyse
 // yenisini görür. (Kilit desteklenmiyorsa — eski tarayıcı, test ortamı — doğrudan çalışır.)
 async function doRefresh(): Promise<boolean> {
-  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
-  return locks ? locks.request("bookhub-refresh", refreshOnce) : refreshOnce();
+  return withRefreshLock(refreshOnce);
 }
 
 async function refreshOnce(): Promise<boolean> {
@@ -157,12 +175,16 @@ export const api = {
   register: (email: string, display_name: string, password: string) =>
     request<User>("POST", "/api/auth/register", { email, display_name, password }, false),
   async logout(): Promise<void> {
-    // Uçuşta bir yenileme varsa önce bitsin: sunucuda token'ı döndürüyorsa, çıkışta
-    // silinmesi gereken YENİ token'dır (eskisi zaten tüketildi).
+    // 1) Bu sekmede uçuşta bir yenileme varsa önce bitsin (kilidi O tutuyor olabilir —
+    //    kilidin İÇİNDE beklesek kilitlenme olurdu).
     if (refreshing) await refreshing.catch(() => false);
-    const token = localStorage.getItem(REFRESH_KEY);
-    clearSession();
-    if (token) await request<void>("POST", "/api/auth/logout", { refresh_token: token }, false).catch(() => {});
+    // 2) Token'ı oku-sil-iptal et adımlarını SEKMELER ARASI kilidin içinde yap: başka bir
+    //    sekme tam o anda token'ı döndürüp YENİSİNİ saklayamasın (review bulgusu R3).
+    await withRefreshLock(async () => {
+      const token = localStorage.getItem(REFRESH_KEY);
+      clearSession();
+      if (token) await request<void>("POST", "/api/auth/logout", { refresh_token: token }, false).catch(() => {});
+    });
   },
   /** Sayfa açılışında: kayıtlı refresh token varsa oturumu geri getir. */
   async restore(): Promise<User | null> {

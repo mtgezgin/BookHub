@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetForTests, api, ApiError, refreshSession, request } from "./client";
+import { __resetForTests, api, ApiError, refreshSession, request, subscribeSession } from "./client";
 
 const session = (n: number) => ({
   access_token: `access-${n}`,
@@ -115,6 +115,15 @@ describe("api client", () => {
     const logoutCall = fetchMock.mock.calls[1];
     expect(logoutCall[0]).toBe("/api/auth/logout");
     expect(JSON.parse(logoutCall[1].body)).toEqual({ refresh_token: "refresh-1" });
+  });
+
+  // Review bulgusu R3: başka bir sekme çıkış yapınca (localStorage'dan token silindi) bu
+  // sekme de oturumu bırakmalı — yoksa bellekteki access token'la "girişli" kalırdı.
+  it("başka sekmede çıkış bu sekmenin oturumunu da düşürür", async () => {
+    const seen: (unknown | null)[] = [];
+    subscribeSession((u) => seen.push(u));
+    window.dispatchEvent(new StorageEvent("storage", { key: "bookhub.refresh", oldValue: "r", newValue: null }));
+    expect(seen).toEqual([null]);
   });
 
   it("204 cevabı gövdesiz döner", async () => {
