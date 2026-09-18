@@ -1,0 +1,5 @@
+# Ad alanı: BookHub'ın bütün kaynakları tek kutuda — silmek = kutuyu silmek.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bookhub

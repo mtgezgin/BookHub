@@ -10,11 +10,20 @@
 #   API=http://localhost:8080 backend/scripts/mvp_smoke.sh
 #
 # Gerekenler: curl, python3 (JSON için), go (create-admin komutu için), docker (temizlik için).
+#
+# Kubernetes'e karşı (Faz 12): admin'i küme İÇİNDEKİ binary ile oluştur, yerel temizliği atla:
+#   MANAGE="kubectl --context kind-bookhub -n bookhub exec -i deploy/api -- /app/manage" \
+#   CLEANUP=0 API=http://localhost:3001 backend/scripts/mvp_smoke.sh
 set -euo pipefail
 
 API="${API:-http://localhost:8080}"
-: "${DATABASE_URL:?DATABASE_URL gerekli (set -a; source .env; set +a)}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MANAGE="${MANAGE:-}"
+CLEANUP="${CLEANUP:-1}"
+if [ -z "$MANAGE" ]; then
+	: "${DATABASE_URL:?DATABASE_URL gerekli (set -a; source .env; set +a)}"
+	MANAGE="go -C $ROOT run ./cmd/manage"
+fi
 TS="$(date +%s)"
 ADMIN_EMAIL="smoke-admin-$TS@example.com"
 USER_EMAIL="smoke-user-$TS@example.com"
@@ -42,6 +51,7 @@ req() {
 field() { printf '%s' "$BODY" | json "$1"; } # son cevaptan alan oku
 
 cleanup() {
+	[ "$CLEANUP" = "1" ] || return 0
 	docker exec bookhub-postgres psql -U bookhub -d "$(basename "${DATABASE_URL%%\?*}")" -qtAc \
 		"DELETE FROM users WHERE email IN ('$ADMIN_EMAIL', '$USER_EMAIL')" >/dev/null 2>&1 || true
 }
@@ -57,7 +67,8 @@ USER_TOKEN="$(field 'd["access_token"]')"
 check "login → 200" "$CODE" 200
 
 echo "2) Admin var (cmd/manage create-admin)"
-printf '%s\n' "$ADMIN_PW" | go -C "$ROOT" run ./cmd/manage create-admin -email "$ADMIN_EMAIL" -name "Smoke Admin" >/dev/null
+# $MANAGE bilerek tırnaksız: "kubectl ... exec -i deploy/api -- /app/manage" gibi çok kelimeli olabilir.
+printf '%s\n' "$ADMIN_PW" | $MANAGE create-admin -email "$ADMIN_EMAIL" -name "Smoke Admin" >/dev/null
 req POST /api/auth/login "" "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PW\"}"
 ADMIN_TOKEN="$(field 'd["access_token"]')"
 check "admin login → 200" "$CODE" 200

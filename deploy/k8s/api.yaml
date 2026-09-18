@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: api # NGINX yapılandırması "api:8080"e gider — ad sözleşmenin parçası
+spec:
+  selector:
+    app: api
+  ports:
+    - port: 8080
+---
+# API: DURUMSUZ (stateless) — oturum JWT'de, sayaçlar ve cache Redis'te, veri Postgres'te.
+# Bu yüzden istediğin kadar kopya çalıştırabilirsin; 2 kopya bunu gösteriyor (ve bellek içi
+# rate limit'in neden yetmediğini: iki kopya = iki ayrı sayaç, Faz 7 dersi).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 2
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0 # güncellemede yeni kopya hazır olmadan eskisi kapanmasın
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532 # imajdaki sayısal uid ile aynı (distroless "nonroot")
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: api
+          image: bookhub-api:dev
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef: { name: bookhub-config }
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: bookhub-secrets, key: POSTGRES_PASSWORD }
+            - name: DATABASE_URL
+              value: postgres://bookhub:$(POSTGRES_PASSWORD)@postgres:5432/bookhub?sslmode=disable
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: bookhub-secrets, key: JWT_SECRET }
+          # readiness: "trafik gönderebilir miyim?" — hazır değilse Service'ten çıkarılır.
+          # liveness: "süreç kilitlendi mi?" — başarısızsa Kubernetes pod'u yeniden başlatır.
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true # Go binary diske hiçbir şey yazmıyor
+            capabilities: { drop: ["ALL"] }

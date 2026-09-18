@@ -1,0 +1,33 @@
+# Şema migration'ı: API kopyalarından ÖNCE, TEK BİR KEZ çalışan iş (Job).
+# Neden API açılışında değil: 2+ kopya aynı anda açılırken şemayı değiştirmesin; ve başarısız
+# bir migration pod'ları çökme döngüsüne sokmak yerine DEPLOY'u durdursun.
+# Postgres henüz hazır değilse Job başarısız olur ve Kubernetes onu yeniden dener (backoffLimit).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600 # tamamlanan Job 10 dk sonra kendiliğinden temizlensin
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532 # imajdaki sayısal uid ile aynı (distroless "nonroot")
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: migrate
+          image: bookhub-api:dev
+          command: ["/app/manage", "migrate"]
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: bookhub-secrets, key: POSTGRES_PASSWORD }
+            # $(POSTGRES_PASSWORD): Kubernetes, ÖNCE tanımlanan env'i burada yerine koyar.
+            - name: DATABASE_URL
+              value: postgres://bookhub:$(POSTGRES_PASSWORD)@postgres:5432/bookhub?sslmode=disable
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }

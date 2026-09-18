@@ -1,0 +1,53 @@
+# Web: NGINX (root olmayan) — statik frontend + /api → api:8080. Dışarıya açılan tek kapı.
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101 # nginx-unprivileged kullanıcısı
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          image: bookhub-web:dev
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 20m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          # Salt okunur kök dosya sistemi: NGINX'in yazması gereken tek yer /tmp (pid, geçici
+          # dosyalar) — oraya bellekte, pod'a özgü boş bir disk bağlıyoruz.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

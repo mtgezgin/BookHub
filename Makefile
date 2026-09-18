@@ -8,7 +8,7 @@ SHELL := /bin/bash
 ENV := set -a; . ./.env; set +a
 GO := go -C backend
 
-.PHONY: help up down app-up app-down logs run test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build web web-test
+.PHONY: help up down app-up app-down logs run test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build web web-test k8s-up k8s-port k8s-status k8s-down
 
 help: ## Hedefleri listele
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -73,3 +73,39 @@ web: ## Frontend geliştirme sunucusu (http://localhost:5173; /api → localhost
 
 web-test: ## Frontend tip kontrolü + testler
 	cd frontend && npm run typecheck && npm test
+
+# ---- Kubernetes (Faz 12): yerel kind kümesi ----
+# Her kubectl çağrısı AÇIKÇA --context kind-bookhub: makinede başka (iş) kümeleri tanımlıysa
+# yanlışlıkla onlara bir şey uygulanamaz.
+KIND_CLUSTER := bookhub
+KCTL := kubectl --context kind-$(KIND_CLUSTER)
+
+k8s-up: ## Yerel kind kümesinde tüm uygulama (küme yoksa oluşturur)
+	kind get clusters | grep -qx $(KIND_CLUSTER) || kind create cluster --name $(KIND_CLUSTER)
+	docker build -t bookhub-api:dev backend
+	docker build -t bookhub-web:dev frontend
+	docker pull -q postgres:16 && docker pull -q redis:7-alpine
+	@# "kind load docker-image" Docker Desktop'ın containerd deposundaki ÇOK PLATFORMLU imajlarda
+	@# "content digest not found" ile düşüyor (yerelde yalnız bu makinenin platformu var). Çözüm:
+	@# imajları tek platformlu bir arşive kaydedip arşivi yüklemek.
+	docker save --platform linux/$$(docker version -f '{{.Server.Arch}}') -o /tmp/bookhub-images.tar \
+		bookhub-api:dev bookhub-web:dev postgres:16 redis:7-alpine
+	kind load image-archive --name $(KIND_CLUSTER) /tmp/bookhub-images.tar
+	rm -f /tmp/bookhub-images.tar
+	$(KCTL) apply -f deploy/k8s/namespace.yaml
+	@# Sırlar dosyada değil: ilk kurulumda rastgele üretilir, sonra korunur.
+	$(KCTL) -n bookhub get secret bookhub-secrets >/dev/null 2>&1 || $(KCTL) -n bookhub create secret generic bookhub-secrets \
+		--from-literal=POSTGRES_PASSWORD="$$(openssl rand -hex 24)" --from-literal=JWT_SECRET="$$(openssl rand -base64 48)"
+	$(KCTL) apply -k deploy/k8s
+	$(KCTL) -n bookhub wait --for=condition=complete job/migrate --timeout=240s
+	$(KCTL) -n bookhub rollout status deploy/api --timeout=180s
+	$(KCTL) -n bookhub rollout status deploy/web --timeout=180s
+
+k8s-port: ## Kümedeki uygulamayı http://localhost:3001'e aç (Ctrl+C ile kapat)
+	$(KCTL) -n bookhub port-forward svc/web 3001:80
+
+k8s-status: ## Pod/servis durumu
+	$(KCTL) -n bookhub get pods,svc,jobs,pvc
+
+k8s-down: ## kind kümesini tamamen sil
+	kind delete cluster --name $(KIND_CLUSTER)

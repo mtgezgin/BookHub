@@ -1,0 +1,18 @@
+# Sır OLMAYAN ayarlar. Sırlar (JWT_SECRET, POSTGRES_PASSWORD) ayrı bir Secret'ta.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bookhub-config
+data:
+  PORT: "8080"
+  LOG_FORMAT: json
+  # Migration'ı API kopyaları değil, ayrı Job yapar (migrate-job.yaml).
+  AUTO_MIGRATE: "false"
+  # Servis adı = küme içi DNS adı (compose'daki gibi).
+  REDIS_URL: redis://redis:6379/0
+  RATING_MIN_VOTES: "10"
+  AUTH_RATE_LIMIT_PER_MIN: "10"
+  # Pod IP'leri dinamik: kind'ın pod ağı (10.244.0.0/16) içinden gelen X-Real-IP'ye güven.
+  # Küme içindeki her pod "güvenilen" sayılır — tek kiracılı, NetworkPolicy'siz bir demo
+  # için kabul edilebilir; paylaşılan kümede yalnız ingress/NGINX pod'larıyla sınırla.
+  TRUSTED_PROXIES: 10.244.0.0/16

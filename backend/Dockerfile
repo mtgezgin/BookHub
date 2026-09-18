@@ -31,7 +31,10 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
 # kaçan bir saldırgan root yetkisi bulmaz.
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/api /out/manage /app/
-USER nonroot:nonroot
+# SAYISAL uid (65532 = distroless'ın "nonroot" kullanıcısı): Kubernetes'in runAsNonRoot kontrolü
+# kullanıcıyı ADLA ("nonroot") görürse root olmadığını doğrulayamaz ve pod'u başlatmaz
+# ("image has non-numeric user") — kind'da tam olarak bu hatayı aldık.
+USER 65532:65532
 EXPOSE 8080
 
 # Shell/curl yok → binary kendini yoklar (cmd/api main.go: "healthcheck" alt komutu).

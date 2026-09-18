@@ -1,0 +1,18 @@
+# BookHub — Kubernetes manifestleri (Faz 12). Uygula: kubectl apply -k deploy/k8s
+#
+# Sırlar (bookhub-secrets) BİLEREK burada yok: dosyaya yazılan sır, repoya girmiş sırdır.
+# `make k8s-up` onu çalışma anında rastgele değerlerle oluşturur (bkz. Makefile).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bookhub
+resources:
+  - namespace.yaml
+  - config.yaml
+  - postgres.yaml
+  - redis.yaml
+  - migrate-job.yaml
+  - api.yaml
+  - web.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: bookhub

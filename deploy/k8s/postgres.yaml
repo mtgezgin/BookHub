@@ -1,0 +1,62 @@
+# Küme İÇİ Postgres — YALNIZCA yerel/demo içindir. Prod'da yönetilen veritabanı (Supabase):
+# yedekleme, yükseltme, yüksek erişilebilirlik bir StatefulSet'le kendin yönetilecek işler değil.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+---
+# StatefulSet (Deployment değil): pod'un KALICI bir kimliği ve kendi diski (PVC) olur;
+# pod yeniden doğsa da aynı diske bağlanır.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: POSTGRES_USER
+              value: bookhub
+            - name: POSTGRES_DB
+              value: bookhub
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: bookhub-secrets, key: POSTGRES_PASSWORD }
+            - name: PGDATA # bağlama noktasının ALT dizini: bazı disklerde kökte lost+found olur
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bookhub", "-d", "bookhub"]
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
