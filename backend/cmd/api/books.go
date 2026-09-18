@@ -239,7 +239,9 @@ func (req *createBookRequest) normalize() {
 	// Slug gönderilmediyse başlıktan türet: kullanıcıdan (öneri formunda) URL kimliği
 	// uydurmasını beklemek kötü deneyim. Türetilen slug da aynı doğrulamadan geçer.
 	if req.Slug == "" {
-		req.Slug = slug.Make(req.Title)
+		// Türetilen slug kesilir: 300 karakterlik geçerli bir başlık, istemcinin hiç
+		// göndermediği bir alan yüzünden "slug çok uzun" hatası almamalı.
+		req.Slug = slug.Truncate(slug.Make(req.Title), maxSlugLen)
 	}
 }
 
