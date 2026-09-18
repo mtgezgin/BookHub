@@ -1,4 +1,4 @@
-# docker-compose.yml — DEV altyapı stack'i (Faz 2: Postgres; Faz 7'de Redis eklenecek).
+# docker-compose.yml — DEV altyapı stack'i (Faz 2: Postgres; Faz 7: Redis).
 #
 # NE İŞE YARAR: "docker compose up -d" tek komutla dev veritabanını ayağa kaldırır.
 # API bu fazda hâlâ host'ta "go run" ile çalışır (hızlı feedback döngüsü);
@@ -46,6 +46,26 @@ services:
     # service_healthy" ile buna yaslanacak (Faz 8).
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bookhub -d bookhub"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Redis (Faz 7): cache + çok-instance rate limit sayaçları. Kalıcılık KAPALI (--save ""
+  # --appendonly no): içindeki her şey Postgres'ten yeniden üretilebilir ya da zaten kısa
+  # ömürlü (sayaçlar). Redis'i "ikinci bir veritabanı" gibi değil, atılabilir bir hızlandırıcı
+  # gibi kullanıyoruz — kaybolursa uygulama yavaşlar ama DOĞRU çalışmaya devam eder.
+  # maxmemory + allkeys-lru: bellek dolarsa en az kullanılan anahtarı at (cache için doğru politika).
+  redis:
+    image: redis:7-alpine
+    container_name: bookhub-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    # Host portu 6380: bu makinede 6379'u başka bir projenin Redis'i kullanıyor. Container
+    # İÇİNDE port hâlâ 6379 — değişen yalnız host tarafı ("host:container" eşlemesi bunun için var).
+    # 127.0.0.1: Postgres'teki gibi yalnız bu makine — şifresiz Redis'i LAN'a açma.
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5

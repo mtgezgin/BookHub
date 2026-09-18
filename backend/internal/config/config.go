@@ -26,6 +26,10 @@ type Config struct {
 	AccessTokenTTL  time.Duration // kısa: çalınan access token'ın ömrü bu kadar
 	RefreshTokenTTL time.Duration // uzun: kullanıcı bu süre boyunca tekrar giriş yapmaz
 
+	// RedisURL: OPSİYONEL. Boşsa cache kapalı (Noop) ve rate limit bellek içi — uygulama
+	// Redis'siz de doğru çalışır. Doluysa açılışta PING atılır (fail-fast).
+	RedisURL string
+
 	// RatingMinVotes: ağırlıklı puandaki m ("güvenilir sayılmak için gereken oy sayısı").
 	// Veri büyüdükçe artırılır; küçük başlar (bkz. ratings.DefaultMinVotes).
 	RatingMinVotes int
@@ -66,6 +70,7 @@ func Load() (Config, error) {
 		AccessTokenTTL:  accessTTL,
 		RefreshTokenTTL: refreshTTL,
 		RatingMinVotes:  minVotes,
+		RedisURL:        os.Getenv("REDIS_URL"),
 	}
 
 	if err := cfg.validate(); err != nil {
