@@ -10,6 +10,7 @@ Dil-bağımsız backend/web kavramları: HTTP, API tasarımı, config/12-factor,
 3. [Environment variable nedir? (os.Getenv, lokal vs prod)](#3-environment-variable-nedir-osgetenv-lokal-vs-prod)
 4. [The Twelve-Factor App (12-factor) nedir?](#4-the-twelve-factor-app-12-factor-nedir)
 5. [HTTP hata kodları: bu kimin hatası? (400 / 409 / 500)](#5-http-hata-kodları-bu-kimin-hatası-400--409--500)
+6. [Middleware ve context: kimlik isteğe nasıl taşınır? (401 vs 403)](#6-middleware-ve-context-kimlik-isteğe-nasıl-taşınır-401-vs-403)
 
 ---
 
@@ -245,3 +246,53 @@ yazmak; karar mekanizması HTTP'nin kendisine ait.
 - [backend/internal/books/repository.go](../../backend/internal/books/repository.go) — `ErrDuplicateSlug` (Postgres 23505 → domain hatası)
 - [backend/cmd/api/respond.go](../../backend/cmd/api/respond.go) — tutarlı `{"error":{"code","message"}}` zarfı
 - [security-and-auth.md](security-and-auth.md) Girdi 2 (404'ün varlık sızdırmama gerekçesi)
+
+---
+
+## 6. Middleware ve context: kimlik isteğe nasıl taşınır? (401 vs 403)
+
+**🗓️ Bağlam:** Faz 3'te `/api/admin` grubunu korurken — push öncesi güvenlik incelemesi bu grubun
+kimlik doğrulamasız olduğunu bulgu olarak işaretlemişti.
+
+**⚡ Kısa cevap:** Middleware, handler'ı saran bir handler'dır: isteği önce o görür, uygun değilse
+zinciri **keser**. Doğrulanan kimliği `context`'e koyar; handler oradan okur.
+
+**📖 Açıklama:**
+
+```go
+func requireAuth(v tokenVerifier) func(http.Handler) http.Handler {
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            // token yok/geçersiz → 401 yaz ve DÖN (next çağrılmaz = zincir kesildi)
+            next.ServeHTTP(w, r.WithContext(withPrincipal(r.Context(), p)))
+        })
+    }
+}
+```
+
+Express karşılığı: `app.use((req, res, next) => { ...; next() })`. Go'da `req.user = ...` gibi
+isteğe alan eklenemez; yerine **context** taşınır.
+
+**Context anahtarı neden özel bir tip?** `context.WithValue(ctx, "user", p)` yazsaydık her paket
+aynı `"user"` string'ini kullanıp değeri ezebilir/okuyabilirdi. `type principalKey struct{}`
+dışarıya kapalı → bu anahtarı yalnızca bizim paketimiz üretebilir.
+
+**401 vs 403:**
+
+| Kod | Anlamı | Bizde |
+|---|---|---|
+| 401 Unauthorized | "Seni **tanımıyorum**" — token yok / geçersiz / süresi dolmuş | `requireAuth` (+ `WWW-Authenticate: Bearer` başlığı) |
+| 403 Forbidden | "Seni tanıyorum ama buna **yetkin yok**" | `requireAdmin` (USER admin rotasına geldi) |
+
+**Grup seviyesinde koruma:** `r.Route("/api/admin", func(r) { r.Use(requireAuth(..), requireAdmin); ... })`
+— yeni bir admin rotası eklemek onu **otomatik** korur. Tek tek eklemek "unutursam açık kalır"
+demekti. Test tüm admin rotalarını gezip token'sız 401, USER'la 403 bekliyor; `r.Use` satırı
+silinince 5 rotanın 5'i de düşüyor.
+
+**Rol ≠ sahiplik:** middleware kaba rol kontrolü yapar ("admin misin?"). "Bu yorum **senin** mi?"
+gibi kaynak sahipliği kontrolü servis katmanında yapılır (IDOR — Faz 5).
+
+**🔗 İlgili:**
+- [backend/cmd/api/middleware.go](../../backend/cmd/api/middleware.go)
+- [backend/cmd/api/router.go](../../backend/cmd/api/router.go) — `/api/admin` grubu
+- [security-and-auth.md](security-and-auth.md) — Girdi 2 (BOLA/IDOR)

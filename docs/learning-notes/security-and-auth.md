@@ -8,6 +8,10 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 1. [Sır (secret) nedir — dev credential'ı repoya yazmak neden güvenli olabilir?](#1-sır-secret-nedir--dev-credentialı-repoya-yazmak-neden-güvenli-olabilir)
 2. [OWASP nedir? (ve BOLA/IDOR — bizim ilk gerçek bulgumuz)](#2-owasp-nedir-ve-bolaidor--bizim-ilk-gerçek-bulgumuz)
 3. [Mass-assignment: request DTO neden DB modelinden ayrı?](#3-mass-assignment-request-dto-neden-db-modelinden-ayrı)
+4. [Parola hash'leme: neden bcrypt, cost ne demek, 72 bayt tuzağı](#4-parola-hashleme-neden-bcrypt-cost-ne-demek-72-bayt-tuzağı)
+5. [JWT nedir ve "algoritma sabitleme" neden en önemli satır?](#5-jwt-nedir-ve-algoritma-sabitleme-neden-en-önemli-satır)
+6. [User enumeration: generic mesaj YETMEZ, süre de eşit olmalı](#6-user-enumeration-generic-mesaj-yetmez-süre-de-eşit-olmalı)
+7. [Refresh token, rotasyon ve "çıkış yap" (stateless JWT iptal edilemez)](#7-refresh-token-rotasyon-ve-çıkış-yap-stateless-jwt-iptal-edilemez)
 
 ---
 
@@ -171,3 +175,172 @@ NestJS'te `class-validator` + `whitelist: true` ile çözdüğü problemin aynı
 - [backend/cmd/api/respond.go](../../backend/cmd/api/respond.go) — `readJSON`, `DisallowUnknownFields`
 - Yukarıda [Girdi 2](#2-owasp-nedir-ve-bolaidor--bizim-ilk-gerçek-bulgumuz) — kardeş açık (BOLA/IDOR)
 - [docs/GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §11 (DTO ↔ domain ayrımı), §12 (güvenlik temeli)
+
+---
+
+## 4. Parola hash'leme: neden bcrypt, cost ne demek, 72 bayt tuzağı
+
+**🗓️ Bağlam:** Faz 3'te `users` tablosunu ve kayıt akışını kurarken. Login'i bağlarken bcrypt'in
+72 bayt davranışını **deneyerek** kontrol ettik ve gerçek bir açık bulduk.
+
+**⚡ Kısa cevap:** Parolayı değil, parolanın **yavaş, tuzlu (salted) hash'ini** saklarsın. bcrypt
+bilerek yavaştır (cost 12 ≈ 250 ms) — DB sızsa bile saldırganın deneme hızını milyarlardan
+binlere düşürür. Tuzak: bcrypt yalnızca ilk **72 baytı** işler.
+
+**📖 Açıklama:**
+
+| Yöntem | Neden olmaz / olur |
+|---|---|
+| Düz metin | DB sızınca tüm parolalar okunur. |
+| SHA-256 / MD5 | Hızlı olmak için tasarlandı: GPU saniyede **milyarlarca** deneme yapar. Parolada hız düşmandır. |
+| bcrypt / argon2id | Bilerek yavaş + her hash'e rastgele **salt** gömülü → aynı parola iki kez farklı hash verir, hazır tablolar (rainbow table) işe yaramaz. |
+
+bcrypt çıktısı her şeyi tek string'de taşır: `$2a$12$<22 karakter salt><31 karakter hash>` —
+`12` = **cost**. Cost her +1'de işi ikiye katlar; donanım hızlandıkça artırılır.
+
+**72 bayt tuzağı (canlı bulduğumuz açık):**
+
+```
+kayıt parolası : "aaaa…a" (tam 72 bayt)
+giriş denemesi : "aaaa…a" + "FAZLADAN"  → bcrypt.CompareHashAndPassword → nil (EŞLEŞTİ!)
+```
+
+`GenerateFromPassword` >72 baytta artık hata döner, ama `CompareHashAndPassword` **sessizce
+kırpar**. Yani 72 baytlık bir parolanın sonuna ne eklersen ekle giriş açılıyordu. Düzeltme:
+kayıtta >72'yi reddet (zaten yapıyorduk), **girişte de** >72'yi doğrudan "hatalı" say. Karakter
+değil bayt: "ş" UTF-8'de 2 bayt, yani 37 "ş" = 74 bayt.
+
+**Ders:** güvenlik kütüphanelerinin kenar davranışını dokümana değil **teste** sor. Node'un
+`bcrypt` paketi de aynı şekilde 72'de kırpar — bu dil değil, algoritma özelliği.
+
+**🔗 İlgili:**
+- [backend/internal/auth/password.go](../../backend/internal/auth/password.go) — `bcryptCost`, `MaxPasswordBytes`
+- [backend/internal/auth/service.go](../../backend/internal/auth/service.go) — `Login`'deki 72 bayt koruması
+- `TestLoginRejectsTruncatedPassword` — koruma silinince düşen regresyon testi
+
+---
+
+## 5. JWT nedir ve "algoritma sabitleme" neden en önemli satır?
+
+**🗓️ Bağlam:** Faz 3'te access token'ları üretirken (`internal/auth/token.go`).
+
+**⚡ Kısa cevap:** JWT = `başlık.gövde.imza` biçiminde, **sunucunun imzaladığı** bir kimlik kartı.
+Sunucu her istekte DB'ye gitmeden "bu kartı ben mi imzaladım, süresi geçmiş mi?" diye bakar.
+Doğrularken **algoritmayı token'ın başlığından değil, koddan** almalısın.
+
+**📖 Açıklama:**
+
+```
+eyJhbGciOiJIUzI1NiJ9 . eyJzdWIiOiI3Iiwicm9sZSI6IlVTRVIiLCJleHAiOjE3…} . 8f3k…
+   başlık (base64)           gövde / claims (base64 — ŞİFRELİ DEĞİL!)        imza
+{"alg":"HS256"}        {"sub":"7","role":"USER","exp":…,"iss":…,"aud":…}   HMAC-SHA256(secret)
+```
+
+- Gövde **şifreli değil**, sadece base64: herkes okuyabilir. İçine parola/gizli veri koyma.
+- Güvenlik imzadan gelir: gövdeyi değiştirirsen (`"role":"ADMIN"`) imza tutmaz.
+- `exp` (bitiş), `iss` (kim üretti), `aud` (kimin için) — üçünü de doğruluyoruz.
+
+**Başlığa güvenmenin iki klasik saldırısı:**
+
+| Saldırı | Ne olur | Bizde |
+|---|---|---|
+| `alg: none` | "imzasız token" — naif doğrulayıcı imzayı hiç kontrol etmez | kütüphane varsayılan olarak reddediyor + testimiz var |
+| Algoritma karışıklığı | HS256 bekleyen yere HS512 (ya da RS256) ile oynanmış token | `WithValidMethods([]string{"HS256"})` |
+
+**Mutation ile kanıt:** `WithValidMethods` satırını sildiğimizde, **aynı secret'la HS512 imzalı**
+token doğrulamadan geçti. Yani o satır süs değil, taşıyıcı duvar.
+
+**Neden kısa ömür (15 dk)?** Stateless JWT iptal edilemez: çalınırsa süresi dolana kadar
+geçerlidir. Süreyi kısa tutarak zarar penceresini daraltırız; uzun oturumu refresh token sağlar
+([Girdi 7](#7-refresh-token-rotasyon-ve-çıkış-yap-stateless-jwt-iptal-edilemez)).
+
+**Secret:** HS256'nın gücü secret'ın entropisi kadardır → en az 32 bayt, `openssl rand -base64 48`,
+env'den; repoya asla. Sızarsa herkes istediği rolde token imzalar.
+
+**🔗 İlgili:**
+- [backend/internal/auth/token.go](../../backend/internal/auth/token.go) — `Issue`, `Verify`
+- [backend/internal/auth/token_test.go](../../backend/internal/auth/token_test.go) — 13 red senaryosu
+- [docs/GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §12
+
+---
+
+## 6. User enumeration: generic mesaj YETMEZ, süre de eşit olmalı
+
+**🗓️ Bağlam:** Faz 3'te login'i yazarken; canlı olarak yanıt sürelerini ölçtük.
+
+**⚡ Kısa cevap:** "Bu e-posta kayıtlı mı?" sorusunun cevabını sızdırmamak için login hem **aynı
+mesajı** hem de **aynı sürede** cevap vermeli. Kullanıcı yoksa da sahte bir bcrypt karşılaştırması
+yaparız.
+
+**📖 Açıklama:**
+
+Naif login:
+
+```
+e-posta yok   → hemen "hatalı"            (~1 ms)
+e-posta var   → bcrypt karşılaştır → "hatalı"  (~250 ms)
+```
+
+Mesajlar aynı olsa bile saldırgan **kronometreyle** hangi e-postaların kayıtlı olduğunu çıkarır
+(timing attack). Bizim çözüm: kullanıcı yoksa `dummyHash`'e karşı bir karşılaştırma yap.
+Canlı ölçüm (5'er istek):
+
+```
+e-posta var : 0.231 0.217 0.218 0.217 0.216 sn
+e-posta yok : 0.215 0.220 0.217 0.220 0.218 sn   ← ayırt edilemiyor
+```
+
+Süreyi testte ölçmek kırılgan olurdu; bunun yerine karşılaştırma fonksiyonunu enjekte edip
+**çağrıldığını sayıyoruz** (`TestLoginUnknownEmailStillCompares`).
+
+**Register'daki bilinçli ödünleşim:** `/register` kayıtlı e-postaya **409** dönüyor — bu da bir
+sızıntı. Ama aksi hâlde kullanıcı neden kayıt olamadığını anlayamaz. Tam çözüm "e-postana bağlantı
+gönderdik" akışıdır (e-posta doğrulama); o gelene kadar toplu sorgulamaya karşı savunma **rate
+limit** (Faz 7).
+
+**🔗 İlgili:**
+- [backend/internal/auth/service.go](../../backend/internal/auth/service.go) — `dummyHash`, `Login`
+- [backend/cmd/api/auth.go](../../backend/cmd/api/auth.go) — `handleRegister`'daki 409 yorumu
+
+---
+
+## 7. Refresh token, rotasyon ve "çıkış yap" (stateless JWT iptal edilemez)
+
+**🗓️ Bağlam:** Faz 3'te oturum yenileme ve logout uçlarını tasarlarken.
+
+**⚡ Kısa cevap:** Kısa ömürlü access token (15 dk) + uzun ömürlü, **DB'de tutulan** refresh
+token (7 gün). Refresh token **tek kullanımlıktır**: her kullanımda silinir, yenisi verilir
+(rotasyon). "Çıkış yap" = refresh token'ı DB'den silmek.
+
+**📖 Açıklama:**
+
+```
+login   → access (15 dk, JWT, DB'de YOK) + refresh (7 gün, DB'de SHA-256'sı var)
+istek   → Authorization: Bearer <access>          (DB'ye gidilmez — stateless)
+15 dk   → access öldü → POST /refresh {refresh}   → eski refresh SİLİNİR, yeni çift gelir
+logout  → POST /logout {refresh}                  → refresh silinir; access en geç 15 dk'da ölür
+```
+
+**Neden DB'de hash?** Token 128 bit rastgele (`crypto/rand.Text`) — tahmin edilemez, bu yüzden
+bcrypt gibi yavaş hash gerekmez; SHA-256 yeter. DB yedeği sızsa bile içindeki değerlerle oturum
+çalınamaz.
+
+**Rotasyonun güvenlik değeri:** çalınmış bir refresh token, gerçek sahibi bir sonraki yenilemeyi
+yaptığı anda ölür.
+
+**Yarış koşulu (Faz 2'deki FOR UPDATE dersinin kardeşi):** aynı token'la iki eşzamanlı `/refresh`
+gelirse ikisi de başarılı olmamalı. `SELECT` sonra `DELETE` yazsaydık ikisi de SELECT'i geçebilirdi
+(check-then-act). Tek atımlık `DELETE ... RETURNING` ile satırı yalnızca biri silebilir — testte
+20 goroutine, **tam 1 kazanan**.
+
+**Hata sırası bilinçli:** önce eskiyi tüket, sonra yenisini kaydet. Kayıt başarısız olursa kullanıcı
+yeniden giriş yapar (**kapalı başarısızlık**). Ters sıra başarısızlıkta iki geçerli token bırakırdı.
+
+**Bilinen sınır:** "token ailesi" (reuse detection — eski bir token tekrar gelirse o ailenin tüm
+token'larını iptal et) yok; öğrenme projesi için bilinçli olarak dışarıda.
+
+**🔗 İlgili:**
+- [backend/migrations/0002_users_auth.sql](../../backend/migrations/0002_users_auth.sql) — `refresh_tokens`
+- [backend/sql/queries/users.sql](../../backend/sql/queries/users.sql) — `ConsumeRefreshToken`
+- `TestConsumeRefreshTokenConcurrent` — [repository_integration_test.go](../../backend/internal/auth/repository_integration_test.go)
+- [database.md](database.md) — transaction / kilit notları

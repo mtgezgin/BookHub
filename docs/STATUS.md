@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme:** Faz 2 ✅ TAMAM. Sırada **Faz 3 — Auth + roller**.
+**Son güncelleme:** Faz 3 ✅ TAMAM. Sırada **Faz 4 — Öneri + moderasyon**.
 **Hedef (kullanıcı talebi, 2026-09):** projeyi baştan sona bitir — MVP (Faz 1–7) + opsiyonel
 altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push.
 
@@ -19,8 +19,8 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
 | 0 | Repo + git | ✅ |
 | 1 | Minimal Go API (/health, config, graceful shutdown, CI, hook'lar) | ✅ |
 | 2 | Postgres + kitap/tür CRUD + many-to-many | ✅ |
-| 3 | Auth + roller (JWT, bcrypt, refresh token, admin guard) | ⏭️ sırada |
-| 4 | Öneri + moderasyon (state machine, audit log) | ⏳ |
+| 3 | Auth + roller (JWT, bcrypt, refresh token, admin guard) | ✅ |
+| 4 | Öneri + moderasyon (state machine, audit log) | ⏭️ sırada |
 | 5 | Yorum + puan (ON CONFLICT, tx-içi agregat, eşzamanlılık) | ⏳ |
 | 6 | Ağırlıklı puan (Bayesian, top-rated) | ⏳ |
 | 7 | Redis cache + rate limit + yük testi — **MVP sonu** | ⏳ |
@@ -42,17 +42,27 @@ altyapı rayı (Faz 8–12) — **her adım ayrı commit**, faz sonlarında push
 - **Commit'ler:** `d6a9245` kitap uçları · `0f4da49` gömülü migration · `ee1ae59` test sertleştirme ·
   `159f8c8` türler · `7dd71d7` many-to-many · `2a31a50` sayfalama/arama · (docs kapanışı).
 
-## Sıradaki: Faz 3 — Auth + roller (plan)
+## Faz 3'te ne oldu (özet)
 
-1. Migration `0002`: `users` (email UNIQUE — küçük harfe normalize, `password_hash`, `role` TEXT+CHECK
-   USER/ADMIN), `refresh_tokens` (token **hash**'i, `expires_at`, kullanıcıya FK, CASCADE).
-2. `internal/auth`: bcrypt (cost 12) · JWT HS256 (`alg` açıkça doğrulanır; `exp/iat/iss/aud/sub/role`,
-   access ~15 dk) · opak refresh token (`crypto/rand`, DB'de SHA-256 hash, kullanımda **rotate**).
-3. Config: `JWT_SECRET` (zorunlu, ≥32 bayt), `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`.
-4. Uçlar: `POST /api/auth/register|login|refresh|logout`, `GET /api/auth/me`. Login hatası generic.
-5. Middleware: `requireAuth` (401), `requireAdmin` (403) → `/api/admin/*` korunur.
-6. İlk admin: `cmd/manage create-admin` komutu (parola env'den/stdin'den; koda gömülmez).
-7. İlk **Service** katmanı: `auth.Service` (register/login/refresh iş kuralları).
+- **Uçlar:** `POST /api/auth/register|login|refresh|logout`, `GET /api/auth/me`.
+  `/api/admin/*` artık `requireAuth` (401) + `requireAdmin` (403) arkasında.
+- **İlk Service katmanı:** `internal/auth` (password, token, repository, service).
+- **İlk admin:** `set -a; source .env; set +a; go -C backend run ./cmd/manage create-admin -email SEN@ornek.com`
+  (parola gizli sorulur). Kayıt ucu her zaman USER açar.
+- **Bulunan açıklar:** admin grubu kimliksizdi (push kapısı yakaladı — Faz 2 push'u bu yüzden
+  Faz 3'le birlikte yapılacak); bcrypt 72 bayt kırpması girişi açıyordu (deneyerek bulundu).
+- **Commit'ler:** `a4c9f80` şema · `ecd9c8c` bcrypt+JWT · `6def864` servis · `9c19fd6` uçlar ·
+  `3820ae2` admin koruması · `9d9226c` create-admin · (docs).
+
+## Sıradaki: Faz 4 — Öneri + moderasyon (plan)
+
+1. Migration `0003`: `books.status`'a `ARCHIVED`; `submitted_by` (FK users), `rejection_reason`,
+   `moderated_by`/`moderated_at`; `audit_logs` (append-only: actor, action, entity, jsonb detay).
+2. `POST /api/books/suggestions` (USER) → `PENDING` kitap, türleriyle.
+3. `internal/moderation` servisi: geçiş kuralları (PENDING→APPROVED/REJECTED, APPROVED→ARCHIVED…),
+   `FOR UPDATE` + audit kaydı **aynı transaction'da**.
+4. Admin: `GET /api/admin/books?status=PENDING`, `POST .../{id}/approve|reject`, `PATCH`/`DELETE`
+   (arşivle) — admin DTO'su statü/moderasyon alanlarını gösterir; public DTO göstermez.
 
 ## Ortam / gerçekler
 

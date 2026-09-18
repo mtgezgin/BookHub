@@ -94,7 +94,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 2. Errors as values vs try/catch
 
-**Status:** `HYPOTHESIS` · **Illustration:** `[Phase 5 — backend/internal/ratings/errors.go + handler mapping — TBD]`
+**Status:** `PARTIAL` (Faz 2 + Faz 3) · **Illustration:** `backend/cmd/api/auth.go:handleRegister` (sentinel + tipli hata → HTTP tek `switch`'te), `backend/internal/auth/token.go:Verify` (çoklu `%w`), `[Phase 5 — ratings 409 — TBD]`
+>
+> **🟡 Faz 3:** Hata-değer modeli iki yerde gerçekten iş gördü. (1) `auth.ValidationError` TİPLİ hata: servis doğrulama problemlerini taşıyor, handler `errors.As` ile yakalayıp 400'e çeviriyor — servis HTTP'yi hiç tanımıyor. (2) `fmt.Errorf("%w: %w", ErrInvalidToken, err)`: istemci tek bir sentinel görüyor (401), log'da kütüphanenin asıl nedeni (süre mi, imza mı) duruyor. Güvenlik açısından önemli: "neden reddedildi" bilgisi hata ZİNCİRİNDE kalıyor, cevaba sızmıyor. Tam `CONFIRMED` için Faz 5'in UNIQUE → 409 örneği bekleniyor.
 
 - **Hypothesis:** Returning errors as values (with `%w` wrapping) and mapping domain
   sentinel errors to HTTP status in **one place** produces a clearer, harder-to-ignore error
@@ -121,9 +123,11 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 3. Explicit DI & small interfaces vs duck typing / DI containers
 
-**Status:** `CONFIRMED` (Faz 1 + Faz 2) · **Illustration:** `backend/cmd/api/main.go` (elle DI), `backend/cmd/api/books.go:bookStore` (tüketen tarafta interface), `backend/cmd/api/router.go:deps`.
+**Status:** `CONFIRMED` (Faz 1–3) · **Illustration:** `backend/cmd/api/main.go` (elle DI), `backend/internal/auth/service.go:Service` (ilk servis), `backend/cmd/api/books.go:bookStore` (tüketen tarafta interface), `backend/cmd/api/router.go:deps`.
 >
 > **✅ Faz 1:** grafı `main.go`'da elle kurmak net ve okunur. Henüz interface yok — gerçek bir fake / 2. implementasyon gerekmedi, o yüzden eklemedik (GO_CONVENTIONS §3). Hipotez bu ölçekte doğrulandı.
+>
+> **✅ Faz 3:** İlk **Service** katmanı gerçek iş mantığıyla doğdu (`internal/auth/service.go`): parola politikası, zamanlama eşitleme, token üret-sakla-döndür. Kitap/tür CRUD'unda hâlâ servis yok — ayrım işe yaradı. İki DI kazancı somut: (1) aynı `Service`, hem HTTP handler'ı hem `cmd/manage` CLI'ı tarafından kullanılıyor → parola politikası iki kapıda da tek kaynaktan uygulanıyor; (2) `compare` fonksiyonu alan olarak enjekte edildiği için "kullanıcı yokken de bcrypt çalıştı mı" iddiası süre ölçmeden, çağrı sayarak test edilebildi. Ayrıca `auth.User` (PasswordHash alanı YOK) — hash'in cevaba sızması derleyici seviyesinde imkânsız.
 >
 > **✅ Faz 2:** İlk interface'ler **gerçek bir ihtiyaçla** doğdu: handler'ları DB'siz test etmek. `bookStore`/`genreStore` TÜKETEN tarafta (`cmd/api`) tanımlı; `*books.Repository` onları "implements" demeden sağlıyor. Kazanç somut: `countingBooks` sahtesi çağrıları sayıp liste ucunun N+1 yapmadığını kanıtlıyor — DI container'ında bu kadar ucuz olmazdı. Maliyeti de somut: interface büyüdükçe (Get → List/Create/SetGenres) her sahte tüm metotları uygulamak zorunda; struct embedding (`capturingBooks{fakeBooks}`) bunu hafifletti. Router parametre listesi uzamaya başlayınca `deps` struct'ına geçtik — hâlâ elle DI, ama testler yalnızca ihtiyaç duydukları alanı dolduruyor.
 
@@ -466,6 +470,17 @@ Seed entries:
     Prisma'da `where` nesnesini koşullu kurmak çok daha doğal. sqlc'nin bilinen zayıflığı.
 14. **Sahte (fake) bakımı (§3):** interface büyüdükçe her sahte tüm metotları uygulamak zorunda.
     jest'in `jest.fn()` ile tek metodu taklit etmesi bu noktada daha az törenli.
+
+**Faz 3'te eklenen dürüst gözlemler:**
+15. **JWT algoritma sabitleme (§2/§5):** Node'un `jsonwebtoken`'ı da `verify(token, secret,
+    { algorithms: ['HS256'] })` ile aynı korumayı sunar. Açık kütüphane seçeneğinde; Go burada
+    bir şey kazandırmadı — "seçeneği bil ve testle" dersi dil-bağımsız.
+16. **bcrypt 72 bayt kırpması:** Node `bcrypt` paketi de aynı davranır (algoritma özelliği). Bulan
+    şey dil değil, "kenar davranışı teste sor" alışkanlığıydı.
+17. **Sahte store maliyeti (§3):** `memStore` ~110 satır (8 metot, mutex, map'ler). jest'te
+    `jest.fn().mockResolvedValue(...)` ile yalnızca test edilen metodu taklit etmek çok daha az
+    törenli. Karşılığında sahte, gerçek sözleşmeyi (tekil e-posta, tek kullanımlık token) taklit
+    ediyor — ama bu disiplin, dil zorunluluğu değil.
 
 > **Refleksiyon (TR):** Buraya her Go bölümü doldurduğunda en az bir dürüst "TS/JS kazanırdı"
 > girdisi ekle. Bu bölüm büyümüyorsa, doküman Go reklamına kaymış demektir.
