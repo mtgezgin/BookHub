@@ -28,6 +28,9 @@ type memStore struct {
 	tokens   map[string]memToken // anahtar: string(tokenHash)
 	families map[int64]*memFamily
 	nextFam  int64
+	// userByIDErr: UserByID'nin AYRI çağrısını patlatır (rotasyonun kendi okuması etkilenmez).
+	// Refresh'in commit'ten SONRA kullanıcı okumadığını kanıtlamak için (bulgu F02).
+	userByIDErr error
 }
 
 type memToken struct {
@@ -78,6 +81,9 @@ func (m *memStore) UserByEmail(_ context.Context, email string) (db.User, error)
 func (m *memStore) UserByID(_ context.Context, id int64) (db.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.userByIDErr != nil {
+		return db.User{}, m.userByIDErr
+	}
 	u, ok := m.users[id]
 	if !ok {
 		return db.User{}, ErrUserNotFound
@@ -186,7 +192,13 @@ func (m *memStore) RotateRefreshToken(_ context.Context, oldHash, newHash []byte
 	m.tokens[string(oldHash)] = tok
 	exp := earliest(newExp, fam.absoluteExp)
 	m.tokens[string(newHash)] = memToken{userID: tok.userID, familyID: tok.familyID, expiresAt: exp}
-	return Rotation{UserID: tok.userID, FamilyID: tok.familyID, ExpiresAt: exp}, nil
+	// Kullanıcı, gerçek depoda olduğu gibi rotasyonun İÇİNDE okunur (Rotation.User): hesap
+	// silinmişse rotasyon da başarısızdır.
+	u, ok := m.users[tok.userID]
+	if !ok {
+		return Rotation{}, errRefreshNotFound
+	}
+	return Rotation{UserID: tok.userID, FamilyID: tok.familyID, ExpiresAt: exp, User: u}, nil
 }
 
 func (m *memStore) RevokeRefreshFamily(_ context.Context, h []byte, _ time.Time) error {
@@ -945,11 +957,21 @@ func TestInfraErrorsAreNotAuthErrors(t *testing.T) {
 		sess, err := s.Refresh(ctx, old.RefreshToken)
 		assertInfra(t, sess, err, ErrInvalidToken)
 	})
-	t.Run("Refresh: kullanıcı okunamadı", func(t *testing.T) {
-		s, es, old := setup(t)
+	// "Refresh: kullanıcı okunamadı" alt-testi KALDIRILDI (bulgu F02): kullanıcı artık
+	// rotasyonun KENDİ transaction'ında okunuyor, servisin ayrı bir UserByID çağrısı yok.
+	// O okumanın kesintisi yukarıdaki rotasyon kesintisiyle aynı yoldan gelir ve — asıl kazanç —
+	// rollback sayesinde halef token hiç yazılmaz. Yerine geçen iddia:
+	// TestRefreshDoesNotReadUserAfterCommit (UserByID patlasa bile yenileme çalışır).
+	t.Run("Me: kullanıcı okunamadı", func(t *testing.T) {
+		s, es, _ := setup(t)
 		es.byIDErr = dbDown
-		sess, err := s.Refresh(ctx, old.RefreshToken)
-		assertInfra(t, sess, err, ErrInvalidToken)
+		u, err := s.Me(ctx, 1)
+		if !errors.Is(err, dbDown) {
+			t.Errorf("altyapı hatası olduğu gibi dönmeli, gelen %v", err)
+		}
+		if u.ID != 0 {
+			t.Errorf("hata durumunda kullanıcı dönmemeli: %+v", u)
+		}
 	})
 	t.Run("Logout: iptal kesintisi olduğu gibi döner", func(t *testing.T) {
 		s, es, old := setup(t)
@@ -1189,5 +1211,42 @@ func TestLoginRejectsPasswordChangedDuringLogin(t *testing.T) {
 	}
 	if len(st.families) != 0 || len(st.tokens) != 0 {
 		t.Errorf("reddedilen giriş aile/token açmamalı: %d aile, %d token", len(st.families), len(st.tokens))
+	}
+}
+
+// TestRefreshDoesNotReadUserAfterCommit (inceleme bulgusu F02): rotasyon COMMIT olduktan sonra
+// başarısız olabilecek hiçbir adım kalmamalı.
+//
+// ESKİ HÂLİ: rotasyon commit edilir, sonra kullanıcı AYRI bir UserByID sorgusuyla okunurdu. O
+// sorgu patlarsa istemci 500 alır; halef token ise DB'de yazılı kalır. İstemci (elindeki tek
+// anahtar olan) ESKİ çerezle tekrar dener → sunucu bunu REUSE sayar → TÜM aile iptal edilir.
+// Yani veritabanının bir saniyelik sarsıntısı, kullanıcıyı tüm cihazlarından atardı.
+//
+// Test bunu, UserByID'yi patlatıp rotasyonu sağlam bırakarak sabitler: yenileme YİNE çalışmalı.
+func TestRefreshDoesNotReadUserAfterCommit(t *testing.T) {
+	s, st, _ := newTestService(t)
+	ctx := context.Background()
+	if _, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	sess, err := s.Login(ctx, "ali@example.com", goodPassword)
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	st.mu.Lock()
+	st.userByIDErr = errors.New("db geçici olarak düştü")
+	st.mu.Unlock()
+
+	next, err := s.Refresh(ctx, sess.RefreshToken)
+	if err != nil {
+		t.Fatalf("rotasyon commit olduysa yenileme başarılı olmalı (kullanıcı tx İÇİNDE okunur): %v", err)
+	}
+	if next.User.Email != "ali@example.com" {
+		t.Errorf("oturum rotasyonun okuduğu kullanıcıyı taşımalı, gelen %+v", next.User)
+	}
+	// Ve yeni token gerçekten kullanılabilir olmalı (halef teslim edildi).
+	if _, err := s.Refresh(ctx, next.RefreshToken); err != nil {
+		t.Errorf("halef token ile ikinci yenileme de çalışmalı: %v", err)
 	}
 }

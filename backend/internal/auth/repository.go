@@ -126,6 +126,12 @@ type Rotation struct {
 	// ExpiresAt, halefin GERÇEK bitişi: min(istenen bitiş, ailenin mutlak tavanı). Servis bunu
 	// olduğu gibi istemciye verir — istemci tavanı aşan bir süre görüp yanılmasın.
 	ExpiresAt time.Time
+	// User, halef token'ın sahibinin TAZE hâli — AYNI transaction'da okunur (rolü değiştiyse
+	// yeni access token eskisini taşımasın). Commit'ten SONRA ayrı bir sorguyla okunsaydı ve o
+	// sorgu patlasaydı: halef token DB'de yazılı kalır ama istemciye hiç ulaşmaz; istemci eski
+	// çerezle tekrar dener, bu REUSE sayılır ve geçici bir DB hatası TÜM aileyi öldürürdü
+	// (inceleme bulgusu F02). Kural: COMMIT'ten sonra başarısız olabilecek adım bırakma.
+	User db.User
 }
 
 // StartRefreshFamily, yeni bir giriş için aile açar ve ilk token'ını kaydeder (tek tx: token'sız
@@ -324,7 +330,17 @@ func (r *Repository) RotateRefreshToken(ctx context.Context, oldHash, newHash []
 		if err != nil {
 			return fmt.Errorf("yeni refresh token kaydedilemedi: %w", err)
 		}
-		rot = Rotation{UserID: tok.UserID, FamilyID: familyID, ExpiresAt: exp}
+		// Kullanıcıyı AYNI tx'te oku (bkz. Rotation.User): commit'ten sonra yapacak iş kalmasın.
+		// Düz SELECT — kilit almaz, kilit sırası değişmezini etkilemez.
+		u, err := q.GetUserByID(ctx, tok.UserID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errRefreshNotFound // hesap silinmiş (cascade token'ları da götürür)
+		}
+		if err != nil {
+			return fmt.Errorf("kullanıcı okunamadı: %w", err)
+		}
+
+		rot = Rotation{UserID: tok.UserID, FamilyID: familyID, ExpiresAt: exp, User: u}
 		return nil
 	})
 	if err != nil {

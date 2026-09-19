@@ -390,17 +390,20 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (Session, er
 		return Session{}, err // *ReuseError dahil: ErrInvalidToken'ı sarar
 	}
 
-	// Kullanıcıyı DB'den TAZE oku: rolü değiştiyse (admin'likten alındıysa) yeni access
-	// token eski rolü taşımasın.
-	u, err := s.store.UserByID(ctx, rot.UserID)
-	if errors.Is(err, ErrUserNotFound) {
-		return Session{}, ErrInvalidToken
-	}
-	if err != nil {
-		return Session{}, err
-	}
+	// Kullanıcı, rotasyonun KENDİ transaction'ında okundu (rot.User): rolü değiştiyse yeni
+	// access token eskisini taşımaz. Burada AYRI bir UserByID çağrısı YOK — commit'ten sonraki
+	// her adım, başarısız olduğunda halef token'ı "yazılmış ama teslim edilmemiş" bırakır ve
+	// istemcinin eski çerezle yaptığı tekrar denemesi reuse sayılıp tüm aileyi öldürürdü
+	// (inceleme bulgusu F02).
+	//
+	// GERİYE KALAN TEK RİSK (bilinçli politika): commit oldu ama CEVAP istemciye ulaşmadı
+	// (ağ koptu, sekme kapandı). O zaman tarayıcıdaki çerez harcanmış token'ı taşır ve bir
+	// sonraki yenileme reuse sayılır → aile iptal, kullanıcı yeniden giriş yapar. Bu KAPALI
+	// başarısızlık bilinçli: alternatifi (harcanmış token'ı bir süre daha kabul eden tolerans
+	// penceresi) çalınmış token'ı yarışta önde olan saldırganın fark edilmeden kullanmasına
+	// izin verirdi. İstemci tarafındaki keepalive bu pencereyi daraltır (client.ts).
 	// RefreshExpiresAt = halefin GERÇEK (tavanlı) bitişi, "now+refreshTTL" değil.
-	return s.session(u, next, rot.ExpiresAt)
+	return s.session(rot.User, next, rot.ExpiresAt)
 }
 
 // Logout, refresh token'ın AİLESİNİ öldürür (yalnız sunulan token'ı değil: aynı girişin eski

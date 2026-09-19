@@ -1043,3 +1043,41 @@ func TestLoginRejectsPasswordChangedUnderneathRealDB(t *testing.T) {
 		t.Errorf("reddedilen giriş aile açmamalı, %d canlı aile var", n)
 	}
 }
+
+// TestRotateReadsUserInSameTxRealDB (inceleme bulgusu F02): rotasyon, halef token'ın sahibini
+// KENDİ transaction'ında okur ve döner — servis commit'ten sonra ikinci bir sorgu yapmaz.
+// Rol değişikliğini kullanarak okunan satırın TAZE olduğunu da sabitliyoruz (eski davranışın
+// asıl amacı buydu: admin'likten alınan biri yeni access token'da ADMIN kalmasın).
+func TestRotateReadsUserInSameTxRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	repo := NewRepository(pool)
+	ctx, cancel := context.WithTimeout(context.Background(), lockWait)
+	defer cancel()
+
+	userID := createUser(t, pool)
+	now := time.Now()
+	a, b := hashRefreshToken(testdb.Unique("fresh-a")), hashRefreshToken(testdb.Unique("fresh-b"))
+	if err := repo.StartRefreshFamily(ctx, userID, "hash", a, now.Add(time.Hour), now.Add(24*time.Hour)); err != nil {
+		t.Fatalf("StartRefreshFamily: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE users SET role = 'ADMIN' WHERE id = $1`, userID); err != nil {
+		t.Fatalf("rol güncellenemedi: %v", err)
+	}
+
+	rot, err := repo.RotateRefreshToken(ctx, a, b, now, now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("RotateRefreshToken: %v", err)
+	}
+	if rot.User.ID != userID || rot.User.Role != RoleAdmin {
+		t.Errorf("rotasyon TAZE kullanıcıyı dönmeli: id=%d rol=%q (istenen %d/ADMIN)", rot.User.ID, rot.User.Role, userID)
+	}
+
+	// Hesap silinmişse rotasyon da başarısız olmalı (eskiden bu kontrol servisteydi).
+	c := hashRefreshToken(testdb.Unique("fresh-c"))
+	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		t.Fatalf("kullanıcı silinemedi: %v", err)
+	}
+	if _, err := repo.RotateRefreshToken(ctx, b, c, now, now.Add(time.Hour)); !errors.Is(err, errRefreshNotFound) {
+		t.Errorf("silinmiş kullanıcı: istenen errRefreshNotFound, gelen %v", err)
+	}
+}
