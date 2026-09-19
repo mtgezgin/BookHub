@@ -68,6 +68,13 @@ func TestRepositoryErrorTranslation(t *testing.T) {
 		if err := r.RevokeRefreshFamily(ctx, []byte("h"), time.Now()); err != nil {
 			t.Errorf("RevokeRefreshFamily: bilinmeyen token nil dönmeli, gelen %v", err)
 		}
+		// Kilit altındaki users okuması satır bulamazsa (hesap bu arada silindi) "kullanıcı yok".
+		if err := r.StartRefreshFamily(ctx, 1, "hash", []byte("h"), time.Now(), time.Now()); !errors.Is(err, ErrUserNotFound) {
+			t.Errorf("StartRefreshFamily: ErrUserNotFound bekleniyordu, gelen %v", err)
+		}
+		if _, err := r.ChangePassword(ctx, PasswordChange{UserID: 1, VerifiedHash: "hash"}); !errors.Is(err, ErrUserNotFound) {
+			t.Errorf("ChangePassword: ErrUserNotFound bekleniyordu, gelen %v", err)
+		}
 	})
 
 	t.Run("başka sürücü hatası sarılır, 'yok' olmaz", func(t *testing.T) {
@@ -88,11 +95,16 @@ func TestRepositoryErrorTranslation(t *testing.T) {
 		if err := r.RevokeRefreshFamily(ctx, []byte("h"), time.Now()); !errors.Is(err, driverErr) {
 			t.Errorf("RevokeRefreshFamily: sarılı sürücü hatası bekleniyordu, gelen %v", err)
 		}
-		if err := r.StartRefreshFamily(ctx, 1, []byte("h"), time.Now(), time.Now()); !errors.Is(err, driverErr) {
+		if err := r.StartRefreshFamily(ctx, 1, "hash", []byte("h"), time.Now(), time.Now()); !errors.Is(err, driverErr) {
 			t.Errorf("StartRefreshFamily: sarılı sürücü hatası bekleniyordu, gelen %v", err)
 		}
 		if err := r.CleanupRefreshTokens(ctx, 1, time.Now()); !errors.Is(err, driverErr) {
 			t.Errorf("CleanupRefreshTokens: sarılı sürücü hatası bekleniyordu, gelen %v", err)
+		}
+		// Parola değişiminde DB kesintisi "mevcut parola hatalı"ya dönüşmemeli: kullanıcı
+		// parolasını doğru yazdığı hâlde 403 görürdü.
+		if _, err := r.ChangePassword(ctx, PasswordChange{UserID: 1, VerifiedHash: "hash"}); !errors.Is(err, driverErr) || errors.Is(err, ErrWrongPassword) {
+			t.Errorf("ChangePassword: sarılı sürücü hatası bekleniyordu, gelen %v", err)
 		}
 	})
 }

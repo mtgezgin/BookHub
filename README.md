@@ -44,7 +44,7 @@ cp .env.example .env            # dev değerleri; JWT_SECRET'ı prod'da mutlaka 
 make app-up                     # her şey konteynerde → http://localhost:3000
 make demo-seed                  # örnek katalog (klasikler, puanlar, yorumlar)
 make admin EMAIL=sen@ornek.com  # ilk admin (parola gizli sorulur)
-make smoke                      # MVP tanımını uçtan uca doğrula (21 kontrol)
+make smoke                      # MVP tanımını uçtan uca doğrula (25 kontrol)
 ```
 
 Geliştirme döngüsü (API host'ta, hızlı):

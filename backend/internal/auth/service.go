@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"strings"
 	"sync"
@@ -22,6 +23,13 @@ import (
 // aynı cevabı verir — aksi hâlde login formu, hangi e-postaların kayıtlı olduğunu
 // sorgulayan bedava bir API'ye dönüşür (user enumeration).
 var ErrInvalidCredentials = errors.New("e-posta veya parola hatalı")
+
+// ErrWrongPassword, parola değiştirirken sunulan MEVCUT parolanın tutmadığını söyler.
+// ErrInvalidCredentials'tan AYRI bir sentinel çünkü HTTP karşılığı farklı: login'de 401
+// doğal, burada ise 401 yanlış olurdu — istemci 401'i "access token bitti" sayıp yenilemeye
+// gider ve kullanıcı gerçek nedeni (parolayı yanlış yazdı) hiç görmezdi. Handler 403 verir.
+// Burada enumeration kaygısı yok: istek zaten kimliği doğrulanmış kullanıcının kendi hesabına.
+var ErrWrongPassword = errors.New("mevcut parola hatalı")
 
 // ValidationError, istemcinin düzeltebileceği girdi problemleri (hepsi birden).
 //
@@ -72,10 +80,32 @@ type store interface {
 	UserByEmail(ctx context.Context, email string) (db.User, error)
 	UserByID(ctx context.Context, id int64) (db.User, error)
 	EnsureAdmin(ctx context.Context, email, displayName, passwordHash string) (db.User, bool, error)
-	StartRefreshFamily(ctx context.Context, userID int64, tokenHash []byte, tokenExp, familyExp time.Time) error
+	// StartRefreshFamily'nin verifiedHash'i: servisin bcrypt ile DOĞRULADIĞI hash. Depo, aileyi
+	// açmadan önce kullanıcının hash'inin kilit altında hâlâ bu olduğunu denetler (bkz. Login).
+	StartRefreshFamily(ctx context.Context, userID int64, verifiedHash string, tokenHash []byte, tokenExp, familyExp time.Time) error
 	RotateRefreshToken(ctx context.Context, oldHash, newHash []byte, now, newExp time.Time) (Rotation, error)
 	RevokeRefreshFamily(ctx context.Context, tokenHash []byte, now time.Time) error
 	CleanupRefreshTokens(ctx context.Context, userID int64, now time.Time) error
+	// ChangePassword: yeni hash'i yazar, kullanıcının TÜM canlı ailelerini öldürür ve bu cihaz
+	// için yeni bir aile açar — hepsi TEK transaction'da. Dönüş: iptal edilen aile sayısı.
+	ChangePassword(ctx context.Context, c PasswordChange) (revokedFamilies int64, err error)
+}
+
+// PasswordChange, store.ChangePassword'ün girdisi: tek bir transaction'da yapılacak her şey.
+// Struct olması yalnız okunabilirlik için (yedi parametreli bir imza yerine adlı alanlar).
+type PasswordChange struct {
+	UserID int64
+	// VerifiedHash: servisin mevcut parolayı bcrypt ile doğruladığı hash. Depo, users satırını
+	// kilitledikten sonra hash'in hâlâ bu olduğunu denetler; değilse (eşzamanlı başka bir
+	// değişim araya girdi) ErrWrongPassword ile geri alır — doğrulanmamış bir parolayla
+	// hesabın parolası değiştirilemez.
+	VerifiedHash string
+	NewHash      string
+	// Bu cihazın yeni ailesi (parola değişen cihaz oturumdan düşmesin): StartRefreshFamily'yle
+	// aynı üçlü.
+	TokenHash           []byte
+	TokenExp, FamilyExp time.Time
+	Now                 time.Time
 }
 
 // Service, projenin İLK servis katmanı. Kitap/tür CRUD'unda handler → repository yeterliydi
@@ -148,16 +178,29 @@ func validateRegistration(email, displayName, password string) error {
 	case utf8.RuneCountInString(displayName) > maxDisplayNameLen:
 		problems = append(problems, fmt.Sprintf("display_name en fazla %d karakter olabilir", maxDisplayNameLen))
 	}
-	switch {
-	case utf8.RuneCountInString(password) < MinPasswordLen:
-		problems = append(problems, fmt.Sprintf("password en az %d karakter olmalı", MinPasswordLen))
-	case len(password) > MaxPasswordBytes:
-		problems = append(problems, fmt.Sprintf("password en fazla %d bayt olabilir", MaxPasswordBytes))
+	if p := passwordProblem(password); p != "" {
+		problems = append(problems, p)
 	}
 	if len(problems) > 0 {
 		return &ValidationError{Problems: problems}
 	}
 	return nil
+}
+
+// passwordProblem, parola POLİTİKASININ tek yeri: kayıt, admin oluşturma ve parola
+// değiştirme aynı kuralı buradan alır. Boş dönüş = parola kabul edilebilir.
+//
+// NEDEN AYRI: kural validateRegistration'ın içinde gömülü kalsaydı parola değiştirme onu
+// kopyalamak zorunda kalırdı; iki kopya, ilk değişiklikte sessizce ayrışır (ör. bir yerde 8,
+// diğerinde 10 karakter) ve "kayıtta reddedilen parola değiştirmede geçer" olurdu.
+func passwordProblem(password string) string {
+	switch {
+	case utf8.RuneCountInString(password) < MinPasswordLen:
+		return fmt.Sprintf("password en az %d karakter olmalı", MinPasswordLen)
+	case len(password) > MaxPasswordBytes:
+		return fmt.Sprintf("password en fazla %d bayt olabilir", MaxPasswordBytes)
+	}
+	return ""
 }
 
 // validEmail: ASCII, makul uzunlukta ve net/mail'in ayrıştırdığı adresin TAM kendisi
@@ -243,9 +286,86 @@ func (s *Service) Login(ctx context.Context, email, password string) (Session, e
 	refresh := rand.Text()
 	familyExp := now.Add(s.sessionMaxAge)
 	refreshExp := earliest(now.Add(s.refreshTTL), familyExp)
-	if err := s.store.StartRefreshFamily(ctx, u.ID, hashRefreshToken(refresh), refreshExp, familyExp); err != nil {
+	// GİRİŞ YARIŞI: bcrypt karşılaştırması yukarıda, transaction DIŞINDA ve u.PasswordHash ile
+	// yapıldı. O ~250 ms içinde kullanıcı (ya da hesabını ele geçiren biri, başka bir cihazda)
+	// parolayı DEĞİŞTİRMİŞ olabilir; değişim tüm aileleri öldürür ama bizim açacağımız aile
+	// iptalden SONRA doğar ve ESKİ parolayla yaşardı. Depo, aileyi açmadan önce hash'in kilit
+	// altında hâlâ u.PasswordHash olduğunu denetler; değilse ErrInvalidCredentials (rollback).
+	// Kullanıcı bu arada silindiyse de sonuç aynı: giriş yok.
+	err = s.store.StartRefreshFamily(ctx, u.ID, u.PasswordHash, hashRefreshToken(refresh), refreshExp, familyExp)
+	if errors.Is(err, ErrUserNotFound) {
+		return Session{}, ErrInvalidCredentials
+	}
+	if err != nil {
 		return Session{}, err
 	}
+	return s.session(u, refresh, refreshExp)
+}
+
+// ChangePassword, mevcut parolayı doğrular, yenisini yazar ve kullanıcının TÜM oturum
+// ailelerini (her cihaz) iptal eder; bu cihaz için yeni bir oturum açıp döner.
+//
+// NEDEN TÜM AİLELER: parola değiştirmenin en yaygın nedeni "hesabımı biri ele geçirmiş
+// olabilir". Yalnız bu cihazın ailesi yenilense, saldırganın başka bir cihazdaki oturumu
+// mutlak tavana (JWT_SESSION_MAX_AGE) kadar yaşamaya devam ederdi. Kullanıcı diğer
+// cihazlarında yeniden giriş yapar — bilinçli bedel.
+//
+// BİLİNEN SINIR: değişimden önce verilmiş ACCESS token'lar (JWT, durumsuz) süreleri dolana
+// kadar (≤ JWT_ACCESS_TTL, 15 dk) geçerli kalır. Kapatmak için token'a bir
+// "password_changed_at"/"token_version" iddiası koyup hassas uçlarda DB'ye bakmak gerekir —
+// bu fazın kapsamı dışında.
+func (s *Service) ChangePassword(ctx context.Context, userID int64, current, next string) (Session, error) {
+	// bcrypt.CompareHashAndPassword 72 bayttan sonrasını SESSİZCE kırpar (bkz. Login): 72
+	// baytlık gerçek parolanın sonuna her şey eklenebilirdi. Kayıt >72'yi reddettiği için
+	// böyle bir "mevcut parola" hiçbir hesabın parolası olamaz → doğrudan "hatalı".
+	if len(current) > MaxPasswordBytes {
+		return Session{}, ErrWrongPassword
+	}
+
+	u, err := s.store.UserByID(ctx, userID)
+	if err != nil {
+		return Session{}, err // ErrUserNotFound olduğu gibi: token geçerli ama hesap silinmiş
+	}
+	switch err := s.compare([]byte(u.PasswordHash), []byte(current)); {
+	case errors.Is(err, bcrypt.ErrMismatchedHashAndPassword):
+		return Session{}, ErrWrongPassword
+	case err != nil:
+		return Session{}, fmt.Errorf("parola karşılaştırılamadı (user %d): %w", u.ID, err)
+	}
+
+	// Yeni parola için kayıtla AYNI politika. Mevcut parola doğrulandıktan SONRA: yanlış
+	// mevcut parola her zaman "mevcut parola hatalı"dır, yeni parolanın kusuru onu gölgelemez.
+	if p := passwordProblem(next); p != "" {
+		return Session{}, &ValidationError{Problems: []string{p}}
+	}
+	if next == current {
+		return Session{}, &ValidationError{Problems: []string{"yeni parola mevcut paroladan farklı olmalı"}}
+	}
+	newHash, err := hashPassword(next, s.hashCost)
+	if err != nil {
+		return Session{}, err
+	}
+
+	// Bu cihazın yeni ailesi, iptalle AYNI transaction'da açılır (Login ile aynı hesap).
+	now := s.now()
+	refresh := rand.Text()
+	familyExp := now.Add(s.sessionMaxAge)
+	refreshExp := earliest(now.Add(s.refreshTTL), familyExp)
+	revoked, err := s.store.ChangePassword(ctx, PasswordChange{
+		UserID:       u.ID,
+		VerifiedHash: u.PasswordHash,
+		NewHash:      newHash,
+		TokenHash:    hashRefreshToken(refresh),
+		TokenExp:     refreshExp,
+		FamilyExp:    familyExp,
+		Now:          now,
+	})
+	if err != nil {
+		return Session{}, err // ErrWrongPassword dahil (eşzamanlı başka bir değişim araya girdi)
+	}
+	// Operatör izi: KİM ve KAÇ oturum. Parola, hash ya da token ASLA loglanmaz.
+	slog.Info("parola değiştirildi, kullanıcının tüm oturum aileleri iptal edildi",
+		"user_id", u.ID, "revoked_families", revoked)
 	return s.session(u, refresh, refreshExp)
 }
 

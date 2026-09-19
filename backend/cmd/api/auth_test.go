@@ -16,6 +16,7 @@ import (
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
 	"github.com/mtgezgin/bookhub/backend/internal/config"
+	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
 )
 
 // fakeAuth, authService'in sahtesi: dönecek değerler + son çağrının argümanları.
@@ -30,6 +31,7 @@ type fakeAuth struct {
 	logoutErrs []error
 
 	gotEmail, gotPassword, gotToken string
+	gotNewPassword                  string
 	gotUserID                       int64
 	logoutCalls                     int
 
@@ -68,6 +70,11 @@ func (f *fakeAuth) Logout(ctx context.Context, token string) error {
 func (f *fakeAuth) Me(_ context.Context, id int64) (auth.User, error) {
 	f.gotUserID = id
 	return f.user, f.err
+}
+func (f *fakeAuth) ChangePassword(_ context.Context, id int64, current, next string) (auth.Session, error) {
+	f.gotUserID = id
+	f.gotPassword, f.gotNewPassword = current, next
+	return f.session, f.err
 }
 
 // fakeVerifier, yalnızca "good-<rol>" token'larını kabul eder.
@@ -801,5 +808,146 @@ func TestHandleMeWithoutPrincipal(t *testing.T) {
 	}
 	if svc.gotUserID != 0 {
 		t.Errorf("servis çağrılmamalıydı, gelen userID %d", svc.gotUserID)
+	}
+}
+
+// TestHandleChangePassword: uç, servisin her hata türünü DOĞRU HTTP koduna çevirmeli.
+// En kritik satır "yanlış mevcut parola → 403": 401 verilseydi istemci (client.ts) onu
+// "access token bitti" sayıp /refresh'e gider, isteği tekrarlar ve kullanıcı gerçek nedeni
+// (parolayı yanlış yazdı) hiç görmezdi.
+func TestHandleChangePassword(t *testing.T) {
+	const valid = `{"current_password":"eski-parola","new_password":"yeni-parola"}`
+	tests := []struct {
+		name       string
+		header     string
+		body       string
+		svcErr     error
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "kimliksiz → 401 (servise hiç gitmez)", body: valid,
+			wantStatus: http.StatusUnauthorized, wantCode: "missing_token"},
+		{name: "yanlış mevcut parola → 403", header: "Bearer good-user", body: valid, svcErr: auth.ErrWrongPassword,
+			wantStatus: http.StatusForbidden, wantCode: "invalid_current_password"},
+		{name: "yeni parola politikaya uymuyor → 400", header: "Bearer good-user", body: valid,
+			svcErr:     &auth.ValidationError{Problems: []string{"password en az 8 karakter olmalı"}},
+			wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		{name: "hesap silinmiş → 401", header: "Bearer good-user", body: valid, svcErr: auth.ErrUserNotFound,
+			wantStatus: http.StatusUnauthorized, wantCode: "invalid_token"},
+		{name: "beklenmeyen hata → 500", header: "Bearer good-user", body: valid, svcErr: errors.New("db çöktü"),
+			wantStatus: http.StatusInternalServerError, wantCode: "internal"},
+		{name: "mevcut parola boş → 400", header: "Bearer good-user", body: `{"current_password":"","new_password":"yeni-parola"}`,
+			wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		{name: "yeni parola boş → 400", header: "Bearer good-user", body: `{"current_password":"eski-parola","new_password":""}`,
+			wantStatus: http.StatusBadRequest, wantCode: "validation_error"},
+		// Bilinmeyen alan: readJSON'ın DisallowUnknownFields'i. "user_id" gibi bir alanla
+		// başkasının parolasını değiştirmeye çalışan istek daha gövdede ölür (mass-assignment).
+		{name: "bilinmeyen alan → 400", header: "Bearer good-user",
+			body:       `{"current_password":"eski-parola","new_password":"yeni-parola","user_id":1}`,
+			wantStatus: http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeAuth{user: sampleUser, err: tt.svcErr}
+			h := newRouter(deps{auth: svc, tokens: fakeVerifier{}, cookies: testCookies})
+			req := httptest.NewRequest(http.MethodPost, "/api/auth/password", strings.NewReader(tt.body))
+			if tt.header != "" {
+				req.Header.Set("Authorization", tt.header)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status: istenen %d, gelen %d (%s)", tt.wantStatus, rec.Code, rec.Body)
+			}
+			if tt.wantCode != "" {
+				if got := errorCode(t, rec); got != tt.wantCode {
+					t.Errorf("code: istenen %q, gelen %q", tt.wantCode, got)
+				}
+			}
+			// Başarısız hiçbir yol çerez YAZMAMALI: yazsaydı, parolası değişmemiş bir
+			// kullanıcının tarayıcısına sahte bir oturum çerezi konurdu.
+			if ck := responseCookie(rec, testCookies.name); ck != nil {
+				t.Errorf("hata yolunda Set-Cookie olmamalı: %q", ck)
+			}
+			if tt.header == "" && svc.gotNewPassword != "" {
+				t.Error("kimliksiz istek servise ulaşmamalı")
+			}
+		})
+	}
+}
+
+// TestHandleChangePasswordSuccess: başarıda 200 + YENİ refresh çerezi + gövdede sır YOK,
+// ve servis token'daki kullanıcıyla (gövdeden gelen bir id'yle DEĞİL) çağrılır.
+func TestHandleChangePasswordSuccess(t *testing.T) {
+	svc := &fakeAuth{
+		user: sampleUser,
+		session: auth.Session{
+			AccessToken: "acc", RefreshToken: "yeni-refresh", User: sampleUser,
+			RefreshExpiresAt: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC),
+		},
+	}
+	h := newRouter(deps{auth: svc, tokens: fakeVerifier{}, cookies: testCookies})
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/password",
+		strings.NewReader(`{"current_password":"eski-parola","new_password":"yeni-parola"}`))
+	req.Header.Set("Authorization", "Bearer good-user")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: istenen 200, gelen %d (%s)", rec.Code, rec.Body)
+	}
+	if svc.gotUserID != 7 || svc.gotPassword != "eski-parola" || svc.gotNewPassword != "yeni-parola" {
+		t.Errorf("servis çağrısı: gelen (id=%d, current=%q, next=%q)", svc.gotUserID, svc.gotPassword, svc.gotNewPassword)
+	}
+	// Parola değişimi kullanıcının TÜM ailelerini öldürüyor — bu cihazınki dahil. Yeni çerez
+	// yazılmazsa tarayıcıda ölü bir çerez kalır ve ilk yenilemede oturum düşerdi.
+	ck := responseCookie(rec, testCookies.name)
+	if ck == nil || ck.Value != "yeni-refresh" {
+		t.Fatalf("yeni refresh çerezi bekleniyordu, gelen %v (Set-Cookie: %v)", ck, rec.Header().Values("Set-Cookie"))
+	}
+	// Öznitelikler login'dekiyle aynı olmalı (değerler sabitlerle değil elle yazılır: totoloji olmasın).
+	if ck.Path != "/api/auth" || !ck.HttpOnly || ck.SameSite != http.SameSiteStrictMode || !ck.Secure {
+		t.Errorf("çerez öznitelikleri login'deki ile aynı olmalı: %q", ck)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("cevap JSON değil: %v", err)
+	}
+	if _, ok := body["refresh_token"]; ok {
+		t.Errorf("refresh_token cevap gövdesinde OLMAMALI: %s", rec.Body)
+	}
+	if body["access_token"] != "acc" {
+		t.Errorf("access_token cevapta olmalı: %s", rec.Body)
+	}
+}
+
+// TestChangePasswordRateLimitIsSeparate: parola değiştirme kotası login/register'dan AYRI.
+// NEDEN: çalınmış bir access token'la mevcut parolayı kaba kuvvetle deneyen biri, kurbanın
+// GİRİŞ kotasını da tüketip onu kendi hesabından dışarıda bırakabilirdi (ve tersi).
+func TestChangePasswordRateLimitIsSeparate(t *testing.T) {
+	svc := &fakeAuth{user: sampleUser, err: auth.ErrWrongPassword}
+	h := newRouter(deps{auth: svc, tokens: fakeVerifier{}, cookies: testCookies, limiter: ratelimit.NewMemory(1, time.Minute)})
+	post := func(path, body, header string) int {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.RemoteAddr = "10.0.0.9:51234"
+		if header != "" {
+			req.Header.Set("Authorization", header)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	const pwBody = `{"current_password":"eski-parola","new_password":"yeni-parola"}`
+
+	if got := post("/api/auth/password", pwBody, "Bearer good-user"); got != http.StatusForbidden {
+		t.Fatalf("ilk parola denemesi sınır içinde (403 beklenir): %d", got)
+	}
+	if got := post("/api/auth/password", pwBody, "Bearer good-user"); got != http.StatusTooManyRequests {
+		t.Fatalf("ikinci parola denemesi 429 olmalı: %d", got)
+	}
+	// Parola kovası dolu ama LOGIN kovası dokunulmamış olmalı.
+	if got := post("/api/auth/login", `{"email":"a@b.co","password":"x"}`, ""); got == http.StatusTooManyRequests {
+		t.Error("login kotası parola denemelerinden etkilenmemeli")
 	}
 }

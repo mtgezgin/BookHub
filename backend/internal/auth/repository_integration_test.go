@@ -128,7 +128,7 @@ func newLiveFamily(t *testing.T, pool *pgxpool.Pool) liveFamily {
 	repo := NewRepository(pool)
 	f := liveFamily{userID: createUser(t, pool), rawA: testdb.Unique("tok-a"), rawB: testdb.Unique("tok-b")}
 	now := time.Now()
-	if err := repo.StartRefreshFamily(ctx, f.userID, hashRefreshToken(f.rawA), now.Add(time.Hour), now.Add(24*time.Hour)); err != nil {
+	if err := repo.StartRefreshFamily(ctx, f.userID, "hash", hashRefreshToken(f.rawA), now.Add(time.Hour), now.Add(24*time.Hour)); err != nil {
 		t.Fatalf("StartRefreshFamily: %v", err)
 	}
 	rot, err := repo.RotateRefreshToken(ctx, hashRefreshToken(f.rawA), hashRefreshToken(f.rawB), now, now.Add(time.Hour))
@@ -325,7 +325,7 @@ func TestRotateRefreshTokenReuseRevokesFamilyRealDB(t *testing.T) {
 	userID := createUser(t, pool)
 	x, x2 := hashRefreshToken(testdb.Unique("x")), hashRefreshToken(testdb.Unique("x2"))
 	now := time.Now()
-	if err := repo.StartRefreshFamily(ctx, userID, x, now.Add(time.Hour), now.Add(24*time.Hour)); err != nil {
+	if err := repo.StartRefreshFamily(ctx, userID, "hash", x, now.Add(time.Hour), now.Add(24*time.Hour)); err != nil {
 		t.Fatalf("StartRefreshFamily: %v", err)
 	}
 	rot, err := repo.RotateRefreshToken(ctx, x, x2, now, now.Add(time.Hour))
@@ -573,7 +573,7 @@ func TestRotateRefreshTokenCapAndExpiryRealDB(t *testing.T) {
 		userID := createUser(t, pool)
 		capAt := t0.Add(10 * time.Hour)
 		h1, h2, h3 := hashRefreshToken(testdb.Unique("c1")), hashRefreshToken(testdb.Unique("c2")), hashRefreshToken(testdb.Unique("c3"))
-		if err := repo.StartRefreshFamily(ctx, userID, h1, t0.Add(4*time.Hour), capAt); err != nil {
+		if err := repo.StartRefreshFamily(ctx, userID, "hash", h1, t0.Add(4*time.Hour), capAt); err != nil {
 			t.Fatalf("StartRefreshFamily: %v", err)
 		}
 
@@ -616,7 +616,7 @@ func TestRotateRefreshTokenCapAndExpiryRealDB(t *testing.T) {
 	t.Run("süresi dolmuş token reddedilir, harcanmış işareti geri alınır", func(t *testing.T) {
 		userID := createUser(t, pool)
 		h := hashRefreshToken(testdb.Unique("expired"))
-		if err := repo.StartRefreshFamily(ctx, userID, h, t0.Add(time.Hour), t0.Add(24*time.Hour)); err != nil {
+		if err := repo.StartRefreshFamily(ctx, userID, "hash", h, t0.Add(time.Hour), t0.Add(24*time.Hour)); err != nil {
 			t.Fatalf("StartRefreshFamily: %v", err)
 		}
 		_, err := repo.RotateRefreshToken(ctx, h, hashRefreshToken(testdb.Unique("n")), t0.Add(time.Hour), t0.Add(2*time.Hour))
@@ -847,5 +847,199 @@ func TestCleanupSkipsTokensOfLockedFamilyRealDB(t *testing.T) {
 	}
 	if !tokenExists(t, pool, spent) {
 		t.Error("kilitli ailenin süresi dolmuş token'ı bu turda ATLANMALIYDI (bir sonraki girişte gider)")
+	}
+}
+
+// ---------------------------------------------------------------------------------------------
+// Parola değiştirme (Faz 13 F) — tek tx, kilit sırası users → families → tokens.
+// ---------------------------------------------------------------------------------------------
+
+// passwordChange, ChangePassword'ün test girdisi: "hash" createUser'ın verdiği hash.
+func passwordChange(userID int64, newToken []byte, now time.Time) PasswordChange {
+	return PasswordChange{
+		UserID:       userID,
+		VerifiedHash: "hash",
+		NewHash:      "yeni-hash",
+		TokenHash:    newToken,
+		TokenExp:     now.Add(time.Hour),
+		FamilyExp:    now.Add(24 * time.Hour),
+		Now:          now,
+	}
+}
+
+// liveFamilyCount, kullanıcının iptal edilmemiş aile sayısı (havuzdan taze).
+func liveFamilyCount(t *testing.T, pool *pgxpool.Pool, userID int64) int {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), lockWait)
+	defer cancel()
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM refresh_token_families WHERE user_id = $1 AND revoked_at IS NULL`, userID).Scan(&n); err != nil {
+		t.Fatalf("aile sayımı: %v", err)
+	}
+	return n
+}
+
+// TestChangePasswordRevokesAllFamiliesRealDB (P1): iki ailesi olan kullanıcı parolasını
+// değiştirir → ikisi de iptal + 0 token, yeni hash yazılı, bu cihazın yeni ailesi canlı.
+// Bayat doğrulanmış hash (eşzamanlı ikinci değişim) → ErrWrongPassword ve hiçbir şey değişmez.
+func TestChangePasswordRevokesAllFamiliesRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	repo := NewRepository(pool)
+	ctx, cancel := context.WithTimeout(context.Background(), lockWait)
+	defer cancel()
+	f := newLiveFamily(t, pool) // aile 1: A harcanmış + B canlı
+	now := time.Now()
+	otherDevice := hashRefreshToken(testdb.Unique("tok-c")) // aile 2: başka cihaz
+	if err := repo.StartRefreshFamily(ctx, f.userID, "hash", otherDevice, now.Add(time.Hour), now.Add(24*time.Hour)); err != nil {
+		t.Fatalf("ikinci aile: %v", err)
+	}
+	var otherFamily int64
+	if err := pool.QueryRow(ctx, `SELECT family_id FROM refresh_tokens WHERE token_hash = $1`, otherDevice).Scan(&otherFamily); err != nil {
+		t.Fatalf("ikinci aile okunamadı: %v", err)
+	}
+
+	thisDevice := hashRefreshToken(testdb.Unique("tok-yeni"))
+	revoked, err := repo.ChangePassword(ctx, passwordChange(f.userID, thisDevice, now))
+	if err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+	if revoked != 2 {
+		t.Errorf("iptal edilen aile sayısı: istenen 2, gelen %d", revoked)
+	}
+	assertFamilyDead(t, pool, f.familyID)
+	assertFamilyDead(t, pool, otherFamily)
+	if _, err := repo.RotateRefreshToken(ctx, hashRefreshToken(f.rawB), hashRefreshToken(testdb.Unique("z")), now, now.Add(time.Hour)); !errors.Is(err, errRefreshNotFound) {
+		t.Errorf("eski cihazın token'ı artık geçersiz olmalı, gelen %v", err)
+	}
+	u, err := repo.UserByID(ctx, f.userID)
+	if err != nil || u.PasswordHash != "yeni-hash" {
+		t.Errorf("yeni hash yazılmalı: %q, %v", u.PasswordHash, err)
+	}
+	// Bu cihaz: yeni aile CANLI (rotasyon çalışır).
+	if _, err := repo.RotateRefreshToken(ctx, thisDevice, hashRefreshToken(testdb.Unique("tok-yeni-2")), now, now.Add(time.Hour)); err != nil {
+		t.Errorf("değişimin açtığı aile canlı olmalı: %v", err)
+	}
+	if n := liveFamilyCount(t, pool, f.userID); n != 1 {
+		t.Errorf("değişimden sonra tam 1 canlı aile olmalı, gelen %d", n)
+	}
+
+	// Bayat doğrulama: servis "hash"i doğruladı ama arada parola "yeni-hash" oldu → ret, rollback.
+	stale := hashRefreshToken(testdb.Unique("tok-bayat"))
+	if _, err := repo.ChangePassword(ctx, passwordChange(f.userID, stale, now)); !errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("bayat doğrulanmış hash ErrWrongPassword vermeli, gelen %v", err)
+	}
+	if u, _ := repo.UserByID(ctx, f.userID); u.PasswordHash != "yeni-hash" {
+		t.Errorf("reddedilen değişim hash'e dokunmamalı: %q", u.PasswordHash)
+	}
+	if tokenExists(t, pool, stale) || liveFamilyCount(t, pool, f.userID) != 1 {
+		t.Error("reddedilen değişim aile açmamalı, canlı aileyi öldürmemeli (rollback)")
+	}
+}
+
+// TestChangePasswordWaitsForInFlightRotationRealDB (P2): bir rotasyon F ailesinin kilidini
+// tutarken (T1'deki UNIQUE index hilesi) parola değişir. Değişim users satırını kilitler, sonra
+// F'de bekler; rotasyon halefi yazıp commit eder; değişim taze anlık görüntüyle devam eder →
+// F iptal, halef silinmiş. DEADLOCK YOK: users kilidi FOR NO KEY UPDATE olduğu için rotasyonun
+// halef INSERT'inin FK için aldığı FOR KEY SHARE onunla çakışmaz. Kilit FOR UPDATE yapılırsa
+// (mutation) rotasyon users'ı, değişim F'yi bekler → 40P01 ile deterministik kırılır.
+func TestChangePasswordWaitsForInFlightRotationRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	repo := NewRepository(pool)
+	f := newLiveFamily(t, pool)
+	successor := hashRefreshToken(testdb.Unique("halef"))
+	decoy := insertFamily(t, pool, f.userID, time.Now().Add(time.Hour), false)
+
+	tx, testPid := dedicatedTx(t)
+	ctx, cancel := context.WithTimeout(context.Background(), lockWait)
+	defer cancel()
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO refresh_tokens (user_id, family_id, token_hash, expires_at) VALUES ($1, $2, $3, now() + interval '1 hour')`,
+		f.userID, decoy, successor); err != nil {
+		t.Fatalf("engelleyici satır: %v", err)
+	}
+
+	rotation := goAsync(func(ctx context.Context) error {
+		now := time.Now()
+		_, err := repo.RotateRefreshToken(ctx, hashRefreshToken(f.rawB), successor, now, now.Add(time.Hour))
+		return err
+	})
+	rotPid := mustBlockedBy(t, pool, testPid, rotation, "rotasyon")
+
+	thisDevice := hashRefreshToken(testdb.Unique("tok-yeni"))
+	change := goAsync(func(ctx context.Context) error {
+		_, err := repo.ChangePassword(ctx, passwordChange(f.userID, thisDevice, time.Now()))
+		return err
+	})
+	// Değişim, rotasyonun tuttuğu F kilidinde beklemeli (users kilidini almış, ailelerde duruyor).
+	mustBlockedBy(t, pool, rotPid, change, "parola değişimi")
+
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	rotErr := rotation.wait(t, "rotasyon")
+	changeErr := change.wait(t, "parola değişimi")
+	if isDeadlock(rotErr) || isDeadlock(changeErr) {
+		t.Fatalf("deadlock (40P01): users kilidi rotasyonun FK kilidiyle çakışıyor: rotasyon=%v değişim=%v", rotErr, changeErr)
+	}
+	if rotErr != nil {
+		t.Errorf("rotasyon değişimden ÖNCE kilidi aldı, başarmalı: %v", rotErr)
+	}
+	if changeErr != nil {
+		t.Fatalf("ChangePassword: %v", changeErr)
+	}
+
+	assertFamilyDead(t, pool, f.familyID)
+	if tokenExists(t, pool, successor) {
+		t.Error("uçuştaki rotasyonun halefi parola değişiminden sağ çıktı (bayat anlık görüntü)")
+	}
+	if !tokenExists(t, pool, thisDevice) || liveFamilyCount(t, pool, f.userID) != 1 {
+		t.Error("bu cihazın yeni ailesi tek canlı aile olmalı")
+	}
+}
+
+// TestLoginRejectsPasswordChangedUnderneathRealDB (P3, GİRİŞ YARIŞI): giriş bcrypt'i tx dışında
+// eski (commit'li) hash'le doğruladı; o sırada test tx'i parola değişiminin ilk adımını tutuyor
+// (users FOR NO KEY UPDATE + yeni hash, commit'siz). StartRefreshFamily'nin FOR SHARE okuması
+// orada BEKLER; commit'ten sonra yeni hash'i görür → ErrInvalidCredentials, aile AÇILMAZ.
+// FOR SHARE kontrolü kaldırılırsa (mutation) giriş hiç beklemeden eski parolayla aile açar.
+func TestLoginRejectsPasswordChangedUnderneathRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	tokens, err := NewTokenManager(testSecret, 15*time.Minute)
+	if err != nil {
+		t.Fatalf("NewTokenManager: %v", err)
+	}
+	svc := NewService(NewRepository(pool), tokens, time.Hour, 24*time.Hour)
+	svc.hashCost = bcrypt.MinCost
+	ctx, cancel := context.WithTimeout(context.Background(), lockWait)
+	defer cancel()
+	email := uniqueEmail(t, pool)
+	u, err := svc.Register(ctx, email, "Ali", goodPassword)
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	tx, testPid := dedicatedTx(t)
+	// Parola değişiminin ilk iki adımı, üretimdeki kilitle (commit'siz).
+	if _, err := tx.Exec(ctx, `SELECT password_hash FROM users WHERE id = $1 FOR NO KEY UPDATE`, u.ID); err != nil {
+		t.Fatalf("users kilidi: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE users SET password_hash = 'degisti', updated_at = now() WHERE id = $1`, u.ID); err != nil {
+		t.Fatalf("users UPDATE: %v", err)
+	}
+
+	login := goAsync(func(ctx context.Context) error {
+		_, err := svc.Login(ctx, email, goodPassword) // eski hash'le doğrulanır (READ COMMITTED)
+		return err
+	})
+	mustBlockedBy(t, pool, testPid, login, "giriş")
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := login.wait(t, "giriş"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("parola altından değişen giriş ErrInvalidCredentials vermeli, gelen %v", err)
+	}
+	if n := liveFamilyCount(t, pool, u.ID); n != 0 {
+		t.Errorf("reddedilen giriş aile açmamalı, %d canlı aile var", n)
 	}
 }

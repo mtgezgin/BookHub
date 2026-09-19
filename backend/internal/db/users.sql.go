@@ -166,6 +166,17 @@ func (q *Queries) DeleteRefreshFamilyTokens(ctx context.Context, familyID int64)
 	return err
 }
 
+const deleteUserRefreshTokens = `-- name: DeleteUserRefreshTokens :exec
+DELETE FROM refresh_tokens WHERE user_id = $1
+`
+
+// Aileler kilitliyken (kilit sırası) kullanıcının tüm token'larını sil. Yukarıdaki kilit
+// beklemesi sayesinde anlık görüntü, o an commit etmiş bir rotasyonun halefini de görür.
+func (q *Queries) DeleteUserRefreshTokens(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteUserRefreshTokens, userID)
+	return err
+}
+
 const getRefreshTokenFamily = `-- name: GetRefreshTokenFamily :one
 SELECT family_id FROM refresh_tokens WHERE token_hash = $1
 `
@@ -251,6 +262,76 @@ func (q *Queries) LockRefreshFamily(ctx context.Context, id int64) (LockRefreshF
 	return i, err
 }
 
+const lockUserLiveRefreshFamilies = `-- name: LockUserLiveRefreshFamilies :many
+SELECT id FROM refresh_token_families
+WHERE user_id = $1 AND revoked_at IS NULL
+ORDER BY id
+FOR UPDATE
+`
+
+// Kullanıcının CANLI ailelerini DETERMİNİSTİK sırayla (id) kilitle. Aşağıdaki toplu UPDATE
+// satırları rastgele sırada kilitlerdi; iki işlem aynı kümeyi ters sırada kilitlerse deadlock.
+// Sonuç kümesi kullanılmaz; amaç yalnızca kilitlerin sırası.
+func (q *Queries) LockUserLiveRefreshFamilies(ctx context.Context, userID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, lockUserLiveRefreshFamilies, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockUserPasswordForChange = `-- name: LockUserPasswordForChange :one
+
+SELECT password_hash FROM users WHERE id = $1 FOR NO KEY UPDATE
+`
+
+// ---------------------------------------------------------------------------------------------
+// Parola değiştirme (Faz 13). Kilit sırası değişmezi burada bir kademe daha yukarıdan başlar:
+// users satırı → refresh_token_families → refresh_tokens. Aşağıdaki iki "kilitle ve oku"
+// sorgusu aynı satıra farklı GÜÇTE kilit alır; farkın nedeni her birinin üstünde.
+// ---------------------------------------------------------------------------------------------
+// Parola değişiminin ilk adımı: kullanıcının satırını kilitle ve hash'ini oku.
+// FOR NO KEY UPDATE, FOR UPDATE DEĞİL. NEDEN: uçuştaki bir rotasyon, ailesinin kilidini
+// tutarken halef token'ı INSERT eder; refresh_tokens.user_id'nin FK'si o an users satırında
+// FOR KEY SHARE alır. FOR UPDATE, KEY SHARE ile ÇAKIŞIR: biz users'ı tutup rotasyonun ailesini
+// beklerken rotasyon da bizim users kilidimizi beklerdi → deadlock (40P01). FOR NO KEY UPDATE
+// KEY SHARE ile çakışmaz (yalnız anahtar olmayan kolonları değiştireceğimizi söyler; password_hash
+// bir anahtar değil) ama FOR SHARE ile çakışır — girişin kontrolü (aşağıda) bizi bekler.
+func (q *Queries) LockUserPasswordForChange(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, lockUserPasswordForChange, id)
+	var password_hash string
+	err := row.Scan(&password_hash)
+	return password_hash, err
+}
+
+const lockUserPasswordForLogin = `-- name: LockUserPasswordForLogin :one
+SELECT password_hash FROM users WHERE id = $1 FOR SHARE
+`
+
+// Girişin (StartRefreshFamily) tx içindeki kontrolü: bcrypt karşılaştırması tx DIŞINDA eski
+// hash'le yapıldı; aile açılmadan önce hash'in HÂLÂ o olduğunu kilit altında doğruluyoruz.
+// FOR SHARE: yukarıdaki FOR NO KEY UPDATE ile çakışır (parola değişimi ile giriş SERİ olur —
+// değişim önce bittiyse burada yeni hash okunur ve giriş reddedilir), ama rotasyonların
+// FOR KEY SHARE'iyle çakışmaz (girişler rotasyonları bekletmez).
+func (q *Queries) LockUserPasswordForLogin(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, lockUserPasswordForLogin, id)
+	var password_hash string
+	err := row.Scan(&password_hash)
+	return password_hash, err
+}
+
 const markRefreshTokenUsed = `-- name: MarkRefreshTokenUsed :one
 UPDATE refresh_tokens
 SET used_at = $1::timestamptz
@@ -294,6 +375,27 @@ func (q *Queries) RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFami
 	return err
 }
 
+const revokeUserRefreshFamilies = `-- name: RevokeUserRefreshFamilies :execrows
+UPDATE refresh_token_families
+SET revoked_at = $1::timestamptz
+WHERE user_id = $2 AND revoked_at IS NULL
+`
+
+type RevokeUserRefreshFamiliesParams struct {
+	Now    time.Time `json:"now"`
+	UserID int64     `json:"user_id"`
+}
+
+// Kullanıcının TÜM canlı ailelerini öldür (parola değişti: her cihaz yeniden giriş yapar).
+// :execrows → iptal edilen aile sayısı (operatör log'u için).
+func (q *Queries) RevokeUserRefreshFamilies(ctx context.Context, arg RevokeUserRefreshFamiliesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeUserRefreshFamilies, arg.Now, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setUserRole = `-- name: SetUserRole :execrows
 UPDATE users SET role = $2, updated_at = now() WHERE id = $1
 `
@@ -310,4 +412,18 @@ func (q *Queries) SetUserRole(ctx context.Context, arg SetUserRoleParams) (int64
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1
+`
+
+type UpdateUserPasswordParams struct {
+	ID           int64  `json:"id"`
+	PasswordHash string `json:"password_hash"`
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	return err
 }

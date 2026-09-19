@@ -143,6 +143,17 @@ want=round((v/(v+m))*r+(m/(v+m))*c,4)
 print('ok' if abs(want-b['weighted_score'])<0.001 and b['weighted_score']!=r else f'{want}!={b[\"weighted_score\"]}')")"
 check "weighted_score = Bayes formülü (basit ortalama değil)" "$TOP" ok
 
+echo "Faz 13) Parola değiştirme: eski parola ölür, yenisi çalışır"
+NEW_USER_PW="$(openssl rand -base64 24)"
+req POST /api/auth/password "$USER_TOKEN" "{\"current_password\":\"yanlis-$TS\",\"new_password\":\"$NEW_USER_PW\"}"
+check "yanlış mevcut parola → 403" "$CODE" 403
+req POST /api/auth/password "$USER_TOKEN" "{\"current_password\":\"$USER_PW\",\"new_password\":\"$NEW_USER_PW\"}"
+check "parola değişimi → 200" "$CODE" 200
+req POST /api/auth/login "" "{\"email\":\"$USER_EMAIL\",\"password\":\"$USER_PW\"}"
+check "eski parolayla giriş → 401" "$CODE" 401
+req POST /api/auth/login "" "{\"email\":\"$USER_EMAIL\",\"password\":\"$NEW_USER_PW\"}"
+check "yeni parolayla giriş → 200" "$CODE" 200
+
 echo "13-15) PostgreSQL + Go + lokal"
 req GET /health
 H="$(field 'd["status"]')"

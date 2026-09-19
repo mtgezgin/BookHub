@@ -140,7 +140,7 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 
 ### `backend/scripts/`
 
-`mvp_smoke.sh` (MVP tanımı, 21 kontrol) · `demo_seed.sql` (örnek katalog) · `perf_seed.sql` (20k kitap / 209k oy, ayrı DB).
+`mvp_smoke.sh` (MVP tanımı, 25 kontrol) · `demo_seed.sql` (örnek katalog) · `perf_seed.sql` (20k kitap / 209k oy, ayrı DB).
 
 ### `frontend/`
 

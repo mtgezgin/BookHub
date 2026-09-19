@@ -19,6 +19,54 @@ SELECT * FROM users WHERE id = $1;
 UPDATE users SET role = $2, updated_at = now() WHERE id = $1;
 
 -- ---------------------------------------------------------------------------------------------
+-- Parola değiştirme (Faz 13). Kilit sırası değişmezi burada bir kademe daha yukarıdan başlar:
+-- users satırı → refresh_token_families → refresh_tokens. Aşağıdaki iki "kilitle ve oku"
+-- sorgusu aynı satıra farklı GÜÇTE kilit alır; farkın nedeni her birinin üstünde.
+-- ---------------------------------------------------------------------------------------------
+
+-- Parola değişiminin ilk adımı: kullanıcının satırını kilitle ve hash'ini oku.
+-- FOR NO KEY UPDATE, FOR UPDATE DEĞİL. NEDEN: uçuştaki bir rotasyon, ailesinin kilidini
+-- tutarken halef token'ı INSERT eder; refresh_tokens.user_id'nin FK'si o an users satırında
+-- FOR KEY SHARE alır. FOR UPDATE, KEY SHARE ile ÇAKIŞIR: biz users'ı tutup rotasyonun ailesini
+-- beklerken rotasyon da bizim users kilidimizi beklerdi → deadlock (40P01). FOR NO KEY UPDATE
+-- KEY SHARE ile çakışmaz (yalnız anahtar olmayan kolonları değiştireceğimizi söyler; password_hash
+-- bir anahtar değil) ama FOR SHARE ile çakışır — girişin kontrolü (aşağıda) bizi bekler.
+-- name: LockUserPasswordForChange :one
+SELECT password_hash FROM users WHERE id = $1 FOR NO KEY UPDATE;
+
+-- Girişin (StartRefreshFamily) tx içindeki kontrolü: bcrypt karşılaştırması tx DIŞINDA eski
+-- hash'le yapıldı; aile açılmadan önce hash'in HÂLÂ o olduğunu kilit altında doğruluyoruz.
+-- FOR SHARE: yukarıdaki FOR NO KEY UPDATE ile çakışır (parola değişimi ile giriş SERİ olur —
+-- değişim önce bittiyse burada yeni hash okunur ve giriş reddedilir), ama rotasyonların
+-- FOR KEY SHARE'iyle çakışmaz (girişler rotasyonları bekletmez).
+-- name: LockUserPasswordForLogin :one
+SELECT password_hash FROM users WHERE id = $1 FOR SHARE;
+
+-- name: UpdateUserPassword :exec
+UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1;
+
+-- Kullanıcının CANLI ailelerini DETERMİNİSTİK sırayla (id) kilitle. Aşağıdaki toplu UPDATE
+-- satırları rastgele sırada kilitlerdi; iki işlem aynı kümeyi ters sırada kilitlerse deadlock.
+-- Sonuç kümesi kullanılmaz; amaç yalnızca kilitlerin sırası.
+-- name: LockUserLiveRefreshFamilies :many
+SELECT id FROM refresh_token_families
+WHERE user_id = $1 AND revoked_at IS NULL
+ORDER BY id
+FOR UPDATE;
+
+-- Kullanıcının TÜM canlı ailelerini öldür (parola değişti: her cihaz yeniden giriş yapar).
+-- :execrows → iptal edilen aile sayısı (operatör log'u için).
+-- name: RevokeUserRefreshFamilies :execrows
+UPDATE refresh_token_families
+SET revoked_at = sqlc.arg('now')::timestamptz
+WHERE user_id = sqlc.arg('user_id') AND revoked_at IS NULL;
+
+-- Aileler kilitliyken (kilit sırası) kullanıcının tüm token'larını sil. Yukarıdaki kilit
+-- beklemesi sayesinde anlık görüntü, o an commit etmiş bir rotasyonun halefini de görür.
+-- name: DeleteUserRefreshTokens :exec
+DELETE FROM refresh_tokens WHERE user_id = $1;
+
+-- ---------------------------------------------------------------------------------------------
 -- Refresh token AİLELERİ (Faz 13, migration 0008). Bir giriş = bir aile; rotasyonda kullanılan
 -- token SİLİNMEZ, used_at ile işaretlenir ki ikinci kullanımı (reuse = çalınma belirtisi)
 -- tanınabilsin. Zaman ($now) hep Go'dan parametre olarak gelir, SQL'de now() YOK: süre kararı

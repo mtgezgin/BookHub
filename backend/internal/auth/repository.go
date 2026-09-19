@@ -131,24 +131,106 @@ type Rotation struct {
 // StartRefreshFamily, yeni bir giriş için aile açar ve ilk token'ını kaydeder (tek tx: token'sız
 // aile ya da ailesiz token kalmaz). familyExp ailenin MUTLAK tavanıdır; tokenExp'i servis
 // min(now+refreshTTL, familyExp) olarak hesaplar.
-func (r *Repository) StartRefreshFamily(ctx context.Context, userID int64, tokenHash []byte, tokenExp, familyExp time.Time) error {
+//
+// verifiedHash: servisin bcrypt ile doğruladığı hash. Aileyi açmadan ÖNCE users satırını FOR
+// SHARE ile kilitleyip hash'in hâlâ bu olduğunu denetliyoruz. NEDEN: doğrulama tx'in dışında
+// yapıldı; o arada bir parola değişimi (ChangePassword) tüm aileleri öldürüp commit etmiş
+// olabilir — bizim ailemiz iptalden SONRA doğar ve ESKİ parolayla yaşardı. FOR SHARE, parola
+// değişiminin FOR NO KEY UPDATE'iyle çakışır (ikisi sıraya girer: değişim önce bittiyse burada
+// YENİ hash'i okuruz ve girişi reddederiz), rotasyonların FK için aldığı FOR KEY SHARE ile
+// çakışmaz (girişler rotasyonları bekletmez).
+func (r *Repository) StartRefreshFamily(ctx context.Context, userID int64, verifiedHash string, tokenHash []byte, tokenExp, familyExp time.Time) error {
 	return database.WithTx(ctx, r.conn, func(tx pgx.Tx) error {
 		q := db.New(tx)
-		familyID, err := q.CreateRefreshFamily(ctx, db.CreateRefreshFamilyParams{UserID: userID, AbsoluteExpiresAt: familyExp})
-		if err != nil {
-			return fmt.Errorf("refresh token ailesi açılamadı: %w", err)
+		current, err := q.LockUserPasswordForLogin(ctx, userID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrUserNotFound // doğrulama ile aile arasında hesap silindi
 		}
-		err = q.CreateRefreshToken(ctx, db.CreateRefreshTokenParams{
-			UserID:    userID,
-			FamilyID:  familyID,
-			TokenHash: tokenHash,
-			ExpiresAt: tokenExp,
-		})
 		if err != nil {
-			return fmt.Errorf("refresh token kaydedilemedi: %w", err)
+			return fmt.Errorf("kullanıcı kilitlenemedi: %w", err)
 		}
-		return nil
+		if current != verifiedHash {
+			return ErrInvalidCredentials // parola bu arada değişti: doğrulanan parola artık geçersiz
+		}
+		return startFamily(ctx, q, userID, tokenHash, tokenExp, familyExp)
 	})
+}
+
+// startFamily, aile + ilk token INSERT'i (StartRefreshFamily ve ChangePassword'ün ortak parçası;
+// çağıran tx'i ve ön koşulları — kilitler, hash denetimi — kendi kurar).
+func startFamily(ctx context.Context, q *db.Queries, userID int64, tokenHash []byte, tokenExp, familyExp time.Time) error {
+	familyID, err := q.CreateRefreshFamily(ctx, db.CreateRefreshFamilyParams{UserID: userID, AbsoluteExpiresAt: familyExp})
+	if err != nil {
+		return fmt.Errorf("refresh token ailesi açılamadı: %w", err)
+	}
+	err = q.CreateRefreshToken(ctx, db.CreateRefreshTokenParams{
+		UserID:    userID,
+		FamilyID:  familyID,
+		TokenHash: tokenHash,
+		ExpiresAt: tokenExp,
+	})
+	if err != nil {
+		return fmt.Errorf("refresh token kaydedilemedi: %w", err)
+	}
+	return nil
+}
+
+// ChangePassword, parolayı değiştirir ve kullanıcının TÜM canlı ailelerini öldürür, sonra bu
+// cihaz için yeni bir aile açar — hepsi TEK transaction'da. Yarım kalmış hiçbir durum yok:
+// ya parola değişti + herkes düştü + bu cihaz içeride, ya da hiçbiri.
+//
+// KİLİT SIRASI (users.sql'deki değişmezin bir kademe yukarıdan başlayan hâli):
+//
+//	a. users satırı, FOR NO KEY UPDATE (FOR UPDATE DEĞİL — nedeni users.sql'de: rotasyonun
+//	   halef INSERT'i users'ta FOR KEY SHARE alır, FOR UPDATE onunla çakışıp deadlock üretirdi).
+//	   Hash, servisin doğruladığı hash'ten farklıysa → ErrWrongPassword, rollback: araya giren
+//	   eşzamanlı bir değişim varsa doğrulanmamış bir parolayla üzerine yazmayız.
+//	b. UPDATE users (anahtar olmayan kolonlar: elimizdeki kilit yeter).
+//	c. Canlı aileler id sırasıyla FOR UPDATE (uçuştaki rotasyon/iptal burada bekletir; onun
+//	   commit'inden sonra taze anlık görüntüyle devam ederiz) → toplu iptal → kullanıcının
+//	   tüm token'ları silinir (halefler dahil).
+//	d. Bu cihaz için yeni aile + token.
+func (r *Repository) ChangePassword(ctx context.Context, c PasswordChange) (int64, error) {
+	var revoked int64
+	err := database.WithTx(ctx, r.conn, func(tx pgx.Tx) error {
+		q := db.New(tx)
+
+		// (a)
+		current, err := q.LockUserPasswordForChange(ctx, c.UserID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrUserNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("kullanıcı kilitlenemedi: %w", err)
+		}
+		if current != c.VerifiedHash {
+			return ErrWrongPassword
+		}
+
+		// (b)
+		if err := q.UpdateUserPassword(ctx, db.UpdateUserPasswordParams{ID: c.UserID, PasswordHash: c.NewHash}); err != nil {
+			return fmt.Errorf("parola güncellenemedi: %w", err)
+		}
+
+		// (c) ÖNCE aileler (deterministik sırayla kilit), SONRA token'lar.
+		if _, err := q.LockUserLiveRefreshFamilies(ctx, c.UserID); err != nil {
+			return fmt.Errorf("refresh token aileleri kilitlenemedi: %w", err)
+		}
+		revoked, err = q.RevokeUserRefreshFamilies(ctx, db.RevokeUserRefreshFamiliesParams{Now: c.Now, UserID: c.UserID})
+		if err != nil {
+			return fmt.Errorf("refresh token aileleri iptal edilemedi: %w", err)
+		}
+		if err := q.DeleteUserRefreshTokens(ctx, c.UserID); err != nil {
+			return fmt.Errorf("kullanıcının refresh token'ları silinemedi: %w", err)
+		}
+
+		// (d)
+		return startFamily(ctx, q, c.UserID, c.TokenHash, c.TokenExp, c.FamilyExp)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return revoked, nil
 }
 
 // RotateRefreshToken, eski token'ı HARCAR (used_at) ve aynı ailede bir halef kaydeder — hepsi

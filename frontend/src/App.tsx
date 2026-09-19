@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
+import { Account } from "./pages/Account";
 import { Moderation } from "./pages/admin/Moderation";
 import { Login, Register } from "./pages/Auth";
 import { BookDetail } from "./pages/BookDetail";
@@ -31,6 +32,7 @@ export function App() {
         {user ? (
           <>
             <span className="muted small">{user.display_name}</span>
+            <Link to="/account">Hesabım</Link>
             <button className="link" onClick={logout}>Çıkış</button>
           </>
         ) : (
@@ -47,6 +49,7 @@ export function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/suggest" element={<RequireRole><Suggest /></RequireRole>} />
+          <Route path="/account" element={<RequireRole><Account /></RequireRole>} />
           <Route path="/admin" element={<RequireRole role="ADMIN"><Moderation /></RequireRole>} />
           <Route path="*" element={<p>Sayfa bulunamadı.</p>} />
         </Routes>

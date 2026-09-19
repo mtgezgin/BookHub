@@ -351,6 +351,76 @@ describe("api client — kilit (Web Locks) sıralaması", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/logout");
   });
 
+  it("parola değiştirme kilidin İÇİNDE koşar ve yeni oturumu yazar", async () => {
+    const lock = stubLocks();
+    localStorage.setItem(HINT, "1");
+    const seen: unknown[] = [];
+    subscribeSession((u) => seen.push(u));
+    let heldDuringFetch = false;
+    fetchMock.mockImplementationOnce(async () => {
+      heldDuringFetch = lock.held;
+      return json(200, session(2));
+    });
+
+    await api.changePassword("eski-parola", "yeni-parola");
+
+    // NEDEN kilit: cevap ÇEREZ YAZIYOR (sunucu tüm aileleri öldürüp bu cihaza yenisini açtı).
+    // Aynı anda koşan bir yenileme, ölmüş ailenin token'ını tarayıcıya geri yazabilirdi.
+    expect(heldDuringFetch).toBe(true);
+    expect(lock.names).toEqual(["bookhub-refresh"]);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/password");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string))
+      .toEqual({ current_password: "eski-parola", new_password: "yeni-parola" });
+    expect(localStorage.getItem(HINT)).toBe("1");
+    expect(seen).toEqual([session(2).user]); // yeni oturum arayüze bildirildi
+  });
+
+  // 401 = access token'ın süresi dolmuş (yanlış parola 403'tür, bu yola düşmez). Yenilemeyi
+  // kilidin DIŞINDA yapmak şart: Web Locks yeniden girilemez, kilidin içinden istemek
+  // kilitlenme olurdu (ve bu test onu yakalar — zincir asla ilerlemez).
+  it("401'de kilit DIŞINDA yenileyip bir kez daha dener", async () => {
+    stubLocks();
+    localStorage.setItem(HINT, "1");
+    fetchMock
+      .mockResolvedValueOnce(json(401, { error: { code: "invalid_token", message: "" } })) // /password
+      .mockResolvedValueOnce(json(200, session(3))) // /refresh
+      .mockResolvedValueOnce(json(200, session(4))); // /password (tekrar)
+
+    const user = await api.changePassword("eski-parola", "yeni-parola");
+
+    expect(fetchMock.mock.calls.map((c) => c[0]))
+      .toEqual(["/api/auth/password", "/api/auth/refresh", "/api/auth/password"]);
+    expect(user).toEqual(session(4).user);
+  });
+
+  it("401 + yenileme de başarısızsa asıl hata fırlatılır (üçüncü istek YOK)", async () => {
+    stubLocks();
+    localStorage.setItem(HINT, "1");
+    fetchMock
+      .mockResolvedValueOnce(json(401, { error: { code: "invalid_token", message: "oturum bitti" } }))
+      .mockResolvedValueOnce(json(401, { error: { code: "invalid_token", message: "" } })); // /refresh de 401
+
+    const err = await api.changePassword("eski-parola", "yeni-parola").catch((e) => e);
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 401, message: "oturum bitti" });
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["/api/auth/password", "/api/auth/refresh"]);
+  });
+
+  // 403 "mevcut parola hatalı": yenilenecek bir şey yok. Yeniden denemek kullanıcının parola
+  // kotasını (NGINX password kovası) boşuna tüketir ve hatayı gizlerdi.
+  it("403 yenilemeye kalkışmadan fırlatılır", async () => {
+    stubLocks();
+    localStorage.setItem(HINT, "1");
+    fetchMock.mockResolvedValueOnce(json(403, { error: { code: "invalid_current_password", message: "mevcut parola hatalı" } }));
+
+    const err = await api.changePassword("yanlis", "yeni-parola").catch((e) => e);
+
+    expect(err).toMatchObject({ status: 403, code: "invalid_current_password" });
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["/api/auth/password"]);
+    expect(localStorage.getItem(HINT)).toBe("1"); // oturum düşmedi
+  });
+
   // ASIL SENARYO: kilidi tutan çıkış HINT'i siler; sırada bekleyen yenileme, kilidi
   // aldığında bunu GÖRMELİ. HINT'e kilitten ÖNCE bakılsaydı, bu yenileme ölü çerezle
   // /refresh atar ve sunucuda sahte bir "reuse" alarmı üretirdi.
@@ -425,6 +495,25 @@ describe("api client — Web Locks YOKKEN sıralama", () => {
     await inFlight;
     await login;
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["/api/auth/refresh", "/api/auth/login"]);
+  });
+
+  it("parola değiştirme, uçuştaki yenileme bitmeden POST /password ATMAZ", async () => {
+    localStorage.setItem(HINT, "1");
+    let resolveRefresh!: (r: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((r) => (resolveRefresh = r)));
+    const inFlight = refreshSession();
+    await tick();
+
+    const change = api.changePassword("eski-parola", "yeni-parola");
+    await tick();
+    await tick();
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["/api/auth/refresh"]);
+
+    fetchMock.mockResolvedValueOnce(json(200, session(2)));
+    resolveRefresh(json(200, session(1)));
+    await inFlight;
+    await change;
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["/api/auth/refresh", "/api/auth/password"]);
   });
 
   it("çıkış, uçuştaki yenileme bitmeden POST /logout ATMAZ", async () => {

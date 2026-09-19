@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -105,13 +108,58 @@ func (m *memStore) setRole(id int64, role string) {
 	m.users[id] = u
 }
 
-func (m *memStore) StartRefreshFamily(_ context.Context, userID int64, h []byte, tokenExp, familyExp time.Time) error {
+func (m *memStore) StartRefreshFamily(_ context.Context, userID int64, verifiedHash string, h []byte, tokenExp, familyExp time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Repository ile aynı sözleşme: doğrulanan hash artık kullanıcının hash'i değilse (parola
+	// bu arada değişti) aile AÇILMAZ.
+	u, ok := m.users[userID]
+	if !ok {
+		return ErrUserNotFound
+	}
+	if u.PasswordHash != verifiedHash {
+		return ErrInvalidCredentials
+	}
+	m.startFamilyLocked(userID, h, tokenExp, familyExp)
+	return nil
+}
+
+// startFamilyLocked: yeni aile + ilk token (m.mu tutuluyorken çağrılır).
+func (m *memStore) startFamilyLocked(userID int64, h []byte, tokenExp, familyExp time.Time) {
 	m.nextFam++
 	m.families[m.nextFam] = &memFamily{userID: userID, absoluteExp: familyExp}
 	m.tokens[string(h)] = memToken{userID: userID, familyID: m.nextFam, expiresAt: tokenExp}
-	return nil
+}
+
+// ChangePassword, Repository.ChangePassword'ün adımlarını taklit eder: hash denetimi → yeni
+// hash → kullanıcının TÜM canlı aileleri ölür (token'larıyla) → bu cihaz için yeni aile.
+// Hepsi tek mutex altında = DB'deki tek tx.
+func (m *memStore) ChangePassword(_ context.Context, c PasswordChange) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[c.UserID]
+	if !ok {
+		return 0, ErrUserNotFound
+	}
+	if u.PasswordHash != c.VerifiedHash {
+		return 0, ErrWrongPassword
+	}
+	u.PasswordHash = c.NewHash
+	m.users[c.UserID] = u
+	var revoked int64
+	for id, fam := range m.families {
+		if fam.userID == c.UserID && !fam.revoked {
+			m.revokeLocked(id)
+			revoked++
+		}
+	}
+	for k, tok := range m.tokens {
+		if tok.userID == c.UserID {
+			delete(m.tokens, k)
+		}
+	}
+	m.startFamilyLocked(c.UserID, c.TokenHash, c.TokenExp, c.FamilyExp)
+	return revoked, nil
 }
 
 // RotateRefreshToken, Repository.RotateRefreshToken'ın adımlarını AYNI sırayla taklit eder:
@@ -798,7 +846,7 @@ func TestMe(t *testing.T) {
 // aksi hâlde bir DB kesintisi kullanıcıya 401 olarak görünür ve oturumlar düşer.
 type errStore struct {
 	*memStore
-	byEmailErr, byIDErr, rotateErr, startErr, revokeErr error
+	byEmailErr, byIDErr, rotateErr, startErr, revokeErr, changeErr error
 }
 
 func (s *errStore) UserByEmail(ctx context.Context, email string) (db.User, error) {
@@ -822,11 +870,18 @@ func (s *errStore) RotateRefreshToken(ctx context.Context, oldHash, newHash []by
 	return s.memStore.RotateRefreshToken(ctx, oldHash, newHash, now, newExp)
 }
 
-func (s *errStore) StartRefreshFamily(ctx context.Context, userID int64, h []byte, tokenExp, familyExp time.Time) error {
+func (s *errStore) StartRefreshFamily(ctx context.Context, userID int64, verifiedHash string, h []byte, tokenExp, familyExp time.Time) error {
 	if s.startErr != nil {
 		return s.startErr
 	}
-	return s.memStore.StartRefreshFamily(ctx, userID, h, tokenExp, familyExp)
+	return s.memStore.StartRefreshFamily(ctx, userID, verifiedHash, h, tokenExp, familyExp)
+}
+
+func (s *errStore) ChangePassword(ctx context.Context, c PasswordChange) (int64, error) {
+	if s.changeErr != nil {
+		return 0, s.changeErr
+	}
+	return s.memStore.ChangePassword(ctx, c)
 }
 
 func (s *errStore) RevokeRefreshFamily(ctx context.Context, h []byte, now time.Time) error {
@@ -905,4 +960,234 @@ func TestInfraErrorsAreNotAuthErrors(t *testing.T) {
 			t.Errorf("iptal kesintisi yutulmamalı, gelen %v", err)
 		}
 	})
+	// DB kesintisi "mevcut parola hatalı"ya dönüşmemeli: kullanıcı doğru parolayla 403 görürdü.
+	t.Run("ChangePassword: kesinti olduğu gibi döner, ErrWrongPassword değil", func(t *testing.T) {
+		s, es, _ := setup(t)
+		es.changeErr = dbDown
+		sess, err := s.ChangePassword(ctx, 1, goodPassword, "yepyeni-bir-parola")
+		assertInfra(t, sess, err, ErrWrongPassword)
+	})
+}
+
+// captureLogs, testin süresince varsayılan slog'u JSON olarak bir tampona yönlendirir
+// ("parola/token loga düşmedi" iddiaları için).
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// TestChangePassword (Faz 13): parola değişiminin servis kuralları.
+func TestChangePassword(t *testing.T) {
+	ctx := context.Background()
+	const newPassword = "yepyeni-bir-parola"
+	setup := func(t *testing.T) (*Service, *memStore, User) {
+		t.Helper()
+		s, st, _ := newTestService(t)
+		u, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword)
+		if err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		return s, st, u
+	}
+	// assertUnchanged: eski parola hâlâ geçer, yenisi geçmez (değişim OLMADI).
+	assertUnchanged := func(t *testing.T, s *Service) {
+		t.Helper()
+		if _, err := s.Login(ctx, "ali@example.com", goodPassword); err != nil {
+			t.Errorf("başarısız değişimden sonra eski parola çalışmalı: %v", err)
+		}
+		if _, err := s.Login(ctx, "ali@example.com", newPassword); !errors.Is(err, ErrInvalidCredentials) {
+			t.Errorf("başarısız değişimden sonra yeni parola GEÇMEMELİ, gelen %v", err)
+		}
+	}
+
+	t.Run("yanlış mevcut parola → ErrWrongPassword, hiçbir şey değişmez", func(t *testing.T) {
+		s, st, u := setup(t)
+		if _, err := s.Login(ctx, "ali@example.com", goodPassword); err != nil {
+			t.Fatalf("Login: %v", err)
+		}
+		sess, err := s.ChangePassword(ctx, u.ID, "yanlis-parola", newPassword)
+		if !errors.Is(err, ErrWrongPassword) {
+			t.Fatalf("ErrWrongPassword bekleniyordu, gelen %v", err)
+		}
+		if sess.AccessToken != "" || sess.RefreshToken != "" {
+			t.Errorf("hata durumunda oturum dönmemeli: %+v", sess)
+		}
+		// Yanlış parola, var olan oturumları da ÖLDÜRMEMELİ (aksi hâlde çalınmış bir access
+		// token'la yanlış parola yollayan biri kurbanı her cihazdan düşürebilirdi).
+		for id, fam := range st.families {
+			if fam.revoked {
+				t.Errorf("aile %d yanlış parolayla iptal edilmemeliydi", id)
+			}
+		}
+		assertUnchanged(t, s)
+	})
+
+	// bcrypt karşılaştırması 72 baytta KIRPAR: "72 baytlık gerçek parola + sonek" doğru sayılırdı.
+	// Kayıt >72'yi reddettiği için böyle bir mevcut parola hiçbir hesabın olamaz → hatalı.
+	t.Run("72 bayttan uzun mevcut parola → ErrWrongPassword (kırpma tuzağı)", func(t *testing.T) {
+		s, _, _ := newTestService(t)
+		pw := strings.Repeat("p", MaxPasswordBytes)
+		u, err := s.Register(ctx, "ali@example.com", "Ali", pw)
+		if err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+		if _, err := s.ChangePassword(ctx, u.ID, pw+"SONEK", newPassword); !errors.Is(err, ErrWrongPassword) {
+			t.Fatalf("72 bayt + sonek reddedilmeli, gelen %v", err)
+		}
+		if _, err := s.Login(ctx, "ali@example.com", newPassword); !errors.Is(err, ErrInvalidCredentials) {
+			t.Errorf("parola DEĞİŞMEMİŞ olmalı, gelen %v", err)
+		}
+		// Tam 72 bayt hâlâ meşru bir mevcut parola.
+		if _, err := s.ChangePassword(ctx, u.ID, pw, newPassword); err != nil {
+			t.Errorf("tam 72 baytlık mevcut parola çalışmalı: %v", err)
+		}
+	})
+
+	t.Run("yeni parola kayıtla AYNI politikaya tabi", func(t *testing.T) {
+		tests := []struct{ name, next, wantProblem string }{
+			{"kısa", "1234567", "password en az"},
+			{"72 bayttan uzun", strings.Repeat("ş", 37), "password en fazla 72 bayt"},
+			{"mevcutla aynı", goodPassword, "farklı olmalı"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				s, _, u := setup(t)
+				_, err := s.ChangePassword(ctx, u.ID, goodPassword, tt.next)
+				var ve *ValidationError
+				if !errors.As(err, &ve) {
+					t.Fatalf("ValidationError bekleniyordu, gelen %v", err)
+				}
+				if !strings.Contains(ve.Error(), tt.wantProblem) {
+					t.Errorf("mesaj %q içermeli, gelen %q", tt.wantProblem, ve.Error())
+				}
+				if _, err := s.Login(ctx, "ali@example.com", goodPassword); err != nil {
+					t.Errorf("reddedilen değişim parolayı değiştirmemeli: %v", err)
+				}
+			})
+		}
+	})
+
+	// Yanlış mevcut parola + kusurlu yeni parola: cevap "mevcut parola hatalı" — yeni parolanın
+	// kusuru, kimlik kanıtı verilmeden kullanıcıya politikayı "deneme" fırsatı sunmaz.
+	t.Run("yanlış mevcut + kısa yeni → ErrWrongPassword önce gelir", func(t *testing.T) {
+		s, _, u := setup(t)
+		if _, err := s.ChangePassword(ctx, u.ID, "yanlis-parola", "kisa"); !errors.Is(err, ErrWrongPassword) {
+			t.Errorf("ErrWrongPassword bekleniyordu, gelen %v", err)
+		}
+	})
+
+	t.Run("başarı: tüm eski aileler ölür, bu cihaz yeni aileyle devam eder, eski parola geçmez", func(t *testing.T) {
+		s, st, u := setup(t)
+		deviceA, err := s.Login(ctx, "ali@example.com", goodPassword)
+		if err != nil {
+			t.Fatalf("Login A: %v", err)
+		}
+		deviceB, err := s.Login(ctx, "ali@example.com", goodPassword)
+		if err != nil {
+			t.Fatalf("Login B: %v", err)
+		}
+		famA, _ := st.familyOf(t, deviceA.RefreshToken)
+		famB, _ := st.familyOf(t, deviceB.RefreshToken)
+		logs := captureLogs(t)
+
+		sess, err := s.ChangePassword(ctx, u.ID, goodPassword, newPassword)
+		if err != nil {
+			t.Fatalf("ChangePassword: %v", err)
+		}
+		// Bu cihaz: yeni bir oturum (access token kullanıcıyı taşır, refresh token canlı).
+		if p, err := s.tokens.Verify(sess.AccessToken); err != nil || p.UserID != u.ID {
+			t.Errorf("yeni access token kullanıcıyı taşımalı: %+v, %v", p, err)
+		}
+		if sess.RefreshToken == "" || sess.RefreshToken == deviceA.RefreshToken || sess.RefreshToken == deviceB.RefreshToken {
+			t.Errorf("yeni bir refresh token bekleniyordu, gelen %q", sess.RefreshToken)
+		}
+		if _, err := s.Refresh(ctx, sess.RefreshToken); err != nil {
+			t.Errorf("değişimin verdiği oturum yenilenebilmeli: %v", err)
+		}
+		// Diğer cihazlar: aileleri ölü, token'ları silinmiş, yenileme reddedilir.
+		for name, fam := range map[string]int64{"A": famA, "B": famB} {
+			if !st.families[fam].revoked || st.familyTokens(fam) != 0 {
+				t.Errorf("cihaz %s'nin ailesi iptal edilmiş ve token'sız olmalı: revoked=%v token=%d", name, st.families[fam].revoked, st.familyTokens(fam))
+			}
+		}
+		if _, err := s.Refresh(ctx, deviceA.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+			t.Errorf("cihaz A'nın yenilemesi reddedilmeli, gelen %v", err)
+		}
+		if _, err := s.Refresh(ctx, deviceB.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+			t.Errorf("cihaz B'nin yenilemesi reddedilmeli, gelen %v", err)
+		}
+		// Parola: eskisi ölü, yenisi geçerli.
+		if _, err := s.Login(ctx, "ali@example.com", goodPassword); !errors.Is(err, ErrInvalidCredentials) {
+			t.Errorf("eski parola reddedilmeli, gelen %v", err)
+		}
+		if _, err := s.Login(ctx, "ali@example.com", newPassword); err != nil {
+			t.Errorf("yeni parola çalışmalı: %v", err)
+		}
+		// Operatör izi: kim ve kaç aile; parola/hash/token ASLA.
+		raw := logs.String()
+		if !strings.Contains(raw, `"revoked_families":2`) || !strings.Contains(raw, fmt.Sprintf(`"user_id":%d`, u.ID)) {
+			t.Errorf("INFO log user_id ve revoked_families=2 taşımalı: %s", raw)
+		}
+		for _, secret := range []string{goodPassword, newPassword, sess.RefreshToken, st.users[u.ID].PasswordHash} {
+			if strings.Contains(raw, secret) {
+				t.Errorf("sır loga düştü (%q): %s", secret, raw)
+			}
+		}
+	})
+
+	t.Run("kullanıcı silinmiş → ErrUserNotFound (maskelenmez)", func(t *testing.T) {
+		s, st, u := setup(t)
+		st.mu.Lock()
+		delete(st.users, u.ID)
+		st.mu.Unlock()
+		if _, err := s.ChangePassword(ctx, u.ID, goodPassword, newPassword); !errors.Is(err, ErrUserNotFound) {
+			t.Errorf("ErrUserNotFound bekleniyordu, gelen %v", err)
+		}
+	})
+}
+
+// raceStore, UserByEmail'den SONRA (giriş bcrypt'i eski hash'le doğruladıktan sonra) parolayı
+// değiştirir: "giriş sürerken başka cihazda parola değişti" yarışının bellek içi kurgusu.
+type raceStore struct {
+	*memStore
+	newHash string
+}
+
+func (r *raceStore) UserByEmail(ctx context.Context, email string) (db.User, error) {
+	u, err := r.memStore.UserByEmail(ctx, email)
+	if err == nil {
+		r.mu.Lock()
+		stored := r.users[u.ID]
+		stored.PasswordHash = r.newHash
+		r.users[u.ID] = stored
+		r.mu.Unlock()
+	}
+	return u, nil // giriş, ESKİ hash'i taşıyan kopyayla devam eder
+}
+
+// TestLoginRejectsPasswordChangedDuringLogin: bcrypt tx dışında ESKİ hash'le doğrulandı; aile
+// açılırken depo hash'in değiştiğini görür → giriş reddedilir, aile AÇILMAZ. Aksi hâlde bu
+// giriş, "tüm oturumları kapat"an parola değişiminin arkasından eski parolayla yaşardı.
+func TestLoginRejectsPasswordChangedDuringLogin(t *testing.T) {
+	s, st, _ := newTestService(t)
+	ctx := context.Background()
+	if _, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	s.store = &raceStore{memStore: st, newHash: "degisti"}
+
+	sess, err := s.Login(ctx, "ali@example.com", goodPassword)
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("ErrInvalidCredentials bekleniyordu, gelen %v", err)
+	}
+	if sess.AccessToken != "" || sess.RefreshToken != "" {
+		t.Errorf("hata durumunda oturum dönmemeli: %+v", sess)
+	}
+	if len(st.families) != 0 || len(st.tokens) != 0 {
+		t.Errorf("reddedilen giriş aile/token açmamalı: %d aile, %d token", len(st.families), len(st.tokens))
+	}
 }

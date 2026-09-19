@@ -106,6 +106,10 @@ func newRouter(d deps) http.Handler {
 		r.Post("/logout", handleLogout(d.auth, cookies))
 		// r.With(mw): middleware'i YALNIZCA bu rotaya uygula.
 		r.With(requireAuth(d.tokens)).Get("/me", handleMe(d.auth))
+		// Parola değiştirme (Faz 13): önce kimlik (kimliksiz istek kotayı yemesin), sonra IP
+		// başına AYRI "password" kovası — çalınmış bir access token'la mevcut parolayı kaba
+		// kuvvetle deneyen biri login kotasını değil bunu tüketir (NGINX'te de ayrı zone).
+		r.With(requireAuth(d.tokens), rateLimit(limiter, "password")).Post("/password", handleChangePassword(d.auth, cookies))
 	})
 
 	// /api/admin altındaki HER rota: önce kimlik (401), sonra rol (403).

@@ -283,6 +283,32 @@ export const api = {
   },
   register: (email: string, display_name: string, password: string) =>
     request<User>("POST", "/api/auth/register", { email, display_name, password }, false),
+  /**
+   * Parola değiştirme (Faz 13). Sunucu kullanıcının TÜM oturum ailelerini öldürür ve bu
+   * cihaz için yenisini açar — yani cevap ÇEREZ YAZAR: login ile aynı kilit kuralı.
+   */
+  async changePassword(current: string, next: string): Promise<User> {
+    if (refreshing) await refreshing.catch(() => false);
+    const attempt = () =>
+      withRefreshLock(async () => {
+        // retry=false: request'in 401→refresh yolu kilidin İÇİNDEN aynı adlı kilidi tekrar
+        // isterdi; Web Locks yeniden girilemez → kilitlenme. 401'i aşağıda, kilit DIŞINDA ele alıyoruz.
+        const s = await request<Session>(
+          "POST", "/api/auth/password", { current_password: current, new_password: next }, false,
+        );
+        setFlag(HINT_KEY);
+        setSession(s);
+        return s.user;
+      });
+    try {
+      return await attempt();
+    } catch (err) {
+      // 401 = access token bitti (yanlış parola 403'tür, buraya düşmez). Bir kez yenile (kilit
+      // dışında) ve bir kez daha dene; yenileme de olmadıysa asıl hatayı olduğu gibi ver.
+      if (!(err instanceof ApiError && err.status === 401) || !(await refreshSession())) throw err;
+      return attempt();
+    }
+  },
   async logout(): Promise<void> {
     if (refreshing) await refreshing.catch(() => false);
     await withRefreshLock(async () => {

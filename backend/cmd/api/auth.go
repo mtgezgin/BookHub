@@ -19,6 +19,7 @@ type authService interface {
 	Refresh(ctx context.Context, refreshToken string) (auth.Session, error)
 	Logout(ctx context.Context, refreshToken string) error
 	Me(ctx context.Context, userID int64) (auth.User, error)
+	ChangePassword(ctx context.Context, userID int64, current, next string) (auth.Session, error)
 }
 
 // userResponse, kullanıcının dışa açık temsili. password_hash'in burada olmaması tesadüf
@@ -397,6 +398,59 @@ func handleMe(svc authService) http.HandlerFunc {
 			writeInternalError(w, "Me", err)
 		default:
 			writeJSON(w, http.StatusOK, toUserResponse(u))
+		}
+	}
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// handleChangePassword, POST /api/auth/password (requireAuth + rateLimit "password" arkasında)
+// → 200 + YENİ oturum (yeni refresh çerezi); kullanıcının diğer TÜM oturumları ölür.
+//
+// Yanlış mevcut parola 403 invalid_current_password — 401 DEĞİL. İstemci (client.ts) 401'i
+// "access token bitti" sayıp /refresh'e gider ve isteği yeniler; yanlış parola için de aynı
+// şeyi yapsaydı kullanıcı hatasını hiç göremez, boşuna bir rotasyon harcanırdı. 403 ise
+// "kimliğin belli ama BU isteğe iznin yok" — mevcut parolayı bilmeyen birine tam olarak bu denir.
+func handleChangePassword(svc authService, cookies cookieSettings) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, ok := principalFrom(r.Context())
+		if !ok {
+			unauthorized(w, "missing_token", "kimlik doğrulaması gerekli")
+			return
+		}
+		var req changePasswordRequest
+		if err := readJSON(w, r, &req); err != nil {
+			writeRequestError(w, err)
+			return
+		}
+		var v validator
+		v.required("current_password", req.CurrentPassword)
+		v.required("new_password", req.NewPassword)
+		if err := v.err(); err != nil {
+			writeRequestError(w, err)
+			return
+		}
+
+		sess, err := svc.ChangePassword(r.Context(), p.UserID, req.CurrentPassword, req.NewPassword)
+		var ve *auth.ValidationError
+		switch {
+		case errors.As(err, &ve):
+			writeError(w, http.StatusBadRequest, "validation_error", ve.Error())
+		case errors.Is(err, auth.ErrWrongPassword):
+			writeError(w, http.StatusForbidden, "invalid_current_password", "mevcut parola hatalı")
+		case errors.Is(err, auth.ErrUserNotFound):
+			// Token geçerli ama hesap silinmiş (handleMe ile aynı duruş).
+			unauthorized(w, "invalid_token", "bu token'ın kullanıcısı artık yok")
+		case err != nil:
+			writeInternalError(w, "ChangePassword", err)
+		default:
+			// Bu cihazın eski ailesi de az önce öldü; yeni çerez olmasa tarayıcıda ölü bir
+			// çerez kalır ve bir sonraki yenileme 401 ile oturumu düşürürdü.
+			setRefreshCookie(w, cookies, sess)
+			writeJSON(w, http.StatusOK, toSessionResponse(sess))
 		}
 	}
 }
