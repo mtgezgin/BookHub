@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
@@ -93,5 +94,150 @@ func TestRouter_AuthRoutes(t *testing.T) {
 				t.Errorf("GET %s: istenen 405, gelen %d", tt.path, get.Code)
 			}
 		})
+	}
+}
+
+// crossOriginLoginBody, cross-origin testlerinde geçen isteğin handler'a ulaşıp 200 alacağı gövde.
+const crossOriginLoginBody = `{"email":"ali@example.com","password":"yeterince-uzun"}`
+
+// doWithHeaders, do'nun başlık alan eşi: tarayıcının KENDİLİĞİNDEN yazdığı başlıkları
+// (Sec-Fetch-Site, Origin) ve proxy'nin ilettiği Host'u taklit eden testler için.
+// host "" → httptest varsayılanı ("example.com").
+func doWithHeaders(t *testing.T, h http.Handler, method, host, url, body string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, url, strings.NewReader(body))
+	if host != "" {
+		req.Host = host
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestRouter_CrossOriginProtection: tarayıcıdan gelen cross-origin YAZMA istekleri router'da,
+// handler'a ULAŞMADAN 403 + JSON zarfı (cross_origin_request) alır; aynı origin, güvenli
+// method'lar ve başlıksız (tarayıcı dışı) istemciler geçer.
+//
+// Handler testleri handler'ı doğrudan çağırdığı için bu koruma onlarda görünmez → burada gerçek
+// router'la, tarayıcının yazacağı başlıklarla sınanıyor.
+func TestRouter_CrossOriginProtection(t *testing.T) {
+	crossSite := map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"}
+	tests := []struct {
+		name          string
+		method, path  string // "" → POST /api/auth/login (geçerse sahte servis 200 döner)
+		host          string // "" → example.com
+		headers       map[string]string
+		wantForbidden bool
+	}{
+		// Sec-Fetch-Site: tüm güncel tarayıcılar yazar; karar önce buna göre verilir.
+		{name: "Sec-Fetch-Site cross-site POST → 403", headers: crossSite, wantForbidden: true},
+		{name: "Sec-Fetch-Site same-site (kardeş alt alan) POST → 403",
+			headers: map[string]string{"Sec-Fetch-Site": "same-site", "Origin": "http://blog.example.com"}, wantForbidden: true},
+		{name: "Sec-Fetch-Site same-origin POST → geçer",
+			headers: map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": "http://example.com"}},
+		{name: "Sec-Fetch-Site none (adres çubuğu/yer imi) POST → geçer",
+			headers: map[string]string{"Sec-Fetch-Site": "none"}},
+		// Aşağıdakiler kararın GERÇEKTEN Sec-Fetch-Site'a göre verildiğini ayırt eder: Origin yedeği
+		// tek başına bu sonuçları üretemezdi (Origin yok ya da Host'la eşit).
+		{name: "Sec-Fetch-Site cross-site, Origin yok → 403",
+			headers: map[string]string{"Sec-Fetch-Site": "cross-site"}, wantForbidden: true},
+		{name: "Sec-Fetch-Site cross-site, Origin = Host → 403 (tarayıcının beyanı önceliklidir)",
+			headers: map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "http://example.com"}, wantForbidden: true},
+		{name: "Sec-Fetch-Site same-site, Origin yok → 403",
+			headers: map[string]string{"Sec-Fetch-Site": "same-site"}, wantForbidden: true},
+		{name: "Sec-Fetch-Site same-origin, Origin ≠ Host → geçer (Origin'e bakılmaz)",
+			headers: map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": "https://evil.example"}},
+
+		// Sec-Fetch-Site yok (eski tarayıcı ya da düz HTTP'deki, localhost olmayan bir origin):
+		// Origin'in host[:port]'u Host ile karşılaştırılır.
+		{name: "Origin = Host → geçer", headers: map[string]string{"Origin": "http://example.com"}},
+		{name: "Origin ≠ Host → 403", headers: map[string]string{"Origin": "https://evil.example"}, wantForbidden: true},
+		// NGINX'in api-proxy.conf'u neden $http_host iletiyor: $host portu düşürür → tarayıcı
+		// localhost:3000'deyken API "localhost" görür ve MEŞRU istek 403 alırdı.
+		{name: "Origin portlu, Host portsuz (NGINX $host) → 403", host: "localhost",
+			headers: map[string]string{"Origin": "http://localhost:3000"}, wantForbidden: true},
+		{name: "Origin portlu, Host portlu (NGINX $http_host) → geçer", host: "localhost:3000",
+			headers: map[string]string{"Origin": "http://localhost:3000"}},
+
+		// Güvenli method'lar HER ZAMAN geçer; başlıksız istemciler (curl, mvp_smoke.sh) de.
+		{name: "GET cross-site → geçer", method: http.MethodGet, path: "/api/books", headers: crossSite},
+		{name: "başlıksız POST (curl, smoke betiği) → geçer"},
+
+		// Yalnız POST değil tüm güvensiz method'lar; ve kimlik kontrolünden ÖNCE (401 değil 403).
+		{name: "DELETE cross-site → 403 (kimlik kontrolünden önce)", method: http.MethodDelete,
+			path: "/api/books/1/rating", headers: crossSite, wantForbidden: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			method, path, body := tt.method, tt.path, ""
+			if method == "" {
+				method, path, body = http.MethodPost, "/api/auth/login", crossOriginLoginBody
+			}
+			svc := &fakeAuth{user: sampleUser, session: auth.Session{AccessToken: "a", User: sampleUser}}
+			h := newRouter(deps{auth: svc, books: fakeBooks{}, tokens: fakeVerifier{}})
+
+			rec := doWithHeaders(t, h, method, tt.host, path, body, tt.headers)
+
+			if !tt.wantForbidden {
+				if rec.Code != http.StatusOK {
+					t.Fatalf("%s %s geçmeliydi: istenen 200, gelen %d (%s)", method, path, rec.Code, rec.Body)
+				}
+				return
+			}
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("durum kodu: istenen 403, gelen %d (%s)", rec.Code, rec.Body)
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Errorf("Content-Type: istenen application/json, gelen %q", ct)
+			}
+			if code := errorCode(t, rec); code != "cross_origin_request" {
+				t.Errorf("error.code: istenen \"cross_origin_request\", gelen %q", code)
+			}
+			if svc.gotEmail != "" {
+				t.Error("reddedilen istek handler'a (servise) ulaşmamalı")
+			}
+		})
+	}
+}
+
+// TestRouter_CrossOriginDenialIsLogged: koruma zincirde RequestID + requestLogger'dan SONRA
+// gelir → 403 cevabı X-Request-Id taşır; erişim satırı ve nedeni anlatan WARN satırı AYNI
+// request_id'yi paylaşır. Koruma zincirin başına taşınırsa bu test kırılır (ret izsiz kalırdı).
+func TestRouter_CrossOriginDenialIsLogged(t *testing.T) {
+	buf := captureLogs(t)
+	rec := doWithHeaders(t, newRouter(deps{auth: &fakeAuth{}}), http.MethodPost, "", "/api/auth/login", crossOriginLoginBody,
+		map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"})
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("403 bekleniyordu: %d (%s)", rec.Code, rec.Body)
+	}
+	id := rec.Header().Get(requestIDHeader)
+	if id == "" {
+		t.Fatal("ret cevabı da X-Request-Id taşımalı")
+	}
+
+	var denyLine, accessLine map[string]any
+	for _, l := range logLines(t, buf) {
+		switch l["msg"] {
+		case "cross-origin istek reddedildi":
+			denyLine = l
+		case "http":
+			accessLine = l
+		}
+	}
+	if denyLine == nil || accessLine == nil {
+		t.Fatalf("ret ve erişim satırı bekleniyordu: %s", buf)
+	}
+	if accessLine["status"] != float64(http.StatusForbidden) || accessLine["request_id"] != id {
+		t.Errorf("erişim satırı 403'ü aynı request_id ile yazmalı (başlık=%q): %v", id, accessLine)
+	}
+	if denyLine["level"] != "WARN" || denyLine["request_id"] != id {
+		t.Errorf("ret satırı WARN seviyesinde ve aynı request_id ile olmalı (başlık=%q): %v", id, denyLine)
+	}
+	if denyLine["sec_fetch_site"] != "cross-site" || denyLine["origin"] != "https://evil.example" || denyLine["host"] != "example.com" {
+		t.Errorf("ret satırı nedeni (sec_fetch_site/origin/host) taşımalı: %v", denyLine)
 	}
 }

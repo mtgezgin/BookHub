@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"net/http"
 	"net/netip"
 
@@ -39,6 +40,10 @@ func newRouter(d deps) http.Handler {
 	r.Use(resolveClientIP(d.trustedProxies)) // gerçek istemci IP'si (proxy arkasında da)
 	r.Use(requestLogger)                     // her istek için tek yapılandırılmış log satırı + X-Request-Id (12-factor XI)
 	r.Use(middleware.Recoverer)              // bir handler panik ederse 500 dön, sunucu çökmesin
+	// CSRF koruması (bkz. crossOriginProtection). SIRA ÖNEMLİ: RequestID + requestLogger'dan
+	// SONRA → reddedilen istek de erişim log'una düşer ve cevabı X-Request-Id taşır. Zincirin
+	// başında olsaydı ret, log'a hiç ulaşmadan zinciri keserdi: "neden 403 aldım?" sorusu izsiz kalırdı.
+	r.Use(crossOriginProtection())
 
 	// Bilinmeyen yol / desteklenmeyen method'ta da DÜZ HTML değil, tutarlı JSON zarfı dön.
 	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
@@ -118,6 +123,65 @@ func newRouter(d deps) http.Handler {
 	})
 
 	return r
+}
+
+// crossOriginProtection, tarayıcıdan gelen CROSS-ORIGIN yazma isteklerini (POST/PUT/PATCH/DELETE)
+// reddeden CSRF korumasıdır: Go 1.25'te stdlib'e giren http.CrossOriginProtection + bizim JSON
+// hata zarfımız (varsayılan ret cevabı düz metin "403 Forbidden" olurdu; frontend `code`a göre dallanır).
+//
+// CSRF (Cross-Site Request Forgery) NEDİR: kötü niyetli bir sayfa (evil.example), ziyaretçinin
+// tarayıcısına BİZİM API'mize bir istek attırır. Tarayıcı, bizim sitemize ait çerezleri isteğe
+// kendiliğinden ekler → istek kullanıcının kimliğiyle çalışır, kullanıcı ise habersizdir.
+// Saldırgan cevabı OKUYAMAZ (same-origin politikası) ama yazma isteğinin YAN ETKİSİ olmuştur bile.
+// (readJSON Content-Type'a bakmıyor: text/plain gövdeli bir form ya da fetch, CORS ön kontrolüne
+// — preflight — takılmadan buraya ulaşabilir; asıl kapı bu yüzden burası.)
+//
+// Karar nasıl verilir (go doc net/http.CrossOriginProtection):
+//  1. GET/HEAD/OPTIONS HER ZAMAN geçer ("güvenli" method'lar). Bu yüzden hiçbir GET ucu durum
+//     DEĞİŞTİRMEMELİ — değiştirseydi bu koruma onu kapsamazdı.
+//  2. Sec-Fetch-Site: isteği hangi bağlamın başlattığını TARAYICININ KENDİSİ yazar; sayfadaki JS bu
+//     başlığı ne ekleyebilir ne değiştirebilir (yasaklı başlık). 2023'ten beri tüm tarayıcılarda var —
+//     ama YALNIZ güvenli bağlamda: tarayıcılar Fetch Metadata başlıklarını sadece HTTPS'e ve
+//     localhost'a yollar.
+//     "same-origin" ya da "none" (adres çubuğu, yer imi) → geçer; "cross-site" VE "same-site" → 403.
+//  3. Sec-Fetch-Site yoksa — eski tarayıcı YA DA güvenli olmayan bir origin (düz HTTP ile açılmış,
+//     localhost olmayan bir sunucu, ör. http://192.168.1.5:3000: orada modern tarayıcı da bu başlığı
+//     göndermez, yani bu yedek kontrol o kurulumun ASIL savunmasıdır) — Origin başlığındaki host[:port], Host
+//     başlığıyla karşılaştırılır; eşitse geçer, farklıysa 403. PORT da karşılaştırmaya dahil → NGINX,
+//     API'ye Host'u portuyla iletmeli (bkz. frontend/nginx/api-proxy.conf, $http_host).
+//  4. İkisi de yoksa geçer: bu ya tarayıcı dışı bir istemcidir (curl, backend/scripts/mvp_smoke.sh,
+//     Go testleri) ya da Origin göndermeyen çok eski bir tarayıcı. CSRF bir TARAYICI saldırısıdır:
+//     başlıklarını kendisi yazan bir istemci zaten kendi adına konuşuyordur, araya giren kurban yok.
+//
+// "same-site" de REDDEDİLİR: same-site = aynı kayıtlı alan adının KARDEŞ alt alanı (ör.
+// blog.bookhub.example → bookhub.example). Tarayıcı için aynı SİTE ama aynı ORIGIN değil — ve
+// SameSite çerez özniteliği bu isteklere çerezi YİNE ekler. Ele geçirilmiş ya da XSS'li bir kardeş
+// alt alan bizim adımıza yazma yapamasın. Frontend ile API TEK origin'de (NGINX; geliştirmede vite
+// proxy'si) → izin verilecek başka bir origin yok, AddTrustedOrigin gerekmiyor.
+//
+// Neden ŞİMDİ: bugün kimlik Authorization başlığında (tarayıcı onu kendiliğinden EKLEMEZ) ve refresh
+// token JSON gövdesinde → CSRF'in tutunacağı bir çerez yok. Sonraki adımda refresh token httpOnly
+// bir ÇEREZE taşınıyor: o andan itibaren login cevabı oturumu tarayıcıya kendiliğinden yazar ve başka
+// bir sayfa kurbanın tarayıcısında SALDIRGANIN hesabıyla oturum açtırabilirdi (login-CSRF: kurban
+// yazdıklarını farkında olmadan saldırganın hesabına kaydeder). Bu koruma o kapıyı çerez gelmeden
+// ÖNCE kapatır.
+//
+// Neden klasik CSRF token'ı (gizli form alanı / double-submit çerezi) değil: sunucuda durum ya da
+// istemcide ek bir başlık/çerez dansı ister; Sec-Fetch-Site aynı güvenceyi durumsuz ve tek yerde verir.
+func crossOriginProtection() func(http.Handler) http.Handler {
+	cop := http.NewCrossOriginProtection()
+	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Erişim satırı yalnız "403" der; NEDEN'i operatör için burada. Origin/Host ikilisi, ör.
+		// Host'u portsuz ileten bir proxy'yi (Origin "localhost:3000", Host "localhost") ilk bakışta ele verir.
+		slog.Warn("cross-origin istek reddedildi",
+			"sec_fetch_site", r.Header.Get("Sec-Fetch-Site"),
+			"origin", r.Header.Get("Origin"),
+			"host", r.Host,
+			"request_id", w.Header().Get(requestIDHeader),
+		)
+		writeError(w, http.StatusForbidden, "cross_origin_request", "başka bir siteden gelen yazma isteği reddedildi")
+	}))
+	return cop.Handler
 }
 
 // handleHealth, servisin ayakta olduğunu söyleyen basit bir uç nokta.
