@@ -111,6 +111,11 @@ func run() int {
 		limiter:    limiter,
 
 		trustedProxies: cfg.TrustedProxies,
+		// Refresh token artık cevabın gövdesinde değil, httpOnly bir çerezde (Faz 13).
+		// Adı ayarlanabilir çünkü çerezler PORT'a göre değil HOST'a göre kapsanır: aynı
+		// makinedeki compose (:3000) ve kind (:3001) yığınları tek bir "localhost" kavanozunu
+		// paylaşır ve aynı adı kullansalardı birbirlerinin oturumunu ezerlerdi.
+		cookies: cookieSettingsFrom(cfg),
 	}
 
 	// http.Server'ı elle kuruyoruz: timeout'lar + Shutdown() erişimi.

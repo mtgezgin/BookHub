@@ -12,6 +12,12 @@ data:
   REDIS_URL: redis://redis:6379/0
   RATING_MIN_VOTES: "10"
   AUTH_RATE_LIMIT_PER_MIN: "10"
+  # Refresh çerezine BU YIĞINA ÖZEL bir ad. NEDEN: çerezler PORT'a göre değil HOST'a göre
+  # kapsanır (RFC 6265 §8.5) — kind (localhost:3001) ve compose (localhost:3000) tarayıcı
+  # için AYNI çerez kavanozudur. İki yığın da "bookhub_refresh" kullansaydı biri diğerinin
+  # oturumunu ezer, kullanıcı sekme değiştirdikçe düşerdi. (Web Locks ve localStorage ise
+  # origin başınadır — port dahil — yani onlar zaten ayrı; çakışan tek şey çerez.)
+  COOKIE_NAME: bookhub_refresh_k8s
   # Pod IP'leri dinamik: kind'ın pod ağı (10.244.0.0/16) içinden gelen X-Real-IP'ye güven.
   # Küme içindeki her pod "güvenilen" sayılır — tek kiracılı, NetworkPolicy'siz bir demo
   # için kabul edilebilir; paylaşılan kümede yalnız ingress/NGINX pod'larıyla sınırla.

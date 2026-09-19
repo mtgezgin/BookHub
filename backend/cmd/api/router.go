@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/mtgezgin/bookhub/backend/internal/config"
 	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
 )
 
@@ -28,6 +29,9 @@ type deps struct {
 	limiter    ratelimit.Limiter // nil → sınırsız (yalnız bir alanı dolduran testler)
 	// trustedProxies: X-Real-IP başlığına güvenilecek proxy adresleri (NGINX). Boş → hiçbiri.
 	trustedProxies []netip.Prefix
+	// cookies: refresh çerezinin adı + Secure özniteliği (config'ten gelir). Adı boşsa
+	// newRouter varsayılana düşürür.
+	cookies cookieSettings
 }
 
 // newRouter, uygulamanın HTTP router'ını (yönlendiricisini) kurar.
@@ -83,14 +87,23 @@ func newRouter(d deps) http.Handler {
 		limiter = ratelimit.Unlimited{}
 	}
 
+	// Çerez adı boşsa varsayılana düş. NEDEN: net/http, adı geçersiz (boş dahil) bir çerezi
+	// HATA DÖNMEDEN düşürür — yalnız bir log satırı basar. Yalnızca tek bir alanı dolduran
+	// bir test (deps{auth: fake}) sessizce "çerezsiz" bir dünyada koşar ve iddiaları hep
+	// boşa çıkardı. Üretimde config zaten boş adı boot'ta reddediyor (fail-fast).
+	cookies := d.cookies
+	if cookies.name == "" {
+		cookies.name = config.DefaultCookieName
+	}
+
 	// Kimlik uçları. /me dışındakiler bilerek açık: token'ı zaten bunlar veriyor.
 	// login/register IP başına sınırlı (Faz 7): parola denemesi ve toplu hesap açma.
 	// Ayrı anahtar adları: login denemeleri register kotasını tüketmesin.
 	r.Route("/api/auth", func(r chi.Router) {
 		r.With(rateLimit(limiter, "register")).Post("/register", handleRegister(d.auth))
-		r.With(rateLimit(limiter, "login")).Post("/login", handleLogin(d.auth))
-		r.Post("/refresh", handleRefresh(d.auth))
-		r.Post("/logout", handleLogout(d.auth))
+		r.With(rateLimit(limiter, "login")).Post("/login", handleLogin(d.auth, cookies))
+		r.Post("/refresh", handleRefresh(d.auth, cookies))
+		r.Post("/logout", handleLogout(d.auth, cookies))
 		// r.With(mw): middleware'i YALNIZCA bu rotaya uygula.
 		r.With(requireAuth(d.tokens)).Get("/me", handleMe(d.auth))
 	})

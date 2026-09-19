@@ -66,22 +66,24 @@ func TestRouter_MethodNotAllowed(t *testing.T) {
 // handler'ları doğrudan çağırdığı için yanlış bir bağlama onlarda görünmezdi.
 func TestRouter_AuthRoutes(t *testing.T) {
 	tests := []struct {
-		path    string
-		body    string
+		path string
+		body string
+		// cookies: refresh/logout token'ı Faz 13'ten beri gövdede değil çerezde taşıyor.
+		cookies []*http.Cookie
 		reached func(*fakeAuth) bool // handler'a ulaşıldı mı (sahte servis çağrıldı mı)
 	}{
-		{"/api/auth/register", `{"email":"ali@example.com","display_name":"Ali","password":"yeterince-uzun"}`, func(f *fakeAuth) bool { return f.gotEmail != "" }},
-		{"/api/auth/login", `{"email":"ali@example.com","password":"yeterince-uzun"}`, func(f *fakeAuth) bool { return f.gotEmail != "" }},
-		{"/api/auth/refresh", `{"refresh_token":"tok"}`, func(f *fakeAuth) bool { return f.gotToken == "tok" }},
-		{"/api/auth/logout", `{"refresh_token":"tok"}`, func(f *fakeAuth) bool { return f.gotToken == "tok" }},
+		{path: "/api/auth/register", body: `{"email":"ali@example.com","display_name":"Ali","password":"yeterince-uzun"}`, reached: func(f *fakeAuth) bool { return f.gotEmail != "" }},
+		{path: "/api/auth/login", body: `{"email":"ali@example.com","password":"yeterince-uzun"}`, reached: func(f *fakeAuth) bool { return f.gotEmail != "" }},
+		{path: "/api/auth/refresh", cookies: []*http.Cookie{refreshCookie("tok")}, reached: func(f *fakeAuth) bool { return f.gotToken == "tok" }},
+		{path: "/api/auth/logout", cookies: []*http.Cookie{refreshCookie("tok")}, reached: func(f *fakeAuth) bool { return f.gotToken == "tok" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			svc := &fakeAuth{user: sampleUser, session: auth.Session{AccessToken: "a", User: sampleUser}}
-			h := newRouter(deps{auth: svc, tokens: fakeVerifier{}})
+			h := newRouter(deps{auth: svc, tokens: fakeVerifier{}, cookies: testCookies})
 
 			// Authorization başlığı YOK: public rota token istememeli.
-			rec := do(t, h, http.MethodPost, tt.path, tt.body)
+			rec := doAuth(t, h, http.MethodPost, tt.path, tt.body, tt.cookies...)
 			if rec.Code == http.StatusUnauthorized || rec.Code == http.StatusNotFound || rec.Code == http.StatusMethodNotAllowed {
 				t.Fatalf("POST %s public olmalı, gelen %d (%s)", tt.path, rec.Code, rec.Body)
 			}

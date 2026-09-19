@@ -37,7 +37,9 @@ lokal Docker Postgres ↔ Supabase, lokal Redis ↔ Upstash.
 | `AUTO_MIGRATE` | `false` | Migration ayrı, bilinçli bir adım (aşağıda) |
 | `LOG_FORMAT` | `json` | Platform log toplayıcısı alanları ayrıştırsın |
 | `PORT` | platformun verdiği | Çoğu platform `PORT`'u kendisi enjekte eder |
-| `RATING_MIN_VOTES`, `AUTH_RATE_LIMIT_PER_MIN`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | varsayılanlar makul | |
+| `COOKIE_SECURE` | `true` (varsayılan) | Refresh çerezi yalnız HTTPS'te gider → **prod HTTPS ŞART**. `false` yalnız lokal denemeler için |
+| `COOKIE_NAME` | `bookhub_refresh` (varsayılan) | Çerezler porta göre değil **host'a** göre kapsanır: aynı host'ta birden çok yığın varsa her birine ayrı ad ver |
+| `RATING_MIN_VOTES`, `AUTH_RATE_LIMIT_PER_MIN`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`, `JWT_SESSION_MAX_AGE` | varsayılanlar makul | |
 
 ## 3. Adımlar
 

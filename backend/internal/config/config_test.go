@@ -310,3 +310,93 @@ func TestLoadRedisURL(t *testing.T) {
 		}
 	}
 }
+
+// TestLoadCookieSecure: refresh çerezinin Secure özniteliği. Varsayılan TRUE — güvenli
+// olmayan bir varsayılan, prod'da unutulmayı bekleyen bir sızıntıdır; kapatmak BİLİNÇLİ
+// bir hareket olmalı. Geçersiz değerde boot durur (sessizce true'ya düşmez).
+func TestLoadCookieSecure(t *testing.T) {
+	for _, tt := range []struct {
+		value   string
+		want    bool
+		wantErr bool
+	}{
+		{value: "", want: true}, // tanımsız → güvenli varsayılan
+		{value: "true", want: true},
+		{value: "false", want: false},
+		{value: "0", want: false},
+		{value: "hayir", wantErr: true},
+	} {
+		t.Run("COOKIE_SECURE="+tt.value, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("JWT_SECRET", testJWTSecret)
+			t.Setenv("COOKIE_SECURE", tt.value)
+
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("hata beklentisi %v, gelen %v", tt.wantErr, err)
+			}
+			if err == nil && cfg.CookieSecure != tt.want {
+				t.Errorf("CookieSecure: istenen %v, gelen %v", tt.want, cfg.CookieSecure)
+			}
+		})
+	}
+}
+
+// TestLoadCookieName: çerez adı ayarlanabilir (çerezler porta göre değil HOSTa göre
+// kapsanır → aynı makinedeki compose/kind/vite yığınları birbirinin çerezini ezmesin)
+// ama SERBEST metin değil: geçersiz bir ad net/http tarafından HATA DÖNMEDEN düşürülür,
+// yani girişler 200 döner ve hiç çerez gitmez. Onu boot'ta yakalıyoruz.
+func TestLoadCookieName(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		value   string
+		secure  string
+		want    string
+		wantErr bool
+	}{
+		{name: "tanımsız → bookhub_refresh", want: DefaultCookieName},
+		{name: "kind için ayrı ad", value: "bookhub_refresh_k8s", want: "bookhub_refresh_k8s"},
+		{name: "token karakterleri serbest", value: "bookhub!#$%&'*+-.^_`|~9", want: "bookhub!#$%&'*+-.^_`|~9"},
+		{name: "boşluk → hata", value: "bookhub refresh", wantErr: true},
+		{name: "eşittir → hata", value: "a=b", wantErr: true},
+		{name: "noktalı virgül → hata", value: "a;b", wantErr: true},
+		{name: "ASCII dışı → hata", value: "çerez", wantErr: true},
+		{name: "kontrol karakteri → hata", value: "book\thub", wantErr: true},
+		// __Host- öneki Path=/ ister; bizim çerezimiz Path=/api/auth → tarayıcı SESSİZCE reddederdi.
+		{name: "__Host- öneki → hata", value: "__Host-bookhub", wantErr: true},
+		{name: "__host- (küçük harf) → hata", value: "__host-bookhub", wantErr: true},
+		// __Secure- öneki Secure ister: COOKIE_SECURE=true ile geçerli, false ile değil.
+		{name: "__Secure- + secure → geçerli", value: "__Secure-bookhub", secure: "true", want: "__Secure-bookhub"},
+		{name: "__Secure- + secure=false → hata", value: "__Secure-bookhub", secure: "false", wantErr: true},
+		{name: "__secure- (küçük harf) + secure=false → hata", value: "__secure-bookhub", secure: "false", wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("JWT_SECRET", testJWTSecret)
+			t.Setenv("COOKIE_NAME", tt.value)
+			t.Setenv("COOKIE_SECURE", tt.secure)
+
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("hata bekleniyordu (COOKIE_NAME=%q)", tt.value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("beklenmeyen hata: %v", err)
+			}
+			if cfg.CookieName != tt.want {
+				t.Errorf("CookieName: istenen %q, gelen %q", tt.want, cfg.CookieName)
+			}
+		})
+	}
+}
+
+// TestValidateCookieNameEmpty: Load boş COOKIE_NAME'i varsayılana çevirdiği için bu sınır
+// yalnız doğrudan sınanabilir — boş ad geçerli bir token DEĞİLDİR.
+func TestValidateCookieNameEmpty(t *testing.T) {
+	if err := validateCookieName("", true); err == nil {
+		t.Error("boş çerez adı reddedilmeli")
+	}
+}

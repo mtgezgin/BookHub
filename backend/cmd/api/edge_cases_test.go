@@ -62,7 +62,7 @@ func TestSessionResponseCarriesExpiry(t *testing.T) {
 	access := time.Date(2026, 9, 1, 12, 15, 0, 0, time.UTC)
 	refresh := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
 	svc := &fakeAuth{session: auth.Session{AccessToken: "a", AccessExpiresAt: access, RefreshToken: "r", RefreshExpiresAt: refresh, User: sampleUser}}
-	rec := do(t, handleLogin(svc), http.MethodPost, "/api/auth/login", `{"email":"a@b.co","password":"x"}`)
+	rec := do(t, handleLogin(svc, testCookies), http.MethodPost, "/api/auth/login", `{"email":"a@b.co","password":"x"}`)
 	var got sessionResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("JSON: %v", err)

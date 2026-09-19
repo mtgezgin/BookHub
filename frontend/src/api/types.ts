@@ -55,11 +55,13 @@ export interface User {
   created_at: string;
 }
 
+// Session'da refresh_token YOK (Faz 13): uzun ömürlü sır yalnızca httpOnly çerezde taşınıyor
+// ve JS onu hiç göremiyor. refresh_expires_at duruyor — o bir sır değil, sadece "oturum en
+// geç ne zaman biter" bilgisi.
 export interface Session {
   access_token: string;
   token_type: "Bearer";
   access_expires_at: string;
-  refresh_token: string;
   refresh_expires_at: string;
   user: User;
 }

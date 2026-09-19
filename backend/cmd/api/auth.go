@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
+	"github.com/mtgezgin/bookhub/backend/internal/config"
 )
 
 // authService, auth handler'larının servisten beklediği davranışlar (tüketen tarafta
@@ -35,12 +36,16 @@ func toUserResponse(u auth.User) userResponse {
 }
 
 // sessionResponse, giriş/yenileme cevabı. İstemci access token'ı her istekte
-// "Authorization: Bearer ..." olarak yollar; süresi dolunca refresh_token ile yenisini alır.
+// "Authorization: Bearer ..." olarak yollar; süresi dolunca /api/auth/refresh ile yenisini alır.
+//
+// refresh_token alanı BİLEREK YOK (Faz 13): uzun ömürlü sır artık YALNIZCA httpOnly çerezde
+// taşınıyor, JS onu hiç göremiyor. Cevap gövdesinde de dönseydi çerez tamamen anlamsız olurdu —
+// bir XSS betiği gövdeyi okuyup token'ı kendi sunucusuna yollayabilirdi. refresh_expires_at
+// KALIYOR: sır değil, yalnız "oturum en geç ne zaman biter" bilgisi (arayüz uyarı gösterebilir).
 type sessionResponse struct {
 	AccessToken      string       `json:"access_token"`
 	TokenType        string       `json:"token_type"`
 	AccessExpiresAt  time.Time    `json:"access_expires_at"`
-	RefreshToken     string       `json:"refresh_token"`
 	RefreshExpiresAt time.Time    `json:"refresh_expires_at"`
 	User             userResponse `json:"user"`
 }
@@ -50,10 +55,101 @@ func toSessionResponse(s auth.Session) sessionResponse {
 		AccessToken:      s.AccessToken,
 		TokenType:        "Bearer",
 		AccessExpiresAt:  s.AccessExpiresAt,
-		RefreshToken:     s.RefreshToken,
 		RefreshExpiresAt: s.RefreshExpiresAt,
 		User:             toUserResponse(s.User),
 	}
+}
+
+// cookieSettings, refresh çerezinin yapılandırılabilir iki parçası (bkz. config.Config).
+// deps üzerinden handler'lara geçer: testler farklı ad/Secure kombinasyonlarını env'e
+// dokunmadan kurabilsin.
+type cookieSettings struct {
+	name   string
+	secure bool
+}
+
+// cookieSettingsFrom, config'ten çerez ayarlarını üretir. NEDEN AYRI FONKSİYON: main.go'da
+// satır içi bir literal olsaydı (cookieSettings{name: cfg.CookieName, ...}) bir alanın yanlış
+// bağlanması ya da hiç bağlanmaması test EDİLEMEZDİ — main.go'yu hiçbir test çalıştırmıyor.
+// Secure'un sessizce false kalması, 30 güne kadar yaşayabilen refresh sırrının düz http'de
+// ağa çıkması demek; bu yüzden eşleme sınanabilir bir yere alındı.
+func cookieSettingsFrom(cfg config.Config) cookieSettings {
+	return cookieSettings{name: cfg.CookieName, secure: cfg.CookieSecure}
+}
+
+// refreshCookiePath, çerezin kapsamı. BİLEREK DAR: tarayıcı çerezi yalnızca /api/auth
+// altındaki isteklere ekler — /api/books'a giden her istekte uzun ömürlü sırrı ağda
+// dolaştırmanın bir faydası yok, riski var (ara loglar, proxy'ler, hata ayıklama çıktıları).
+const refreshCookiePath = "/api/auth"
+
+// maxRefreshTokenLen, çerezden kabul edeceğimiz en uzun değer. Bizim ürettiğimiz token 26
+// karakter; sınır, uydurma dev bir çerezin servise/DB'ye kadar gitmesini engeller (ucuz kapı).
+const maxRefreshTokenLen = 256
+
+// newRefreshCookie, set ve silme çerezinin ORTAK iskeleti.
+//
+// NEDEN TEK YER: tarayıcı bir çerezi silerken ad/Path/Secure/SameSite üçlüsünün AYNI olmasını
+// bekler (RFC 6265 §4.1.2: çerez kimliği ad + domain + path). Silme çerezi farklı bir Path'le
+// yazılsaydı, tarayıcıda ikinci bir çerez oluşur, asıl çerez yaşamaya devam ederdi.
+func newRefreshCookie(c cookieSettings, value string) *http.Cookie {
+	return &http.Cookie{
+		Name:  c.name,
+		Value: value,
+		Path:  refreshCookiePath,
+		// HttpOnly: document.cookie bu çerezi GÖRMEZ. Faz 13'ün bütün amacı bu tek satır —
+		// XSS'li bir betik artık 7 günlük sırrı okuyup dışarı sızdıramaz.
+		HttpOnly: true,
+		// Secure: çerez yalnız HTTPS ile gider (COOKIE_SECURE; localhost tarayıcılarca
+		// "güvenli bağlam" sayıldığı için lokalde de true çalışır).
+		Secure: c.secure,
+		// SameSite=Strict: başka bir siteden BAŞLATILAN hiçbir istekte gönderilmez —
+		// CSRF'e karşı crossOriginProtection'dan bağımsız İKİNCİ katman.
+		SameSite: http.SameSiteStrictMode,
+	}
+}
+
+// setRefreshCookie, oturumun refresh token'ını çereze yazar. Expires = oturumun GERÇEK
+// (mutlak tavana kırpılmış) bitişi: tarayıcı o andan sonra çerezi kendiliğinden atar.
+func setRefreshCookie(w http.ResponseWriter, c cookieSettings, s auth.Session) {
+	ck := newRefreshCookie(c, s.RefreshToken)
+	ck.Expires = s.RefreshExpiresAt
+	http.SetCookie(w, ck)
+}
+
+// clearRefreshCookie, çerezi tarayıcıdan siler (MaxAge<0 → "Max-Age=0" → hemen sil).
+func clearRefreshCookie(w http.ResponseWriter, c cookieSettings) {
+	ck := newRefreshCookie(c, "")
+	ck.MaxAge = -1
+	http.SetCookie(w, ck)
+}
+
+// readRefreshCookie, istekteki refresh çerezini okur. İkinci dönüş false ise istek
+// "çerezsiz" sayılır — DB'ye hiç gidilmez.
+//
+// r.Cookie DEĞİL r.CookiesNamed: r.Cookie aynı addaki İLK çerezi döndürür ve gerisini
+// sessizce yutar. Aynı adla birden fazla çerez gelmesi normal bir durum değildir; tipik
+// nedeni GÖLGELEME (cookie shadowing) girişimidir: saldırgan, alt alan adı ya da farklı bir
+// Path üzerinden ikinci bir çerez yazdırıp kurbanın gerçek çerezini "gizler" — tarayıcı
+// ikisini de gönderir, sunucu hangisinin gerçek olduğunu AYIRT EDEMEZ (istek başlığında
+// Path/Domain bilgisi yoktur). Bu yüzden tahmin etmek yerine isteği reddediyoruz.
+func readRefreshCookie(w http.ResponseWriter, r *http.Request, c cookieSettings) (string, bool) {
+	cookies := r.CookiesNamed(c.name)
+	if len(cookies) > 1 {
+		slog.Warn("aynı adlı birden fazla refresh çerezi geldi, çerez yok sayıldı",
+			"cookie_name", c.name,
+			"cookie_count", len(cookies),
+			"request_id", w.Header().Get(requestIDHeader),
+		)
+		return "", false
+	}
+	if len(cookies) == 0 {
+		return "", false
+	}
+	v := cookies[0].Value
+	if v == "" || len(v) > maxRefreshTokenLen {
+		return "", false
+	}
+	return v, true
 }
 
 // registerRequest: role alanı YOK (mass-assignment) — `{"role":"ADMIN"}` yollayan istek
@@ -67,10 +163,6 @@ type registerRequest struct {
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
-}
-
-type refreshRequest struct {
-	RefreshToken string `json:"refresh_token"`
 }
 
 // handleRegister, POST /api/auth/register → 201 + kullanıcı.
@@ -101,8 +193,9 @@ func handleRegister(svc authService) http.HandlerFunc {
 	}
 }
 
-// handleLogin, POST /api/auth/login → 200 + oturum. Hatalı kimlikte TEK mesaj.
-func handleLogin(svc authService) http.HandlerFunc {
+// handleLogin, POST /api/auth/login → 200 + oturum (refresh token'ı httpOnly çerezde).
+// Hatalı kimlikte TEK mesaj.
+func handleLogin(svc authService, cookies cookieSettings) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req loginRequest
 		if err := readJSON(w, r, &req); err != nil {
@@ -117,6 +210,12 @@ func handleLogin(svc authService) http.HandlerFunc {
 			return
 		}
 
+		// Tarayıcıda zaten bir oturum çerezi varsa: yeni giriş onu EZECEK ve o ailenin
+		// token'ı bir daha hiçbir istemciye ulaşmayacak — ama DB'de CANLI kalırdı (yetim
+		// oturum). Kim olduğunu bilmediğimiz için değeri giriş cevabını yazmadan ÖNCE okuruz;
+		// ezildikten sonra artık okunamaz.
+		oldToken, hadOld := readRefreshCookie(w, r, cookies)
+
 		sess, err := svc.Login(r.Context(), req.Email, req.Password)
 		switch {
 		case errors.Is(err, auth.ErrInvalidCredentials):
@@ -124,33 +223,34 @@ func handleLogin(svc authService) http.HandlerFunc {
 		case err != nil:
 			writeInternalError(w, "Login", err)
 		default:
+			// EN İYİ ÇABA: iptal başarısız olsa da giriş başarılıdır. Kullanıcıyı, ona ait
+			// OLMAYABİLECEK eski bir çerezin DB hatası yüzünden dışarıda bırakmak yanlış olurdu.
+			// (Yalnız başarılı girişte: yanlış parolayla gelen bir istek başkasının oturumunu
+			// öldürememeli.)
+			if hadOld {
+				if err := svc.Logout(r.Context(), oldToken); err != nil {
+					slog.Warn("giriş sırasında önceki oturum iptal edilemedi",
+						"err", err, "request_id", w.Header().Get(requestIDHeader))
+				}
+			}
+			setRefreshCookie(w, cookies, sess)
 			writeJSON(w, http.StatusOK, toSessionResponse(sess))
 		}
 	}
 }
 
-// readRefreshToken, refresh/logout gövdesini okur ve token'ın varlığını denetler.
-func readRefreshToken(w http.ResponseWriter, r *http.Request) (string, bool) {
-	var req refreshRequest
-	if err := readJSON(w, r, &req); err != nil {
-		writeRequestError(w, err)
-		return "", false
-	}
-	var v validator
-	v.required("refresh_token", req.RefreshToken)
-	v.maxLen("refresh_token", req.RefreshToken, 256) // bizim ürettiğimiz 26 karakter
-	if err := v.err(); err != nil {
-		writeRequestError(w, err)
-		return "", false
-	}
-	return req.RefreshToken, true
-}
-
 // handleRefresh, POST /api/auth/refresh → 200 + YENİ oturum (eski refresh token ölür).
-func handleRefresh(svc authService) http.HandlerFunc {
+//
+// GÖVDE OKUNMAZ: token yalnızca çerezden gelir. Gövdeyi de kabul etseydik httpOnly'nin
+// anlamı kalmazdı — XSS'li bir betik çaldığı değeri gövdede yollayabilirdi.
+func handleRefresh(svc authService, cookies cookieSettings) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, ok := readRefreshToken(w, r)
+		token, ok := readRefreshCookie(w, r, cookies)
 		if !ok {
+			// Çerez yok/boş/çoklu/aşırı uzun: servise hiç gitmeden 401. Silme çerezi, tarayıcıda
+			// duran bozuk/eskimiş bir çerezin her istekte aynı 401'i üretmesini engeller.
+			clearRefreshCookie(w, cookies)
+			writeError(w, http.StatusUnauthorized, "invalid_token", "geçersiz ya da süresi dolmuş refresh token")
 			return
 		}
 		sess, err := svc.Refresh(r.Context(), token)
@@ -170,28 +270,111 @@ func handleRefresh(svc authService) http.HandlerFunc {
 					"request_id", w.Header().Get(requestIDHeader),
 				)
 			}
+			// Geçersiz token = tarayıcıdaki çerez ölü. Silme çerezi olmasaydı istemci her
+			// açılışta aynı ölü çerezle bir 401 daha üretirdi.
+			clearRefreshCookie(w, cookies)
 			writeError(w, http.StatusUnauthorized, "invalid_token", "geçersiz ya da süresi dolmuş refresh token")
 		case err != nil:
+			// 500'de çerezi SİLMİYORUZ: DB'nin geçici arızası kullanıcıyı oturumdan etmemeli
+			// (token büyük olasılıkla hâlâ geçerli). İstemci sonra yeniden dener.
 			writeInternalError(w, "Refresh", err)
 		default:
+			// Rotasyon: eski token öldü, yenisi çereze yazılır. Aynı cevapta Set-Cookie olmazsa
+			// tarayıcıda ARTIK GEÇERSİZ olan eski değer kalır ve bir sonraki yenileme reuse
+			// sayılıp tüm aileyi öldürürdü.
+			setRefreshCookie(w, cookies, sess)
 			writeJSON(w, http.StatusOK, toSessionResponse(sess))
 		}
 	}
 }
 
-// handleLogout, POST /api/auth/logout → 204; token'ın AİLESİ (o girişin tüm token'ları) ölür.
-// Token'ın sahibi olmak yeterli yetki: refresh token'ı bilen zaten o oturumu yenileyebilir,
-// öldürebilmesi de doğal.
-func handleLogout(svc authService) http.HandlerFunc {
+// logoutRevokeBackoff, çıkıştaki iptal denemeleri arasındaki bekleme süreleri (yani ilk
+// denemeden sonra 2 deneme daha).
+//
+// NEDEN SUNUCU KENDİ KENDİNİ ONARIYOR: aileyi öldürebilecek tek anahtar refresh token'ın
+// kendisi ve o an ona sahip olan İKİ taraf var — tarayıcıdaki httpOnly çerez ve elimizdeki
+// bu değişken. İstemci token'ı GÖREMEZ (JS'e kapalı), yalnızca "isteği tekrar at" diyebilir;
+// biz ise anında, bedavaya yeniden deneyebiliriz. Zaten context.WithoutCancel ile koşuyoruz,
+// yani istemci kopsa bile deneme sürer. Toplam bekleme (1,2 sn) aşağıdaki 5 sn'lik bütçenin
+// içinde kalır; DB'nin bir saniyelik sarsıntısı çoğu zaman burada yutulur.
+//
+// Sabit değil DEĞİŞKEN: handler testleri süreleri sıfırlayıp boşuna saniyelerce beklemesin.
+var logoutRevokeBackoff = []time.Duration{200 * time.Millisecond, time.Second}
+
+// sleepCtx, d kadar bekler ama ctx biterse ERKEN döner. Dönüş: bekleme tamamlandı mı
+// (false = bütçe doldu, yeniden denemenin anlamı yok). Düz time.Sleep, 5 sn'lik timeout
+// dolduktan sonra bile beklemeye devam ederdi.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// handleLogout, POST /api/auth/logout → 204; çerezdeki token'ın AİLESİ (o girişin tüm
+// token'ları) ölür. Token'ın sahibi olmak yeterli yetki: refresh token'ı bilen zaten o
+// oturumu yenileyebilir, öldürebilmesi de doğal.
+func handleLogout(svc authService, cookies cookieSettings) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, ok := readRefreshToken(w, r)
+		token, ok := readRefreshCookie(w, r, cookies)
 		if !ok {
+			// Çerezsiz çıkış geçerli bir istektir (istemci zaten düşmüş bir oturumu
+			// temizliyordur): 204, sessizce. Silme çerezini yine de yazıyoruz: BOZUK bir
+			// çerez (boş, çoklu, aşırı uzun) tarayıcıda kalırsa her istekte aynı yolu
+			// yeniden tetikler; öldürebileceğimiz bir aile de yok.
+			clearRefreshCookie(w, cookies)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if err := svc.Logout(r.Context(), token); err != nil {
+
+		// context.WithoutCancel: iptal işlemi, isteğin context'ine BAĞLI OLMAMALI. Tarayıcı
+		// sekmesi kapanırken atılan bir çıkış isteğinde bağlantı çoğu zaman cevap dönmeden
+		// kopar; r.Context() iptal olunca DB sorgusu yarıda kesilir ve oturum DB'de canlı
+		// kalırdı — yani "çıkış yaptım" diyen kullanıcının token'ı yaşamaya devam ederdi.
+		// Bağımsız 5 sn'lik timeout: context tamamen süresiz kalmasın (sızan goroutine yok).
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+		defer cancel()
+
+		var err error
+		attempts := 0
+		for {
+			attempts++
+			if err = svc.Logout(ctx, token); err == nil || attempts > len(logoutRevokeBackoff) {
+				break
+			}
+			if !sleepCtx(ctx, logoutRevokeBackoff[attempts-1]) {
+				break // bütçe doldu: elimizdeki hatayla devam
+			}
+		}
+
+		if err != nil {
+			// ÇEREZİ SİLMİYORUZ — handleRefresh'in 500'deki duruşunun aynısı, ama gerekçe
+			// daha sert: aile DB'de CANLI kaldı ve onu öldürebilecek tek anahtar tarayıcıdaki
+			// bu çerez. Silseydik istemcinin LOGOUT_PENDING yeniden denemesi ÇEREZSİZ giderdi;
+			// sunucu hiçbir şey iptal etmeden 204 der, istemci "çıkış tamam" sanıp bayrağı
+			// silerdi ve aile mutlak tavana (JWT_SESSION_MAX_AGE) kadar yaşardı — çalınmış bir
+			// çerez hâlâ işe yarardı. Yani iptal ASLA gerçekleşemezdi.
+			// ÖDÜNLEŞİM (bilerek): DB çökmüşken yapılan çıkış, o tarayıcıda hâlâ GEÇERLİ bir
+			// refresh çerezi bırakır (HttpOnly, Path=/api/auth, SameSite=Strict). Yerel arayüz
+			// zaten kapandı (HINT silindi); istemcinin yeniden denemeleri ve açılıştaki
+			// api.restore() denemesi artık gerçekten iptal edebilecek bir anahtarla gider.
+			//
+			// writeInternalError zaten "istek başarısız" satırı yazıyor; bu AYRI satır
+			// operatör içindir: ortada çıkıştan SAĞ ÇIKMIŞ bir oturum var. Token ASLA loglanmaz.
+			slog.Error("çıkışta oturum ailesi iptal edilemedi, oturum çıkıştan sağ çıktı",
+				"err", err,
+				"attempts", attempts,
+				"request_id", w.Header().Get(requestIDHeader),
+			)
 			writeInternalError(w, "Logout", err)
 			return
 		}
+		// Aile öldü: çerez artık ölü bir sırrı taşıyor, tarayıcıdan da sil.
+		clearRefreshCookie(w, cookies)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

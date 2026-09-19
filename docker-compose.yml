@@ -91,6 +91,16 @@ services:
       LOG_FORMAT: json
       # X-Real-IP'ye YALNIZCA NGINX konteynerinin sabit adresinden gelen isteklerde güven.
       TRUSTED_PROXIES: 172.28.0.10
+      # Refresh çerezinin Secure özniteliği (Faz 13). Varsayılan true ve lokalde de çalışır:
+      # Chrome/Firefox/curl http://localhost'u "güvenli bağlam" sayar. Safari'de düz HTTP ile
+      # sorun yaşarsan .env'de COOKIE_SECURE=false yap — YALNIZ lokal için.
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # Çerez adı (.env.example'daki açıklamaya bak): aynı makinede ikinci bir yığın (kind)
+      # çalıştırırken çakışmasın diye ayarlanabilir.
+      COOKIE_NAME: ${COOKIE_NAME:-bookhub_refresh}
+      # Auth rate limit'i dışarıdan ayarlanabilir yap: e2e koşusu (scripts/e2e.sh) bunu
+      # yükseltiyor, yoksa bir senaryo dizisi kendi kovasını tüketirdi. Varsayılan prod değeri.
+      AUTH_RATE_LIMIT_PER_MIN: ${AUTH_RATE_LIMIT_PER_MIN:-10}
     ports:
       - "127.0.0.1:8080:8080"
     # "container başladı" değil "Postgres bağlantı kabul ediyor" + "Redis PONG" bekle.

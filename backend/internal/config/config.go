@@ -33,6 +33,21 @@ type Config struct {
 	// tavanla en geç bu süre sonunda herkes (saldırgan dahil) yeniden parola girmek zorunda.
 	SessionMaxAge time.Duration
 
+	// CookieSecure: refresh çerezinin Secure özniteliği (tarayıcı çerezi YALNIZ HTTPS'le geri
+	// gönderir). Varsayılan true: güvenli olmayan bir varsayılan, prod'da unutulmayı bekleyen
+	// bir sızıntıdır. Chrome/Firefox/curl http://localhost'u zaten "güvenli bağlam" sayar →
+	// lokal compose'da da true çalışır; false YALNIZ lokal, ör. Safari'de düz HTTP ile deneme için.
+	CookieSecure bool
+
+	// CookieName: refresh çerezinin adı (varsayılan "bookhub_refresh").
+	//
+	// NEDEN AYARLANABİLİR: çerezler PORT'a göre değil HOST'a göre kapsanır (RFC 6265 §8.5) —
+	// localhost:3000 (compose), localhost:3001 (kind) ve localhost:5173 (vite) AYNI çerez
+	// kavanozunu paylaşır. Web Locks ve localStorage ise origin (port dahil) başınadır: iki
+	// yığın aynı adı kullansaydı biri diğerinin çerezini ezer, kilitler onları sıraya
+	// sokamazdı. Her yığına ayrı ad (kind: bookhub_refresh_k8s) bu çarpışmayı önler.
+	CookieName string
+
 	// RedisURL: OPSİYONEL. Boşsa cache kapalı (Noop) ve rate limit bellek içi — uygulama
 	// Redis'siz de doğru çalışır. Doluysa açılışta PING atılır (fail-fast).
 	RedisURL string
@@ -55,6 +70,11 @@ type Config struct {
 // minJWTSecretLen, auth.MinSecretLen ile aynı sınır. config'i auth'a bağımlı yapmamak için
 // burada tekrar ediliyor (config yaprak paket kalsın); auth da kendi içinde yeniden denetler.
 const minJWTSecretLen = 32
+
+// DefaultCookieName, COOKIE_NAME tanımsızken kullanılacak ad. Dışa açık (exported) çünkü
+// HTTP katmanı da aynı varsayılana yaslanıyor (bkz. cmd/api/router.go): iki yerde iki ayrı
+// sabit yazsaydık biri değişip diğeri unutulduğunda çerez sessizce "kaybolurdu".
+const DefaultCookieName = "bookhub_refresh"
 
 // Load, env'den ayarları okur, doğrular ve hazır bir Config döner.
 // Go'da özel "constructor" yoktur; konvansiyon: böyle bir Load()/NewXxx()
@@ -88,6 +108,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("geçersiz config: %w", err)
 	}
+	cookieSecure, err := getenvBool("COOKIE_SECURE", true)
+	if err != nil {
+		return Config{}, fmt.Errorf("geçersiz config: %w", err)
+	}
 
 	// Config{...} = "struct literal" (JS'teki nesne literali { } gibi).
 	cfg := Config{
@@ -99,6 +123,8 @@ func Load() (Config, error) {
 		AccessTokenTTL:  accessTTL,
 		RefreshTokenTTL: refreshTTL,
 		SessionMaxAge:   sessionMaxAge,
+		CookieSecure:    cookieSecure,
+		CookieName:      getenv("COOKIE_NAME", DefaultCookieName),
 		RatingMinVotes:  minVotes,
 		RedisURL:        os.Getenv("REDIS_URL"),
 		AuthRateLimit:   authLimit,
@@ -158,8 +184,50 @@ func (c *Config) validate() error {
 	if c.SessionMaxAge < c.RefreshTokenTTL {
 		return fmt.Errorf("JWT_SESSION_MAX_AGE (%s), JWT_REFRESH_TTL'den (%s) kısa olamaz", c.SessionMaxAge, c.RefreshTokenTTL)
 	}
+	if err := validateCookieName(c.CookieName, c.CookieSecure); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+// validateCookieName, COOKIE_NAME'i boot'ta denetler. NEDEN burada: geçersiz bir adla
+// net/http'nin SetCookie'si çerezi HATA DÖNMEDEN düşürür (yalnız bir log satırı basar) —
+// uygulama açılır, girişler 200 döner ama tarayıcıya hiçbir çerez gitmez ve kimse nedenini
+// anlamaz. Yanlış yazılmış bir değeri isteğin ortasında değil, açılışta yakala (fail-fast).
+func validateCookieName(name string, secure bool) error {
+	if !isCookieToken(name) {
+		return fmt.Errorf("COOKIE_NAME %q geçersiz: yalnız harf, rakam ve !#$%%&'*+-.^_`|~ karakterleri (RFC 6265 token)", name)
+	}
+	// Çerez ad önekleri (RFC 6265bis §4.1.3): tarayıcı bu önekli bir çerezi koşulları
+	// sağlanmıyorsa SESSİZCE reddeder. "__Host-" Path=/ ister — bizim çerezimiz Path=/api/auth
+	// (bilerek dar: yalnız auth uçlarına gitsin) → asla kaydedilmezdi. "__Secure-" Secure ister.
+	// Tarayıcılar öneki büyük/küçük harf duyarsız eşler.
+	lower := strings.ToLower(name)
+	if strings.HasPrefix(lower, "__host-") {
+		return fmt.Errorf("COOKIE_NAME %q kullanılamaz: __Host- öneki Path=/ ister, refresh çerezi Path=/api/auth", name)
+	}
+	if strings.HasPrefix(lower, "__secure-") && !secure {
+		return fmt.Errorf("COOKIE_NAME %q, COOKIE_SECURE=false ile kullanılamaz: __Secure- öneki Secure ister", name)
+	}
+	return nil
+}
+
+// isCookieToken: RFC 6265 §4.1.1 cookie-name = token (RFC 2616 §2.2): en az bir karakter;
+// her biri görünür ASCII (0x21-0x7E — boşluk, kontrol karakteri ve "ç" gibi ASCII dışı
+// karakterler YOK) ve ayraç (separator) değil. Ayraçlar Set-Cookie sözdizimini bozar:
+// "a=b" adı "a" + değeri "b" diye okunur, "a;b" iki ayrı parçaya bölünür.
+func isCookieToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b <= 0x20 || b >= 0x7f || strings.IndexByte(`()<>@,;:\"/[]?={}`, b) >= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // getenv, env değişkenini okur; yoksa (boşsa) verilen varsayılanı döner.
