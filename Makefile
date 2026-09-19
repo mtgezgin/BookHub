@@ -8,7 +8,7 @@ SHELL := /bin/bash
 ENV := set -a; . ./.env; set +a
 GO := go -C backend
 
-.PHONY: help up down app-up app-down logs run test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build web web-test k8s-up k8s-port k8s-status k8s-down
+.PHONY: help up down app-up app-down logs run test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build scan web web-test k8s-up k8s-port k8s-status k8s-down
 
 help: ## Hedefleri listele
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -74,6 +74,16 @@ perf-seed: ## Ayrı bookhub_perf DB'sine 20k kitap / ~200k oy (EXPLAIN ve yük t
 
 docker-build: ## API imajını derle
 	docker build -t bookhub-api:dev backend
+
+# Yayınlanan İKİ imajı bilinen açıklara karşı tara (CI'daki "images" işiyle aynı kural):
+# HIGH/CRITICAL ve düzeltmesi OLAN bir açık varsa başarısız. --ignore-unfixed: dağıtımın henüz
+# yama yayınlamadığı açık için yapacak bir şey yok, onunla kırılmak yalnızca gürültü.
+# trivy kurulumu: brew install trivy (ya da go install github.com/aquasecurity/trivy/cmd/trivy@latest)
+scan: ## İmajları Trivy ile tara (önce make app-up ya da docker compose build)
+	@for img in bookhub-api:dev bookhub-web:dev; do \
+		echo "▶ trivy $$img"; \
+		trivy image --scanners vuln --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 "$$img" || exit 1; \
+	done
 
 web: ## Frontend geliştirme sunucusu (http://localhost:5173; /api → localhost:8080)
 	cd frontend && npm install && npm run dev

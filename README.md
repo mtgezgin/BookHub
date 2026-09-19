@@ -55,6 +55,7 @@ make run         # API → http://localhost:8080
 make web         # frontend → http://localhost:5173 (/api → 8080)
 make test-db     # Go testleri (Postgres + Redis entegrasyonu dahil)
 make web-test    # frontend tip kontrolü + testler
+make scan        # yayınlanan imajları bilinen açıklara karşı tara (Trivy)
 make help        # tüm hedefler
 ```
 

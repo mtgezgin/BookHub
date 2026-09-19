@@ -1,5 +1,6 @@
 # CI — her push/PR'da: backend (birim + gerçek Postgres/Redis entegrasyon testleri + lint),
-# frontend (tip kontrolü + test + build) ve uçtan uca (tüm stack konteynerde + MVP smoke).
+# frontend (tip kontrolü + test + build), imaj taraması (Trivy) ve uçtan uca (tüm stack
+# konteynerde + MVP smoke).
 # Bu, lokalde yaptığımız kontrollerin sunucudaki güvenlik ağı hâlidir.
 # İmaj YAYINLAMA burada değil: release.yml (yalnız tag ya da elle tetiklenir).
 name: CI
@@ -110,6 +111,39 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npx vite build
+
+  # Yayınlanan İKİ imajı derleyip bilinen açıklara (CVE) karşı tara. Derleme aşamalarındaki
+  # paketler (node, npm, golang) son imaja girmez; taranan şey gerçekten dağıtılan içeriktir.
+  # Kural `make scan` ile aynı: HIGH/CRITICAL ve DÜZELTMESİ OLAN bir açık → iş kırmızı.
+  # ignore-unfixed: dağıtımın henüz yama yayınlamadığı açık için yapacak bir şey yok; onunla
+  # kırılmak gürültü olurdu. Action, commit SHA'sıyla sabitlendi (etiket taşınabilir, SHA taşınamaz).
+  images:
+    name: İmaj taraması (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the published images
+        run: |
+          docker build -t bookhub-api:dev backend
+          docker build -t bookhub-web:dev frontend
+      - name: Scan bookhub-api (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: bookhub-api:dev
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+      - name: Scan bookhub-web (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: bookhub-web:dev
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
 
   e2e:
     name: E2E (compose + MVP smoke)

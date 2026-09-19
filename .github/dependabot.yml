@@ -1,0 +1,51 @@
+# Dependabot — bağımlılık ve temel imaj güncellemelerini haftalık PR olarak getirir.
+#
+# NEDEN: Dockerfile'larda temel imajlar digest ile SABİTLENDİ (tekrarlanabilir, ele geçirilmiş
+# etikete karşı dayanıklı build). Bunun bedeli, güvenlik yamalarının artık "kendiliğinden"
+# gelmemesi: yeni bir node/nginx/golang imajı çıktığında digest'i biri güncellemeli. O "biri"
+# bu dosya. Aynı mantık Go modülleri, npm paketleri ve GitHub Actions için de geçerli.
+#
+# Her PR CI'dan geçer (testler + Trivy imaj taraması); yeşilse birleştirmek yeterli.
+version: 2
+updates:
+  # Temel imajlar: FROM ...@sha256 satırlarındaki digest'ler (ve etiketler) güncellenir.
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(api)"
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(web)"
+
+  # Go modülleri (go.mod / go.sum).
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(api)"
+
+  # npm (package-lock.json). Küçük (patch/minor) güncellemeler tek PR'da toplanır: React,
+  # Vite ve TypeScript'in her yamasına ayrı PR açılmasın.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(web)"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # CI'daki action sürümleri (actions/checkout@v4 gibi).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"

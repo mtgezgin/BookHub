@@ -8,7 +8,8 @@
 # imaj hızlı çekilir (WHY_GO_VS_TS §11'in ölçüldüğü yer).
 
 # ---------- Aşama 1: derleme ----------
-FROM golang:1.26-alpine AS build
+# Digest sabitleme: bkz. frontend/Dockerfile'daki açıklama (Dependabot haftalık günceller).
+FROM golang:1.26-alpine@sha256:51a7c389a5ddaf82f527191a1e9bff9928655130a44e4975dd1d7e0acf59f1ae AS build
 WORKDIR /src
 
 # Önce YALNIZCA go.mod/go.sum: bağımlılıklar kodun her değişiminde değil, yalnız bunlar
@@ -29,7 +30,7 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
 # distroless/static: yalnız CA sertifikaları, tzdata ve /etc/passwd — shell bile yok.
 # ":nonroot" etiketi süreci root OLMAYAN kullanıcıyla (uid 65532) çalıştırır: container'dan
 # kaçan bir saldırgan root yetkisi bulmaz.
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/api /out/manage /app/
 # SAYISAL uid (65532 = distroless'ın "nonroot" kullanıcısı): Kubernetes'in runAsNonRoot kontrolü
 # kullanıcıyı ADLA ("nonroot") görürse root olmadığını doğrulayamaz ve pod'u başlatmaz
