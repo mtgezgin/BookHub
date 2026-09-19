@@ -12,6 +12,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 5. [JWT nedir ve "algoritma sabitleme" neden en önemli satır?](#5-jwt-nedir-ve-algoritma-sabitleme-neden-en-önemli-satır)
 6. [User enumeration: generic mesaj YETMEZ, süre de eşit olmalı](#6-user-enumeration-generic-mesaj-yetmez-süre-de-eşit-olmalı)
 7. [Refresh token, rotasyon ve "çıkış yap" (stateless JWT iptal edilemez)](#7-refresh-token-rotasyon-ve-çıkış-yap-stateless-jwt-iptal-edilemez)
+8. [Refresh token yaşam döngüsü: sektör nasıl kurguluyor, BookHub nerede?](#8-refresh-token-yaşam-döngüsü-sektör-nasıl-kurguluyor-bookhub-nerede)
 
 ---
 
@@ -338,9 +339,111 @@ yeniden giriş yapar (**kapalı başarısızlık**). Ters sıra başarısızlık
 
 **Bilinen sınır:** "token ailesi" (reuse detection — eski bir token tekrar gelirse o ailenin tüm
 token'larını iptal et) yok; öğrenme projesi için bilinçli olarak dışarıda.
+*(Güncelleme — Faz 13: token ailesi, reuse tespiti ve mutlak oturum tavanı eklendi; bkz.
+[#8](#8-refresh-token-yaşam-döngüsü-sektör-nasıl-kurguluyor-bookhub-nerede).)*
 
 **🔗 İlgili:**
 - [backend/migrations/0002_users_auth.sql](../../backend/migrations/0002_users_auth.sql) — `refresh_tokens`
 - [backend/sql/queries/users.sql](../../backend/sql/queries/users.sql) — `ConsumeRefreshToken`
 - `TestConsumeRefreshTokenConcurrent` — [repository_integration_test.go](../../backend/internal/auth/repository_integration_test.go)
 - [database.md](database.md) — transaction / kilit notları
+
+---
+
+## 8. Refresh token yaşam döngüsü: sektör nasıl kurguluyor, BookHub nerede?
+
+**🗓️ Bağlam:** Faz 13'te refresh token'ı localStorage'dan httpOnly çereze taşıyıp token ailesi +
+reuse tespiti eklerken "bu genel-geçer bir kullanım mı, gerçek dünyadaki yazılımlarda refresh token
+yaşam döngüsü nasıl kurgulanıyor?" diye sordum. Cevabın sonunda "parola değişince tüm oturumları
+kapat" eksikliğini görüp onu da Faz 13'e ekletmeye karar verdim.
+
+**⚡ Kısa cevap:** Evet, standart model bu: **kısa ömürlü access token + her kullanımda değişen
+(rotasyonlu) refresh token + eski bir token tekrar gelirse o oturum soyunun (ailenin) tamamını
+iptal.** IETF'in OAuth güvenlik rehberi (RFC 9700, Ocak 2025) tarayıcı/mobil gibi sır
+saklayamayan istemciler için rotasyonu ya da token'ı cihaza bağlamayı (DPoP) şart koşuyor.
+Ama tek doğru değil: tek origin'li bir SPA + tek API için klasik sunucu oturumu çoğu zaman daha basit.
+
+**📖 Açıklama:**
+
+**Neden iki token?** Hızlı doğrulama ile iptal edebilmeyi aynı anda almak için:
+
+| | Access token | Refresh token |
+|---|---|---|
+| Ne zaman gider? | her API isteğinde | yalnız `/refresh` ucuna |
+| Nasıl doğrulanır? | imzası kontrol edilir, DB yok (**stateless**) | sunucudaki kayda bakılır (**stateful**) |
+| İptal edilebilir mi? | **hayır** — süresi dolana kadar geçerli | **evet** — kaydı silinir |
+| Tipik ömür | 5–15 dk | günler–haftalar |
+
+İptal edilemeyenin ömrü kısa tutulur; uzun yaşayan iptal edilebilir yapılır.
+
+**Yaşam döngüsü:**
+
+```
+Giriş ──► yeni aile F, T1 verilir
+            │  (15 dk sonra access biter)
+            ▼
+T1 ile /refresh ──► T1 "kullanıldı", T2 verilir      ← rotasyon
+            ▼
+T2 ile /refresh ──► T3 …
+            │
+            ├─ çıkış ───────────────────► F iptal (ailedeki her token ölür)
+            ├─ 7 gün hiç kullanılmadı ──► son token'ın süresi doldu (hareketsizlik)
+            ├─ girişten 30 gün geçti ────► mutlak tavan → yeniden giriş
+            ├─ parola değişti ───────────► kullanıcının TÜM aileleri iptal
+            └─ ESKİ bir T (T1) geri geldi ► biri çalmış demek → F iptal
+```
+
+Sektördeki 7 aşama:
+
+1. **Üretim** — kriptografik rastgele ve **opak** (JWT değil; içinde bilgi taşımaya gerek yok).
+   DB'de kendisi değil **hash'i** durur (bkz. #7).
+2. **İstemcide saklama** — tarayıcıda `HttpOnly` + `Secure` + `SameSite` çerez (JS okuyamaz);
+   mobilde iOS Keychain / Android Keystore. **localStorage önerilmez**: XSS'te script okuyup
+   dışarı taşır.
+3. **Rotasyon** — her yenilemede yenisi, eskisi "kullanıldı".
+4. **Reuse tespiti** — token çalındıysa hırsız da gerçek sahip de AYNI token'ı kullanacak.
+   İkinci kullanımı gören sunucu kimin hırsız olduğunu bilemez ama "sızıntı var" der ve aileyi
+   öldürür: ikisi de düşer, hırsızın elindeki yeni token da ölür (RFC 9700 §4.14.2). **Aile**,
+   kullanıcının tüm oturumları değil: tümünü kapatmak, eline eski bir token geçen herkese
+   kullanıcıyı her cihazdan tekrar tekrar atma gücü verirdi.
+5. **İki süre** — *hareketsizlik* (kayan pencere, kullandıkça uzar) + *mutlak* (ne olursa olsun
+   biter). Mutlak tavan yoksa aileyi ele geçiren, düzenli yenileyerek oturumu sonsuza dek taşır.
+6. **İptal olayları** — çıkış, reuse, **parola değişimi**, admin kilidi, "tüm cihazlardan çık".
+7. **Temizlik** — süresi dolmuş kayıtlar silinir, tablo sınırsız büyümez.
+
+**Büyük sağlayıcılar** (varsayılanlar sürüme/ayara göre değişebilir):
+
+| Sağlayıcı | Yaklaşım |
+|---|---|
+| Auth0 | rotasyon + otomatik reuse tespiti (aile iptali); mutlak ömür (30 gün) + hareketsizlik (15 gün); isteğe bağlı tolerans penceresi ("reuse interval") |
+| Okta | SPA'da rotasyon; eski token için tolerans penceresi ("grace period", varsayılan 30 sn) |
+| Microsoft Entra | SPA refresh token'ı 24 saat yaşar, her kullanımda döner |
+| Google | genelde rotasyon yok; uzun ömürlü, uzun süre kullanılmazsa ya da bazı durumlarda parola değişince ölür |
+| Keycloak | refresh token sunucudaki oturuma bağlı (boşta / en fazla süre); rotasyon isteğe bağlı ayar |
+
+**BookHub bu yelpazede nerede?**
+
+- **Auth0 modeline çok yakın:** rotasyon + aile iptali + 7 gün kayan + 30 gün mutlak.
+- **Tolerans penceresi 0 (bilinçli fark):** pencere açmak, yarışı birkaç saniye önce kazanan
+  hırsızın fark edilmemesine izin verir. Aynı tarayıcıdaki eşzamanlı yenilemeyi Web Locks
+  zaten sıraya koyuyor. Bedeli: nadiren gereksiz bir "oturum düştü".
+- **Kalan zayıflık:** access token hâlâ JS belleğinde → XSS onu en çok 15 dk kullanabilir (ama
+  uzun ömürlü sırrı — refresh token'ı — artık çalamaz). En sıkı tarayıcı modeli **BFF**
+  (Backend-for-Frontend): token'lar tarayıcıya hiç gelmez, yalnız oturum çerezi taşınır. Bizimki
+  "yarı-BFF".
+- **İleri seviye, yapılmadı:** **DPoP** (RFC 9449) — token'ı tarayıcıdaki dışarı çıkarılamayan bir
+  anahtara bağlar; çalınsa bile başka yerde işe yaramaz (RFC 9700'ün rotasyona alternatifi).
+- **Parola değişince tüm ailelerin iptali:** bu soru üzerine Faz 13'e eklendi (işlemi yapan cihaz
+  yeni bir aileyle girişli kalır, diğer her cihaz düşer).
+
+**Dürüst not — her zaman bu model mi?** Hayır. Tek origin'deki SPA + tek API için **klasik sunucu
+oturumu** (rastgele session id httpOnly çerezde, oturum Redis/DB'de — Rails/Django/Laravel
+varsayılanı) çoğu zaman daha basit ve aynı derecede güvenli: iptal anında, rotasyon/aile mantığı
+gerekmez. JWT + refresh modeli asıl değerini birden çok servis, mobil istemci ya da harici kimlik
+sağlayıcısı (OAuth) olduğunda gösterir. BookHub'da brief ve öğrenme amacıyla bu modeldeyiz.
+
+**🔗 İlgili:**
+- [#7 Refresh token, rotasyon ve "çıkış yap"](#7-refresh-token-rotasyon-ve-çıkış-yap-stateless-jwt-iptal-edilemez) — Faz 3'teki ilk hâli
+- [#5 JWT](#5-jwt-nedir-ve-algoritma-sabitleme-neden-en-önemli-satır) — access token'ın kendisi
+- [database.md](database.md) — kilit sırası / transaction notları (aile iptalinin eşzamanlılık tarafı)
+- RFC 9700 §4.14 (refresh token koruması), RFC 9449 (DPoP), IETF taslağı "OAuth 2.0 for Browser-Based Applications" (BFF)
