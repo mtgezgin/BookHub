@@ -9,6 +9,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 2. [CI'da gerçek veritabanı: servis konteynerleri ve uçtan uca iş](#2-cida-gerçek-veritabanı-servis-konteynerleri-ve-uçtan-uca-iş)
 3. [Reverse proxy: tek origin, gerçek istemci IP'si ve add_header tuzağı](#3-reverse-proxy-tek-origin-gerçek-istemci-ipsi-ve-add_header-tuzağı)
 4. [Kubernetes'in temel parçaları (ve deploy ederken çıkan iki hata)](#4-kubernetesin-temel-parçaları-ve-deploy-ederken-çıkan-iki-hata)
+5. [İmaj güvenlik açığı taraması: Trivy nedir, Docker Scout'tan neden farklı sayar?](#5-i̇maj-güvenlik-açığı-taraması-trivy-nedir-docker-scouttan-neden-farklı-sayar)
 
 ---
 
@@ -145,3 +146,83 @@ bir kez çalışıp biten migration → **Job**; hepsinin önünde sabit DNS ad�
 Redis'te olduğu için hangi kopyanın cevap verdiği fark etmiyor.
 
 **🔗 İlgili:** [deploy/k8s/](../../deploy/k8s/) · [Makefile](../../Makefile) (`k8s-*`)
+
+---
+
+## 5. İmaj güvenlik açığı taraması: Trivy nedir, Docker Scout'tan neden farklı sayar?
+
+**🗓️ Bağlam:** Faz 13'te VS Code'daki Docker DX eklentisi `frontend/Dockerfile`'ın `FROM`
+satırlarında *"The image contains 1 high vulnerability"* ve *"0C 4H 5M 0L"* uyarıları gösterdi.
+"Bunlar neden giderilmedi?" diye sordum — cevap: proje imajları hiç taramamıştı (ne CI'da ne
+yerelde; push kapısındaki güvenlik incelemesi kod diff'ine bakıyor, temel imajlara değil).
+Asistan Trivy ile inceleyince "trivy nedir, ne işe yarıyor?" diye sordum.
+
+**⚡ Kısa cevap:** Trivy, açık kaynaklı bir **güvenlik açığı tarayıcısı**: bir imajın (ya da dosya
+sisteminin/repo'nun) içindeki her yazılım parçasını listeler ve sürümlerini bilinen açık
+veritabanlarıyla karşılaştırır. `npm audit`'in "imajın içindeki HER ŞEY için" hâli.
+
+**📖 Açıklama:**
+
+**`npm audit` benzetmesi** — `npm audit`, `package-lock.json`'daki paketleri GitHub'ın açık
+veritabanıyla karşılaştırır. Trivy aynı işi tüm katmanlarda yapar:
+
+| Katman | `npm audit` | Trivy |
+|---|---|---|
+| npm paketleri | ✅ | ✅ (`node_modules`, `package-lock.json`) |
+| İşletim sistemi paketleri (Alpine `apk`, Debian `dpkg`) | ❌ | ✅ |
+| Go binary'sine gömülü modül listesi | ❌ | ✅ (`app/api`, `app/manage` satırları buradan) |
+| Python/Ruby/Java/Rust bağımlılıkları | ❌ | ✅ |
+| K8s/Terraform/Dockerfile yanlış yapılandırması | ❌ | ✅ (ayrı tarayıcı modu) |
+| Sızmış sır (API anahtarı vb.) | ❌ | ✅ (`--scanners secret`) |
+
+**Nasıl çalışır:**
+1. **Envanter (SBOM)** — imajın katmanlarını açar; `/lib/apk/db/installed`, `package.json`'lar,
+   Go binary'lerine gömülü modül bilgisi → "içindekiler listesi" (Software Bill of Materials).
+2. **Açık veritabanı** — ilk çalıştırmada indirilir (`~/.cache/trivy`): Alpine/Debian'ın kendi
+   güvenlik veritabanları, GitHub Advisory Database, NVD, Go vulnerability DB…
+3. **Eşleştirme** — "kurulu sürüm, açığın etkilediği aralıkta mı?" → **CVE** numarası, **CVSS**
+   şiddeti (LOW/MEDIUM/HIGH/CRITICAL), varsa **düzeltilmiş sürüm**.
+   Örnek satır: `HIGH CVE-2026-73566 tar 7.5.19 -> 7.5.21 [fixed]`.
+
+**Ne YAPMAZ (önemli):**
+- **Senin kodundaki hatayı bulmaz** — yalnız "bilinen açığı olan bağımlılık var mı?" sorusuna bakar.
+  Kendi kodun için `golangci-lint`/`gosec`/code review.
+- **Açığın gerçekten ulaşılabilir olduğunu bilmez** — kütüphanede açık olabilir ama sen o
+  fonksiyonu hiç çağırmıyor olabilirsin. Go için bunu `govulncheck` yapar (çağrı grafiğine bakar).
+- **Veritabanı kadar iyidir** — bugün gördüğümüz fark: Trivy, Alpine'ın kendi güvenlik
+  veritabanına göre nginx imajını temiz saydı; **Docker Scout** (Docker DX'in kullandığı) NVD
+  eşleşmelerini de sayıp "1 high" dedi. Aynı imaja iki tarayıcı iki farklı sayı verebilir; ikisi
+  de yalan söylemiyor, farklı kaynaklara güveniyorlar.
+
+**Bugün kullanılan komutlar:**
+```bash
+trivy image --scanners vuln --severity MEDIUM,HIGH,CRITICAL bookhub-web:dev   # yerel imaj
+trivy image --image-src remote --platform linux/arm64 node:24-alpine           # Docker'a ÇEKMEDEN
+trivy image --ignore-unfixed --exit-code 1 --severity HIGH,CRITICAL bookhub-api:dev  # CI ayarı
+```
+`--ignore-unfixed` neden: dağıtımın henüz yama yayınlamadığı bir açık için yapacak bir şey yok;
+CI'ı onunla kırmak yalnızca gürültü.
+
+**Bugünkü bulgular (ve ne yapıldı / neyin beklediği):**
+- `node:24-alpine` (**derleme aşaması**): 4H 5M = 9 CVE, hepsi npm'in **kendi içine gömdüğü**
+  paketlerde (`tar`, `undici`, `ip-address`, `brace-expansion`). Multi-stage build'in sonunda
+  node/npm yok → **yayınlanan imaja girmiyor**. `npm@latest` bile aynı sürümleri gömüyor →
+  uygulanabilir upstream düzeltmesi henüz yok; lock dosyası + bütünlük hash'leriyle kurulum
+  riski düşük tutuyor.
+- `nginx-unprivileged:stable-alpine` (**sunum**): Trivy 0, Scout 1H. `stable-alpine-slim`
+  hiç kullanmadığımız dinamik modülleri (geoip, image-filter, njs, xslt) ve kütüphanelerini
+  içermiyor: Scout 0H, 91 MB → 30 MB, 35 → 21 paket. Bizim NGINX ayarıyla denendi: `nginx -t`,
+  `/healthz` 200, healthcheck'in `wget`'i mevcut → **geçiş HENÜZ YAPILMADI**: `frontend/Dockerfile`
+  hâlâ `stable-alpine` kullanıyor. Deneme başarılı ama imaj değişikliği, oturum/çerez işiyle aynı
+  commit'e karışmasın diye ayrı bir `build(web):` commit'e bırakıldı (repo slim üstünde hiç build
+  edilmedi; geçişten önce `docker build` + `nginx -t` + `/healthz` + `wget` yeniden doğrulanacak).
+- Yayınlanan `bookhub-api:dev` ve `bookhub-web:dev`: Trivy 0.
+- Eksik olan asıl kontrol: **CI'da imaj taraması** (Trivy, HIGH/CRITICAL → iş kırmızı) + yerel
+  `make scan` + temel imajları **digest ile sabitleme** + **Dependabot** (sabitleme, güncelleme
+  otomasyonu olmadan güvenlik yamalarını dondurur).
+
+**🔗 İlgili:**
+- [#1 Multi-stage imaj](#1-multi-stage-docker-imajı-ve-distroless-neden-38-mb) — derleme aşaması
+  neden yayınlanmıyor
+- [frontend/Dockerfile](../../frontend/Dockerfile) · [.github/workflows/ci.yml](../../.github/workflows/ci.yml)
+- [security-and-auth.md](security-and-auth.md) — kod tarafındaki güvenlik notları
