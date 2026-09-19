@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -193,6 +197,74 @@ func TestHandleRefreshAndLogout(t *testing.T) {
 			t.Errorf("500 bekleniyordu: %d", rec.Code)
 		}
 	})
+}
+
+// TestHandleRefreshReuse (Faz 13): servis *auth.ReuseError dönerse (harcanmış bir refresh
+// token yeniden geldi, aile iptal edildi) istemci düz "geçersiz token" ile BİREBİR aynı cevabı
+// alır — aynı status, aynı gövde; farklı olsaydı saldırgana "bu token'ı biri zaten kullanmış"
+// diyen bir kâhin olurdu. Operatör ise user_id/family_id/request_id taşıyan bir WARN görür;
+// token'ın kendisi loga ASLA düşmez. Düz geçersiz token WARN üretmez (gürültü olmasın).
+func TestHandleRefreshReuse(t *testing.T) {
+	const token = "calinmis-refresh-token-degeri"
+	send := func(err error) *httptest.ResponseRecorder {
+		t.Helper()
+		// Gerçek router: X-Request-Id'yi RequestID + requestLogger zinciri koyar.
+		return do(t, newRouter(deps{auth: &fakeAuth{err: err}}), http.MethodPost, "/api/auth/refresh", `{"refresh_token":"`+token+`"}`)
+	}
+	warnLines := func(buf *bytes.Buffer) []map[string]any {
+		t.Helper()
+		var out []map[string]any
+		for _, l := range logLines(t, buf) {
+			if l["level"] == "WARN" {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+
+	buf := captureLogs(t)
+	plain := send(auth.ErrInvalidToken)
+	if w := warnLines(buf); len(w) != 0 {
+		t.Errorf("düz geçersiz token WARN üretmemeli: %v", w)
+	}
+
+	buf.Reset()
+	reused := send(&auth.ReuseError{UserID: 7, FamilyID: 42})
+	if reused.Code != http.StatusUnauthorized || errorCode(t, reused) != "invalid_token" {
+		t.Fatalf("reuse → 401 invalid_token bekleniyordu: %d %s", reused.Code, reused.Body)
+	}
+	if reused.Body.String() != plain.Body.String() {
+		t.Errorf("reuse cevabı düz geçersiz token'la aynı olmalı (kâhin yok):\n reuse: %s\n düz:   %s", reused.Body, plain.Body)
+	}
+
+	// Ham logun anlık görüntüsü ayrıştırmadan ÖNCE alınır; aşağıdaki "loga düşmedi" iddiaları
+	// bu kopyaya bakar (tamponu okuyan bir yardımcıdan etkilenmesin).
+	raw := buf.String()
+	w := warnLines(buf)
+	if len(w) != 1 {
+		t.Fatalf("tam bir WARN satırı bekleniyordu, gelen %d: %s", len(w), raw)
+	}
+	id := reused.Header().Get(requestIDHeader)
+	if id == "" || w[0]["request_id"] != id {
+		t.Errorf("WARN, cevabın request_id'sini taşımalı: başlık=%q log=%v", id, w[0]["request_id"])
+	}
+	if w[0]["user_id"] != float64(7) || w[0]["family_id"] != float64(42) {
+		t.Errorf("WARN kullanıcı ve aileyi taşımalı: %v", w[0])
+	}
+	if strings.Contains(raw, token) {
+		t.Errorf("refresh token loga düşmemeli: %s", raw)
+	}
+	// Token'ın özeti (DB'deki token_hash) de loga düşmemeli — hangi kodlamayla yazılırsa yazılsın.
+	sum := sha256.Sum256([]byte(token))
+	for _, enc := range []string{
+		hex.EncodeToString(sum[:]),
+		base64.StdEncoding.EncodeToString(sum[:]),
+		base64.RawURLEncoding.EncodeToString(sum[:]),
+	} {
+		if strings.Contains(raw, enc) {
+			t.Errorf("refresh token özeti loga düşmemeli (%s): %s", enc, raw)
+		}
+	}
 }
 
 // TestMeThroughRouter: /api/auth/me gerçek router + requireAuth zinciriyle.

@@ -126,8 +126,8 @@ func createAdmin(ctx context.Context, args []string, stdin io.Reader, stdout io.
 	}
 	defer pool.Close()
 
-	// Token yöneticisi gerekmiyor (EnsureAdmin token üretmez) → nil.
-	svc := auth.NewService(auth.NewRepository(pool), nil, 0)
+	// Token yöneticisi ve süreler gerekmiyor (EnsureAdmin oturum açmaz) → nil / sıfır.
+	svc := auth.NewService(auth.NewRepository(pool), nil, 0, 0)
 	u, created, err := svc.EnsureAdmin(ctx, *email, *name, password)
 	if err != nil {
 		return fmt.Errorf("admin oluşturulamadı: %w", err)

@@ -56,9 +56,11 @@ func toUser(u db.User) User {
 
 // Session, başarılı bir giriş/yenilemenin çıktısı.
 type Session struct {
-	AccessToken      string
-	AccessExpiresAt  time.Time
-	RefreshToken     string
+	AccessToken     string
+	AccessExpiresAt time.Time
+	RefreshToken    string
+	// RefreshExpiresAt, refresh token'ın GERÇEK bitişi: kayan pencere (refreshTTL) ailenin
+	// mutlak tavanına (sessionMaxAge) kırpılmış hâli.
 	RefreshExpiresAt time.Time
 	User             User
 }
@@ -70,10 +72,10 @@ type store interface {
 	UserByEmail(ctx context.Context, email string) (db.User, error)
 	UserByID(ctx context.Context, id int64) (db.User, error)
 	EnsureAdmin(ctx context.Context, email, displayName, passwordHash string) (db.User, bool, error)
-	SaveRefreshToken(ctx context.Context, userID int64, tokenHash []byte, expiresAt time.Time) error
-	ConsumeRefreshToken(ctx context.Context, tokenHash []byte) (int64, time.Time, error)
-	DeleteRefreshToken(ctx context.Context, tokenHash []byte) error
-	DeleteExpiredRefreshTokens(ctx context.Context, userID int64) error
+	StartRefreshFamily(ctx context.Context, userID int64, tokenHash []byte, tokenExp, familyExp time.Time) error
+	RotateRefreshToken(ctx context.Context, oldHash, newHash []byte, now, newExp time.Time) (Rotation, error)
+	RevokeRefreshFamily(ctx context.Context, tokenHash []byte, now time.Time) error
+	CleanupRefreshTokens(ctx context.Context, userID int64, now time.Time) error
 }
 
 // Service, projenin İLK servis katmanı. Kitap/tür CRUD'unda handler → repository yeterliydi
@@ -84,7 +86,11 @@ type Service struct {
 	store      store
 	tokens     *TokenManager
 	refreshTTL time.Duration
-	now        func() time.Time
+	// sessionMaxAge, bir girişin (refresh token AİLESİNİN) mutlak ömrü. refreshTTL kayan
+	// penceredir (her rotasyon onu yeniden başlatır); sessionMaxAge ise pencerenin asla
+	// geçemeyeceği tavan — çalınmış bir aile de en geç burada ölür.
+	sessionMaxAge time.Duration
+	now           func() time.Time
 
 	// Testler için enjekte edilebilir: hashCost testlerde bcrypt.MinCost olur (hız);
 	// compare, "kullanıcı yokken de karşılaştırma yapıldı mı" iddiasını ölçmek için.
@@ -93,15 +99,16 @@ type Service struct {
 }
 
 // NewService, üretim ayarlarıyla bir Service kurar ve zamanlama-eşitleme hash'ini ısıtır.
-func NewService(s store, tokens *TokenManager, refreshTTL time.Duration) *Service {
+func NewService(s store, tokens *TokenManager, refreshTTL, sessionMaxAge time.Duration) *Service {
 	dummyHash() // ilk "kullanıcı yok" girişi fazladan 250 ms beklemesin
 	return &Service{
-		store:      s,
-		tokens:     tokens,
-		refreshTTL: refreshTTL,
-		now:        time.Now,
-		hashCost:   bcryptCost,
-		compare:    bcrypt.CompareHashAndPassword,
+		store:         s,
+		tokens:        tokens,
+		refreshTTL:    refreshTTL,
+		sessionMaxAge: sessionMaxAge,
+		now:           time.Now,
+		hashCost:      bcryptCost,
+		compare:       bcrypt.CompareHashAndPassword,
 	}
 }
 
@@ -219,50 +226,69 @@ func (s *Service) Login(ctx context.Context, email, password string) (Session, e
 		return Session{}, fmt.Errorf("parola karşılaştırılamadı (user %d): %w", u.ID, err)
 	}
 
-	// Sınırlı temizlik: tablo sınırsız büyümesin diye girişte kullanıcının süresi
-	// dolmuş token'larını süpür.
-	if err := s.store.DeleteExpiredRefreshTokens(ctx, u.ID); err != nil {
+	// Sınırlı temizlik: tablo sınırsız büyümesin diye girişte kullanıcının ölü ailelerini ve
+	// süresi dolmuş token'larını süpür.
+	now := s.now()
+	if err := s.store.CleanupRefreshTokens(ctx, u.ID, now); err != nil {
 		return Session{}, err
 	}
-	return s.newSession(ctx, u)
+
+	// Her giriş YENİ bir aile açar (bir cihaz/tarayıcı = bir aile): bir cihazdaki reuse iptali
+	// diğer cihazların oturumlarına dokunmaz. İlk token'ın bitişi de mutlak tavanı geçemez
+	// (config sessionMaxAge >= refreshTTL'yi zorlar; min yine de derinlemesine savunma).
+	//
+	// rand.Text: crypto/rand'dan 128 bit (26 karakter base32) — tahmin edilemez.
+	// Kendi "rastgele" string üretecini yazmak (math/rand, zaman damgası, uuid v1)
+	// oturum çalmanın klasik kapısıdır.
+	refresh := rand.Text()
+	familyExp := now.Add(s.sessionMaxAge)
+	refreshExp := earliest(now.Add(s.refreshTTL), familyExp)
+	if err := s.store.StartRefreshFamily(ctx, u.ID, hashRefreshToken(refresh), refreshExp, familyExp); err != nil {
+		return Session{}, err
+	}
+	return s.session(u, refresh, refreshExp)
 }
 
-// Refresh, refresh token'ı TEK KULLANIMLIK olarak tüketir ve yeni bir çift verir
+// Refresh, refresh token'ı TEK KULLANIMLIK olarak harcar ve aynı ailede yeni bir çift verir
 // (rotasyon). Eski token artık geçersizdir: çalınmış bir refresh token'ın ömrü, gerçek
 // sahibinin bir sonraki yenilemesiyle biter.
 //
-// Tüketme ve yenisini kaydetme aynı transaction'da değil: kayıt başarısız olursa
-// kullanıcı yeniden giriş yapmak zorunda kalır. Bu KAPALI hata (fail-closed) — ters
-// sıra (önce kaydet, sonra tüket) başarısızlıkta iki geçerli token bırakırdı.
+// Harcanmış bir token İKİNCİ kez gelirse (reuse) repository ailenin tamamını öldürür ve
+// *ReuseError döner. Onu OLDUĞU GİBİ yukarı veriyoruz: ErrInvalidToken'ı sardığı için istemci
+// düz "geçersiz token" görür (kâhin yok), handler ise errors.As ile güvenlik uyarısı loglar.
+//
+// Harcama ile halefin kaydı TEK transaction'da (bkz. RotateRefreshToken): kayıt başarısız
+// olursa harcama da geri alınır — ne iki canlı token ne de halefsiz harcanmış bir token kalır.
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (Session, error) {
-	userID, expiresAt, err := s.store.ConsumeRefreshToken(ctx, hashRefreshToken(refreshToken))
+	now := s.now()
+	next := rand.Text()
+	rot, err := s.store.RotateRefreshToken(ctx, hashRefreshToken(refreshToken), hashRefreshToken(next), now, now.Add(s.refreshTTL))
 	if errors.Is(err, errRefreshNotFound) {
 		return Session{}, ErrInvalidToken
 	}
 	if err != nil {
-		return Session{}, err
-	}
-	if !s.now().Before(expiresAt) {
-		return Session{}, ErrInvalidToken
+		return Session{}, err // *ReuseError dahil: ErrInvalidToken'ı sarar
 	}
 
 	// Kullanıcıyı DB'den TAZE oku: rolü değiştiyse (admin'likten alındıysa) yeni access
 	// token eski rolü taşımasın.
-	u, err := s.store.UserByID(ctx, userID)
+	u, err := s.store.UserByID(ctx, rot.UserID)
 	if errors.Is(err, ErrUserNotFound) {
 		return Session{}, ErrInvalidToken
 	}
 	if err != nil {
 		return Session{}, err
 	}
-	return s.newSession(ctx, u)
+	// RefreshExpiresAt = halefin GERÇEK (tavanlı) bitişi, "now+refreshTTL" değil.
+	return s.session(u, next, rot.ExpiresAt)
 }
 
-// Logout, refresh token'ı siler. İdempotent: bilinmeyen token da "başarılı" sayılır —
-// "çıkış yaptım mı?" sorusunun cevabı her durumda evet, ve cevap token'ın var olup
-// olmadığını sızdırmaz. Access token ~15 dk içinde kendiliğinden ölür (stateless).
+// Logout, refresh token'ın AİLESİNİ öldürür (yalnız sunulan token'ı değil: aynı girişin eski
+// bir kopyası çıkıştan sonra yaşamasın). İdempotent: bilinmeyen token da "başarılı" sayılır —
+// "çıkış yaptım mı?" sorusunun cevabı her durumda evet, ve cevap token'ın var olup olmadığını
+// sızdırmaz. Access token ~15 dk içinde kendiliğinden ölür (stateless).
 func (s *Service) Logout(ctx context.Context, refreshToken string) error {
-	return s.store.DeleteRefreshToken(ctx, hashRefreshToken(refreshToken))
+	return s.store.RevokeRefreshFamily(ctx, hashRefreshToken(refreshToken), s.now())
 }
 
 // Me, token'daki kullanıcının güncel bilgisini döner.
@@ -293,22 +319,12 @@ func (s *Service) EnsureAdmin(ctx context.Context, email, displayName, password 
 	return toUser(u), created, nil
 }
 
-// newSession, access token üretir ve yeni bir refresh token kaydeder.
-func (s *Service) newSession(ctx context.Context, u db.User) (Session, error) {
+// session, KAYDEDİLMİŞ bir refresh token için access token üretir ve oturumu toplar.
+func (s *Service) session(u db.User, refresh string, refreshExp time.Time) (Session, error) {
 	access, accessExp, err := s.tokens.Issue(u.ID, u.Role)
 	if err != nil {
 		return Session{}, err
 	}
-
-	// rand.Text: crypto/rand'dan 128 bit (26 karakter base32) — tahmin edilemez.
-	// Kendi "rastgele" string üretecini yazmak (math/rand, zaman damgası, uuid v1)
-	// oturum çalmanın klasik kapısıdır.
-	refresh := rand.Text()
-	refreshExp := s.now().Add(s.refreshTTL)
-	if err := s.store.SaveRefreshToken(ctx, u.ID, hashRefreshToken(refresh), refreshExp); err != nil {
-		return Session{}, err
-	}
-
 	return Session{
 		AccessToken:      access,
 		AccessExpiresAt:  accessExp,
@@ -316,6 +332,14 @@ func (s *Service) newSession(ctx context.Context, u db.User) (Session, error) {
 		RefreshExpiresAt: refreshExp,
 		User:             toUser(u),
 	}, nil
+}
+
+// earliest, iki zamandan önce geleni döner (bitişi tavana kırpmak için).
+func earliest(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
 }
 
 // hashRefreshToken: DB'de token'ın kendisi değil SHA-256'sı durur (bkz. migration 0002).

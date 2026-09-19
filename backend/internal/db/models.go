@@ -72,11 +72,21 @@ type Rating struct {
 }
 
 type RefreshToken struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`
-	TokenHash []byte    `json:"token_hash"`
-	ExpiresAt time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        int64      `json:"id"`
+	UserID    int64      `json:"user_id"`
+	TokenHash []byte     `json:"token_hash"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	CreatedAt time.Time  `json:"created_at"`
+	FamilyID  int64      `json:"family_id"`
+	UsedAt    *time.Time `json:"used_at"`
+}
+
+type RefreshTokenFamily struct {
+	ID                int64      `json:"id"`
+	UserID            int64      `json:"user_id"`
+	CreatedAt         time.Time  `json:"created_at"`
+	AbsoluteExpiresAt time.Time  `json:"absolute_expires_at"`
+	RevokedAt         *time.Time `json:"revoked_at"`
 }
 
 type User struct {

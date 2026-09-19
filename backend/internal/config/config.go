@@ -27,6 +27,11 @@ type Config struct {
 	JWTSecret       string
 	AccessTokenTTL  time.Duration // kısa: çalınan access token'ın ömrü bu kadar
 	RefreshTokenTTL time.Duration // uzun: kullanıcı bu süre boyunca tekrar giriş yapmaz
+	// SessionMaxAge: bir girişin (refresh token ailesinin) MUTLAK ömrü. RefreshTokenTTL kayan
+	// bir penceredir — her rotasyon onu yeniden başlatır, aktif bir oturum hiç bitmezdi.
+	// Tavan olmasa, çalınan token'la yarışı önce kazanan saldırgan aileyi sonsuza dek taşırdı;
+	// tavanla en geç bu süre sonunda herkes (saldırgan dahil) yeniden parola girmek zorunda.
+	SessionMaxAge time.Duration
 
 	// RedisURL: OPSİYONEL. Boşsa cache kapalı (Noop) ve rate limit bellek içi — uygulama
 	// Redis'siz de doğru çalışır. Doluysa açılışta PING atılır (fail-fast).
@@ -67,6 +72,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("geçersiz config: %w", err)
 	}
+	sessionMaxAge, err := getenvDuration("JWT_SESSION_MAX_AGE", 30*24*time.Hour)
+	if err != nil {
+		return Config{}, fmt.Errorf("geçersiz config: %w", err)
+	}
 	minVotes, err := getenvInt("RATING_MIN_VOTES", 10)
 	if err != nil {
 		return Config{}, fmt.Errorf("geçersiz config: %w", err)
@@ -89,6 +98,7 @@ func Load() (Config, error) {
 		JWTSecret:       os.Getenv("JWT_SECRET"), // varsayılan YOK: zayıf bir varsayılan, hiç olmamasından kötüdür
 		AccessTokenTTL:  accessTTL,
 		RefreshTokenTTL: refreshTTL,
+		SessionMaxAge:   sessionMaxAge,
 		RatingMinVotes:  minVotes,
 		RedisURL:        os.Getenv("REDIS_URL"),
 		AuthRateLimit:   authLimit,
@@ -138,6 +148,15 @@ func (c *Config) validate() error {
 	}
 	if c.AccessTokenTTL >= c.RefreshTokenTTL {
 		return fmt.Errorf("JWT_ACCESS_TTL (%s), JWT_REFRESH_TTL'den (%s) kısa olmalı", c.AccessTokenTTL, c.RefreshTokenTTL)
+	}
+	// Tavan pencereden kısa olsaydı JWT_REFRESH_TTL yalan söylerdi: her token tavanda ölür ve
+	// ayar etkisiz kalırdı. Yanlış yazılmış bir değeri (ör. 720h yerine 72h) boot'ta yakala.
+	// EŞİTLİK serbest: "kayan pencere yok, her giriş tam N gün" de geçerli bir politika.
+	if c.SessionMaxAge <= 0 {
+		return fmt.Errorf("JWT_SESSION_MAX_AGE pozitif olmalı, gelen %s", c.SessionMaxAge)
+	}
+	if c.SessionMaxAge < c.RefreshTokenTTL {
+		return fmt.Errorf("JWT_SESSION_MAX_AGE (%s), JWT_REFRESH_TTL'den (%s) kısa olamaz", c.SessionMaxAge, c.RefreshTokenTTL)
 	}
 
 	return nil

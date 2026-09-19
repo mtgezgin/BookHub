@@ -17,9 +17,30 @@ import (
 var (
 	ErrEmailTaken   = errors.New("bu e-posta zaten kayıtlı")
 	ErrUserNotFound = errors.New("kullanıcı bulunamadı")
-	// errRefreshNotFound dışarı açılmaz: servis onu ErrInvalidToken'a çevirir.
+	// errRefreshNotFound dışarı açılmaz: servis onu ErrInvalidToken'a çevirir. "Bulunamadı"
+	// geniş anlamlı: token yok, süresi dolmuş, ailesi iptal edilmiş ya da mutlak tavanı geçmiş —
+	// istemcinin yapacağı hepsinde aynı (yeniden giriş), nedeni ona söylemiyoruz.
 	errRefreshNotFound = errors.New("refresh token bulunamadı")
 )
+
+// ReuseError, KULLANILMIŞ bir refresh token'ın yeniden sunulduğunu söyler (reuse = çalınma
+// belirtisi). Döndüğü anda ailenin tamamı zaten iptal edilmiş ve COMMIT edilmiştir.
+//
+// Neden ayrı bir tip: handler bu olayı güvenlik uyarısı olarak loglamak ister (errors.As ile
+// kimin, hangi ailesi). Ama istemciye giden cevap düz "geçersiz token" ile BİREBİR aynı olmalı —
+// farklı bir kod/mesaj, saldırgana "bu token'ı biri zaten kullanmış" diye bilgi sızdıran bir
+// kâhin (oracle) olurdu. Unwrap → ErrInvalidToken sayesinde errors.Is(err, ErrInvalidToken)
+// kontrolü yapan her yer onu kendiliğinden 401'e çevirir.
+type ReuseError struct {
+	UserID   int64
+	FamilyID int64
+}
+
+func (e *ReuseError) Error() string {
+	return fmt.Sprintf("kullanılmış refresh token yeniden sunuldu: kullanıcı %d, aile %d iptal edildi", e.UserID, e.FamilyID)
+}
+
+func (e *ReuseError) Unwrap() error { return ErrInvalidToken }
 
 // usersEmailKey, email UNIQUE kısıtının Postgres'in verdiği adı.
 const usersEmailKey = "users_email_key"
@@ -98,41 +119,187 @@ func (r *Repository) EnsureAdmin(ctx context.Context, email, displayName, passwo
 	return user, created, nil
 }
 
-func (r *Repository) SaveRefreshToken(ctx context.Context, userID int64, tokenHash []byte, expiresAt time.Time) error {
-	err := r.q.CreateRefreshToken(ctx, db.CreateRefreshTokenParams{
-		UserID:    userID,
-		TokenHash: tokenHash,
-		ExpiresAt: expiresAt,
+// Rotation, başarılı bir rotasyonun sonucu: halef token kimin, hangi ailede, ne zaman ölüyor.
+type Rotation struct {
+	UserID   int64
+	FamilyID int64
+	// ExpiresAt, halefin GERÇEK bitişi: min(istenen bitiş, ailenin mutlak tavanı). Servis bunu
+	// olduğu gibi istemciye verir — istemci tavanı aşan bir süre görüp yanılmasın.
+	ExpiresAt time.Time
+}
+
+// StartRefreshFamily, yeni bir giriş için aile açar ve ilk token'ını kaydeder (tek tx: token'sız
+// aile ya da ailesiz token kalmaz). familyExp ailenin MUTLAK tavanıdır; tokenExp'i servis
+// min(now+refreshTTL, familyExp) olarak hesaplar.
+func (r *Repository) StartRefreshFamily(ctx context.Context, userID int64, tokenHash []byte, tokenExp, familyExp time.Time) error {
+	return database.WithTx(ctx, r.conn, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		familyID, err := q.CreateRefreshFamily(ctx, db.CreateRefreshFamilyParams{UserID: userID, AbsoluteExpiresAt: familyExp})
+		if err != nil {
+			return fmt.Errorf("refresh token ailesi açılamadı: %w", err)
+		}
+		err = q.CreateRefreshToken(ctx, db.CreateRefreshTokenParams{
+			UserID:    userID,
+			FamilyID:  familyID,
+			TokenHash: tokenHash,
+			ExpiresAt: tokenExp,
+		})
+		if err != nil {
+			return fmt.Errorf("refresh token kaydedilemedi: %w", err)
+		}
+		return nil
+	})
+}
+
+// RotateRefreshToken, eski token'ı HARCAR (used_at) ve aynı ailede bir halef kaydeder — hepsi
+// TEK transaction'da. Saat (now) parametre: süre kararları servisin tek saatiyle verilir.
+//
+// Adımlar ve NEDENLERİ (sıra önemli — bkz. users.sql'deki kilit sırası değişmezi):
+//
+//	a. token'ın ailesini KİLİTSİZ bul (family_id asla değişmez).
+//	b. aileyi FOR UPDATE kilitle; iptal edilmiş ya da mutlak tavanı geçmişse → bulunamadı.
+//	   Aynı ailedeki her rotasyon/iptal burada sıraya girer: iki eşzamanlı rotasyondan ikincisi,
+//	   birincinin commit'ini bekler ve token'ı "kullanılmış" görür.
+//	c. token'ı işaretle (yalnız used_at NULL ise). 0 satır + token duruyor + used_at dolu =
+//	   REUSE → aileyi öldür, COMMIT et, *ReuseError dön.
+//	d. süresi dolmuşsa → bulunamadı (rollback: used_at işareti de geri alınır).
+//	e. halefi kaydet; bitişi ailenin mutlak tavanını geçemez.
+//
+// Tek transaction neden: "harca" ile "halefi kaydet" arasında bir hata olursa ikisi birden geri
+// alınır — ne halefsiz harcanmış bir token (kullanıcı sebepsiz düşer) ne de iki canlı token kalır.
+func (r *Repository) RotateRefreshToken(ctx context.Context, oldHash, newHash []byte, now, newExp time.Time) (Rotation, error) {
+	var (
+		rot   Rotation
+		reuse *ReuseError
+	)
+	err := database.WithTx(ctx, r.conn, func(tx pgx.Tx) error {
+		q := db.New(tx)
+
+		// (a)
+		familyID, err := q.GetRefreshTokenFamily(ctx, oldHash)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errRefreshNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("refresh token okunamadı: %w", err)
+		}
+
+		// (b) ÖNCE aile (ebeveyn) — token satırına ancak aile kilidi elimizdeyken dokunuyoruz.
+		fam, err := q.LockRefreshFamily(ctx, familyID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errRefreshNotFound // aile bu arada silindi (temizlik / kullanıcı silme)
+		}
+		if err != nil {
+			return fmt.Errorf("refresh token ailesi kilitlenemedi: %w", err)
+		}
+		if fam.RevokedAt != nil || !now.Before(fam.AbsoluteExpiresAt) {
+			return errRefreshNotFound
+		}
+
+		// (c) SONRA token.
+		tok, err := q.MarkRefreshTokenUsed(ctx, db.MarkRefreshTokenUsedParams{Now: now, TokenHash: oldHash})
+		if errors.Is(err, pgx.ErrNoRows) {
+			usedAt, err := q.GetRefreshTokenUsedAt(ctx, oldHash)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return errRefreshNotFound
+			}
+			if err != nil {
+				return fmt.Errorf("refresh token okunamadı: %w", err)
+			}
+			if usedAt == nil {
+				// Aile kilidi elimizdeyken "duruyor, kullanılmamış ama işaretlenemedi" olamaz;
+				// yine de olursa KAPALI başarısız ol (token'ı geçerli sayma).
+				return errRefreshNotFound
+			}
+			// REUSE. Hangisinin hırsız olduğunu bilemeyiz → ailenin tamamı ölür.
+			if err := revokeFamily(ctx, q, familyID, now); err != nil {
+				return err
+			}
+			// TUZAK: burada hatayı DÖNMÜYORUZ. WithTx, closure hata dönerse ROLLBACK eder — iptal
+			// de geri alınırdı ve "tespit ettik" dediğimiz aile yaşamaya devam ederdi. Sonucu
+			// dıştaki değişkene yazıp nil dönüyoruz (COMMIT); hatayı WithTx'ten SONRA veriyoruz.
+			reuse = &ReuseError{UserID: fam.UserID, FamilyID: familyID}
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("refresh token kullanılamadı: %w", err)
+		}
+
+		// (d) Süre kontrolü işaretten SONRA ama aynı tx'te: süresi dolmuş token'ı geri çeviririz
+		// ve rollback used_at'i de siler (süresi dolmuş token "harcanmış" sayılmaz).
+		if !now.Before(tok.ExpiresAt) {
+			return errRefreshNotFound
+		}
+
+		// (e) Halef. Kayan pencere (newExp) ailenin mutlak tavanını geçemez.
+		exp := earliest(newExp, fam.AbsoluteExpiresAt)
+		err = q.CreateRefreshToken(ctx, db.CreateRefreshTokenParams{
+			UserID:    tok.UserID,
+			FamilyID:  familyID,
+			TokenHash: newHash,
+			ExpiresAt: exp,
+		})
+		if err != nil {
+			return fmt.Errorf("yeni refresh token kaydedilemedi: %w", err)
+		}
+		rot = Rotation{UserID: tok.UserID, FamilyID: familyID, ExpiresAt: exp}
+		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("refresh token kaydedilemedi: %w", err)
+		return Rotation{}, err
+	}
+	if reuse != nil {
+		return Rotation{}, reuse
+	}
+	return rot, nil
+}
+
+// RevokeRefreshFamily, token'ın AİLESİNİN tamamını öldürür (çıkış). İdempotent: bilinmeyen
+// token nil döner. Yalnız sunulan token'ı değil aileyi öldürmek neden: aynı oturumun eski bir
+// kopyası (ör. çalınmış ve zaten döndürülmüş) çıkıştan sonra yaşamasın.
+func (r *Repository) RevokeRefreshFamily(ctx context.Context, tokenHash []byte, now time.Time) error {
+	return database.WithTx(ctx, r.conn, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		familyID, err := q.GetRefreshTokenFamily(ctx, tokenHash)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("refresh token okunamadı: %w", err)
+		}
+		return revokeFamily(ctx, q, familyID, now)
+	})
+}
+
+// revokeFamily, aileyi öldürür: ÖNCE aile satırı (UPDATE onu kilitler), SONRA token'lar.
+//
+// Sıra neden hayati: aynı anda bir rotasyon aile kilidini tutuyor ve halef token'ını yazıyor
+// olabilir. UPDATE o kilidi bekler; rotasyon commit edince DELETE YENİ bir anlık görüntüyle
+// koşar ve halefi de görüp siler. Ters sırada DELETE, halefi henüz görmeyen eski bir anlık
+// görüntüyle koşardı → halef hayatta kalır, "öldürülmüş" aile yaşamaya devam ederdi
+// (repository_integration_test.go'daki kilit testi bunu deterministik olarak yakalar).
+func revokeFamily(ctx context.Context, q *db.Queries, familyID int64, now time.Time) error {
+	if err := q.RevokeRefreshFamily(ctx, db.RevokeRefreshFamilyParams{ID: familyID, Now: now}); err != nil {
+		return fmt.Errorf("refresh token ailesi iptal edilemedi: %w", err)
+	}
+	if err := q.DeleteRefreshFamilyTokens(ctx, familyID); err != nil {
+		return fmt.Errorf("ailenin refresh token'ları silinemedi: %w", err)
 	}
 	return nil
 }
 
-// ConsumeRefreshToken, token'ı atomik olarak siler ve sahibini + bitişini döner.
-// Aynı token'la gelen ikinci çağrı errRefreshNotFound alır (tek kullanımlık).
-func (r *Repository) ConsumeRefreshToken(ctx context.Context, tokenHash []byte) (int64, time.Time, error) {
-	row, err := r.q.ConsumeRefreshToken(ctx, tokenHash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, time.Time{}, errRefreshNotFound
+// CleanupRefreshTokens, girişte kullanıcının ölü ailelerini ve canlı ailelerdeki süresi dolmuş
+// token'ları süpürür (ayrı bir zamanlanmış iş yerine bu bağlamda sınırlı, ucuz bir temizlik).
+//
+// İki deyim BİLEREK ayrı (transaction yok): her biri tek başına doğru ve tekrar çalıştırılabilir;
+// tek tx'e koymak yalnızca kilitleri daha uzun tutardı. Kilitli (o an işlem gören) aileler iki
+// adımda da ATLANIR — bkz. users.sql'deki SKIP LOCKED açıklamaları.
+func (r *Repository) CleanupRefreshTokens(ctx context.Context, userID int64, now time.Time) error {
+	if err := r.q.DeleteDeadRefreshFamilies(ctx, db.DeleteDeadRefreshFamiliesParams{UserID: userID, Now: now}); err != nil {
+		return fmt.Errorf("ölü refresh token aileleri silinemedi: %w", err)
 	}
-	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("refresh token kullanılamadı: %w", err)
-	}
-	return row.UserID, row.ExpiresAt, nil
-}
-
-func (r *Repository) DeleteRefreshToken(ctx context.Context, tokenHash []byte) error {
-	if err := r.q.DeleteRefreshToken(ctx, tokenHash); err != nil {
-		return fmt.Errorf("refresh token silinemedi: %w", err)
-	}
-	return nil
-}
-
-func (r *Repository) DeleteExpiredRefreshTokens(ctx context.Context, userID int64) error {
-	if err := r.q.DeleteExpiredRefreshTokens(ctx, userID); err != nil {
-		return fmt.Errorf("süresi dolmuş token'lar silinemedi: %w", err)
+	if err := r.q.DeleteExpiredRefreshTokens(ctx, db.DeleteExpiredRefreshTokensParams{UserID: userID, Now: now}); err != nil {
+		return fmt.Errorf("süresi dolmuş refresh token'lar silinemedi: %w", err)
 	}
 	return nil
 }

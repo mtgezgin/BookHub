@@ -14,23 +14,39 @@ import (
 )
 
 // memStore, store'un bellek içi sahtesi: gerçek DB'nin SÖZLEŞMESİNİ taklit eder
-// (tekil e-posta, tek kullanımlık token) ama SQL'siz. Sözleşmenin gerçek DB'de de
-// tuttuğunu repository_integration_test.go kanıtlıyor.
+// (tekil e-posta, token aileleri, tek kullanımlık token + reuse'da ailenin ölümü, mutlak
+// tavan) ama SQL'siz. Sözleşmenin gerçek DB'de — eşzamanlılık altında da — tuttuğunu
+// repository_integration_test.go kanıtlıyor. Tek mutex = her metot atomik (DB'deki tx gibi).
 type memStore struct {
-	mu      sync.Mutex
-	nextID  int64
-	users   map[int64]db.User
-	byEmail map[string]int64
-	tokens  map[string]memToken // anahtar: string(tokenHash)
+	mu       sync.Mutex
+	nextID   int64
+	users    map[int64]db.User
+	byEmail  map[string]int64
+	tokens   map[string]memToken // anahtar: string(tokenHash)
+	families map[int64]*memFamily
+	nextFam  int64
 }
 
 type memToken struct {
 	userID    int64
+	familyID  int64
 	expiresAt time.Time
+	used      bool
+}
+
+type memFamily struct {
+	userID      int64
+	absoluteExp time.Time
+	revoked     bool
 }
 
 func newMemStore() *memStore {
-	return &memStore{users: map[int64]db.User{}, byEmail: map[string]int64{}, tokens: map[string]memToken{}}
+	return &memStore{
+		users:    map[int64]db.User{},
+		byEmail:  map[string]int64{},
+		tokens:   map[string]memToken{},
+		families: map[int64]*memFamily{},
+	}
 }
 
 func (m *memStore) CreateUser(_ context.Context, email, name, hash string) (db.User, error) {
@@ -89,32 +105,112 @@ func (m *memStore) setRole(id int64, role string) {
 	m.users[id] = u
 }
 
-func (m *memStore) SaveRefreshToken(_ context.Context, userID int64, h []byte, exp time.Time) error {
+func (m *memStore) StartRefreshFamily(_ context.Context, userID int64, h []byte, tokenExp, familyExp time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.tokens[string(h)] = memToken{userID: userID, expiresAt: exp}
+	m.nextFam++
+	m.families[m.nextFam] = &memFamily{userID: userID, absoluteExp: familyExp}
+	m.tokens[string(h)] = memToken{userID: userID, familyID: m.nextFam, expiresAt: tokenExp}
 	return nil
 }
 
-func (m *memStore) ConsumeRefreshToken(_ context.Context, h []byte) (int64, time.Time, error) {
+// RotateRefreshToken, Repository.RotateRefreshToken'ın adımlarını AYNI sırayla taklit eder:
+// aile kontrolleri (iptal, tavan) → reuse → süre → halef (bitişi tavana kırpılır).
+func (m *memStore) RotateRefreshToken(_ context.Context, oldHash, newHash []byte, now, newExp time.Time) (Rotation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	tok, ok := m.tokens[string(h)]
+	tok, ok := m.tokens[string(oldHash)]
 	if !ok {
-		return 0, time.Time{}, errRefreshNotFound
+		return Rotation{}, errRefreshNotFound
 	}
-	delete(m.tokens, string(h))
-	return tok.userID, tok.expiresAt, nil
+	fam, ok := m.families[tok.familyID]
+	if !ok || fam.revoked || !now.Before(fam.absoluteExp) {
+		return Rotation{}, errRefreshNotFound
+	}
+	if tok.used {
+		m.revokeLocked(tok.familyID)
+		return Rotation{}, &ReuseError{UserID: fam.userID, FamilyID: tok.familyID}
+	}
+	if !now.Before(tok.expiresAt) {
+		return Rotation{}, errRefreshNotFound
+	}
+	tok.used = true
+	m.tokens[string(oldHash)] = tok
+	exp := earliest(newExp, fam.absoluteExp)
+	m.tokens[string(newHash)] = memToken{userID: tok.userID, familyID: tok.familyID, expiresAt: exp}
+	return Rotation{UserID: tok.userID, FamilyID: tok.familyID, ExpiresAt: exp}, nil
 }
 
-func (m *memStore) DeleteRefreshToken(_ context.Context, h []byte) error {
+func (m *memStore) RevokeRefreshFamily(_ context.Context, h []byte, _ time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.tokens, string(h))
+	if tok, ok := m.tokens[string(h)]; ok {
+		m.revokeLocked(tok.familyID)
+	}
 	return nil
 }
 
-func (m *memStore) DeleteExpiredRefreshTokens(context.Context, int64) error { return nil }
+// revokeLocked: aile ölür, token'larının hepsi silinir (m.mu tutuluyorken çağrılır).
+func (m *memStore) revokeLocked(familyID int64) {
+	if fam, ok := m.families[familyID]; ok {
+		fam.revoked = true
+	}
+	for k, tok := range m.tokens {
+		if tok.familyID == familyID {
+			delete(m.tokens, k)
+		}
+	}
+}
+
+// CleanupRefreshTokens: ölü aileler (iptal / tavan geçmiş / canlı token'sız) token'larıyla
+// gider; canlı ailelerdeki süresi dolmuş token'lar silinir (users.sql'deki iki DELETE).
+func (m *memStore) CleanupRefreshTokens(_ context.Context, userID int64, now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	live := map[int64]bool{}
+	for _, tok := range m.tokens {
+		if !tok.used && now.Before(tok.expiresAt) {
+			live[tok.familyID] = true
+		}
+	}
+	for id, fam := range m.families {
+		if fam.userID == userID && (fam.revoked || !now.Before(fam.absoluteExp) || !live[id]) {
+			m.revokeLocked(id)
+			delete(m.families, id)
+		}
+	}
+	for k, tok := range m.tokens {
+		if tok.userID == userID && !now.Before(tok.expiresAt) {
+			delete(m.tokens, k)
+		}
+	}
+	return nil
+}
+
+// familyOf, token'ın ailesini döner (testlerin "aile öldü mü" iddiaları için).
+func (m *memStore) familyOf(t *testing.T, raw string) (int64, memFamily) {
+	t.Helper()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	tok, ok := m.tokens[string(hashRefreshToken(raw))]
+	if !ok {
+		t.Fatalf("token deposunda yok")
+	}
+	return tok.familyID, *m.families[tok.familyID]
+}
+
+// familyTokens, ailede kalan token sayısı.
+func (m *memStore) familyTokens(familyID int64) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, tok := range m.tokens {
+		if tok.familyID == familyID {
+			n++
+		}
+	}
+	return n
+}
 
 // newTestService: hızlı bcrypt (MinCost) ve kontrol edilebilir saat.
 func newTestService(t *testing.T) (*Service, *memStore, *time.Time) {
@@ -125,13 +221,16 @@ func newTestService(t *testing.T) (*Service, *memStore, *time.Time) {
 	}
 	st := newMemStore()
 	now := time.Now()
-	s := NewService(st, tokens, 24*time.Hour)
+	s := NewService(st, tokens, 24*time.Hour, testSessionMaxAge)
 	s.hashCost = bcrypt.MinCost
 	s.now = func() time.Time { return now }
 	return s, st, &now
 }
 
 const goodPassword = "yeterince-uzun-parola"
+
+// testSessionMaxAge, testlerdeki oturum tavanı (refreshTTL 24 saat → tavan 7 gün).
+const testSessionMaxAge = 7 * 24 * time.Hour
 
 func TestRegisterValidation(t *testing.T) {
 	tests := []struct {
@@ -269,7 +368,7 @@ func TestLoginUnknownEmailStillCompares(t *testing.T) {
 }
 
 func TestRefreshRotation(t *testing.T) {
-	s, _, _ := newTestService(t)
+	s, _, now := newTestService(t)
 	ctx := context.Background()
 	if _, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword); err != nil {
 		t.Fatalf("Register: %v", err)
@@ -286,16 +385,147 @@ func TestRefreshRotation(t *testing.T) {
 	if second.RefreshToken == first.RefreshToken {
 		t.Error("refresh token döndürülmeli (rotasyon)")
 	}
-
-	// Eski token artık tüketildi: ikinci kullanım reddedilir.
-	if _, err := s.Refresh(ctx, first.RefreshToken); !errors.Is(err, ErrInvalidToken) {
-		t.Errorf("eski token reddedilmeli, gelen %v", err)
+	if second.User.ID != first.User.ID {
+		t.Errorf("yenilenen oturum aynı kullanıcının olmalı: %d ≠ %d", second.User.ID, first.User.ID)
 	}
+	// Tavan (7 gün) uzakta → halef tam refreshTTL (24 saat) yaşamalı, tavana kadar değil.
+	if want := now.Add(24 * time.Hour); !second.RefreshExpiresAt.Equal(want) {
+		t.Errorf("halef now+24s'te bitmeli, gelen now+%v", second.RefreshExpiresAt.Sub(*now))
+	}
+
+	// DAVRANIŞ DEĞİŞTİ (Faz 13, token aileleri): eskiden "eski token reddedilir, yenisi
+	// çalışmaya devam eder"i sırayla deniyorduk. Artık eski (harcanmış) token'ın ikinci
+	// kullanımı REUSE sayılır ve ailenin TAMAMINI öldürür — yenisi de ölür (bkz.
+	// TestRefreshReuseRevokesFamily). Bu yüzden önce yeni token'ı kullanıyoruz.
 	if _, err := s.Refresh(ctx, second.RefreshToken); err != nil {
 		t.Errorf("yeni token çalışmalı: %v", err)
 	}
-	if _, err := s.Refresh(ctx, "hic-verilmemis-token"); !errors.Is(err, ErrInvalidToken) {
-		t.Errorf("bilinmeyen token reddedilmeli, gelen %v", err)
+	if _, err := s.Refresh(ctx, first.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("eski token reddedilmeli, gelen %v", err)
+	}
+	_, err = s.Refresh(ctx, "hic-verilmemis-token")
+	var reuse *ReuseError
+	if !errors.Is(err, ErrInvalidToken) || errors.As(err, &reuse) {
+		t.Errorf("bilinmeyen token düz ErrInvalidToken ile reddedilmeli (reuse değil), gelen %v", err)
+	}
+}
+
+// TestRefreshReuseRevokesFamily: harcanmış bir token'ın İKİNCİ kullanımı *ReuseError döner
+// (ErrInvalidToken'ı sarar → istemci için düz 401) ve ailenin tamamını öldürür: meşru halef
+// de artık geçersiz. Hangisinin hırsız olduğunu bilemeyiz; ikisi de yeniden parola girer.
+// Aynı kullanıcının BAŞKA bir girişi (başka cihaz = başka aile) etkilenmez.
+func TestRefreshReuseRevokesFamily(t *testing.T) {
+	s, st, _ := newTestService(t)
+	ctx := context.Background()
+	u, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword)
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	first, err := s.Login(ctx, "ali@example.com", goodPassword)
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	otherDevice, err := s.Login(ctx, "ali@example.com", goodPassword)
+	if err != nil {
+		t.Fatalf("ikinci cihaz Login: %v", err)
+	}
+	familyID, _ := st.familyOf(t, first.RefreshToken)
+
+	second, err := s.Refresh(ctx, first.RefreshToken)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	// Saldırgan (ya da sahibi) eski kopyayı yeniden sunuyor.
+	_, err = s.Refresh(ctx, first.RefreshToken)
+	var reuse *ReuseError
+	if !errors.As(err, &reuse) {
+		t.Fatalf("*ReuseError bekleniyordu, gelen %v", err)
+	}
+	if !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("ReuseError ErrInvalidToken'ı sarmalı (istemci için aynı 401), gelen %v", err)
+	}
+	if reuse.UserID != u.ID || reuse.FamilyID != familyID {
+		t.Errorf("ReuseError kimliği: istenen user=%d family=%d, gelen %+v", u.ID, familyID, reuse)
+	}
+
+	if _, err := s.Refresh(ctx, second.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("reuse'dan sonra meşru halef de ölmeli, gelen %v", err)
+	}
+	if n := st.familyTokens(familyID); n != 0 {
+		t.Errorf("iptal edilen ailede token kalmamalı, %d var", n)
+	}
+	if !st.families[familyID].revoked {
+		t.Error("aile iptal edilmiş olarak işaretlenmeli")
+	}
+	if _, err := s.Refresh(ctx, otherDevice.RefreshToken); err != nil {
+		t.Errorf("başka bir giriş (başka aile) etkilenmemeli: %v", err)
+	}
+}
+
+// TestRefreshAbsoluteCap: kayan pencere her rotasyonda uzasa da oturum ailenin MUTLAK
+// tavanını (sessionMaxAge) aşamaz. Gerçek değerlerle: 7 günlük pencere, 30 günlük tavan;
+// kullanıcı her 6 günde bir yeniliyor → pencere hiç kapanmıyor, ama tavanda oturum biter.
+func TestRefreshAbsoluteCap(t *testing.T) {
+	s, _, now := newTestService(t)
+	const day = 24 * time.Hour
+	s.refreshTTL, s.sessionMaxAge = 7*day, 30*day
+	ctx := context.Background()
+	if _, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	t0 := *now
+	capAt := t0.Add(30 * day)
+
+	sess, err := s.Login(ctx, "ali@example.com", goodPassword)
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if !sess.RefreshExpiresAt.Equal(t0.Add(7 * day)) {
+		t.Errorf("ilk token t0+7g'de bitmeli, gelen %v", sess.RefreshExpiresAt.Sub(t0))
+	}
+
+	for d := 6; d < 30; d += 6 { // 6., 12., 18., 24. gün
+		*now = t0.Add(time.Duration(d) * day)
+		sess, err = s.Refresh(ctx, sess.RefreshToken)
+		if err != nil {
+			t.Fatalf("%d. gün Refresh: %v", d, err)
+		}
+		if sess.RefreshExpiresAt.After(capAt) {
+			t.Fatalf("%d. gün: bitiş tavanı aştı (%v > 30g)", d, sess.RefreshExpiresAt.Sub(t0))
+		}
+		// Tavanın altındayken halef TAM now+refreshTTL yaşamalı: pencere now+sessionMaxAge'e
+		// kaysa her token 30 gün yaşardı ve yukarıdaki "tavanı aşmadı" kontrolü bunu yakalamazdı.
+		if d < 24 && !sess.RefreshExpiresAt.Equal((*now).Add(7*day)) {
+			t.Errorf("%d. gün: kayan pencere now+7g olmalı, gelen now+%v", d, sess.RefreshExpiresAt.Sub(*now))
+		}
+	}
+	// 24. günde pencere 31. güne uzardı → tavana (30. gün) kırpılmış olmalı.
+	if !sess.RefreshExpiresAt.Equal(capAt) {
+		t.Errorf("son bitiş tam tavan olmalı, gelen t0+%v", sess.RefreshExpiresAt.Sub(t0))
+	}
+
+	*now = capAt // tavan anı: artık geçersiz (mutlak tavan tek başına yeter)
+	if _, err := s.Refresh(ctx, sess.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("tavandan sonra ErrInvalidToken bekleniyordu, gelen %v", err)
+	}
+}
+
+// TestLoginCapsFirstTokenAtSessionMaxAge: tavan pencereden kısaysa (config bunu reddeder;
+// servis yine de kendini korur) ilk token'ın bitişi de tavana kırpılır.
+func TestLoginCapsFirstTokenAtSessionMaxAge(t *testing.T) {
+	s, _, now := newTestService(t)
+	s.sessionMaxAge = time.Hour // refreshTTL 24 saat
+	ctx := context.Background()
+	if _, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	sess, err := s.Login(ctx, "ali@example.com", goodPassword)
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if want := now.Add(time.Hour); !sess.RefreshExpiresAt.Equal(want) {
+		t.Errorf("ilk token tavanda (now+1 saat) bitmeli, gelen now+%v", sess.RefreshExpiresAt.Sub(*now))
 	}
 }
 
@@ -362,6 +592,37 @@ func TestLogout(t *testing.T) {
 	}
 }
 
+// TestLogoutRevokesWholeFamily: çıkış yalnız sunulan token'ı değil AİLEYİ öldürür. Burada
+// çıkış, zinciri çoktan ilerlemiş bir oturumun ESKİ (harcanmış) token'ıyla yapılıyor — güncel
+// halef de ölmeli; aksi hâlde eski bir kopyayla "çıkış yaptım" diyen kullanıcının oturumu
+// başka bir yerde yaşamaya devam ederdi.
+func TestLogoutRevokesWholeFamily(t *testing.T) {
+	s, st, _ := newTestService(t)
+	ctx := context.Background()
+	if _, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	first, err := s.Login(ctx, "ali@example.com", goodPassword)
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	familyID, _ := st.familyOf(t, first.RefreshToken)
+	latest, err := s.Refresh(ctx, first.RefreshToken)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	if err := s.Logout(ctx, first.RefreshToken); err != nil {
+		t.Fatalf("Logout: %v", err)
+	}
+	if _, err := s.Refresh(ctx, latest.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("ailenin güncel token'ı da ölmeli, gelen %v", err)
+	}
+	if n := st.familyTokens(familyID); n != 0 || !st.families[familyID].revoked {
+		t.Errorf("aile iptal edilmeli ve token'sız kalmalı: kalan=%d revoked=%v", n, st.families[familyID].revoked)
+	}
+}
+
 func TestEnsureAdmin(t *testing.T) {
 	s, _, _ := newTestService(t)
 	ctx := context.Background()
@@ -405,27 +666,41 @@ func TestLoginCorruptHash(t *testing.T) {
 	}
 }
 
-// sweepStore, DeleteExpiredRefreshTokens çağrısını kaydeden (ve isteğe bağlı hata
-// döndüren) memStore sarmalayıcısı.
+// sweepStore, CleanupRefreshTokens çağrısını kaydeden (ve isteğe bağlı hata döndüren)
+// memStore sarmalayıcısı.
 type sweepStore struct {
 	*memStore
 	sweptFor []int64
+	sweptAt  []time.Time
 	sweepErr error
 }
 
-func (s *sweepStore) DeleteExpiredRefreshTokens(_ context.Context, userID int64) error {
+func (s *sweepStore) CleanupRefreshTokens(ctx context.Context, userID int64, now time.Time) error {
 	s.sweptFor = append(s.sweptFor, userID)
-	return s.sweepErr
+	s.sweptAt = append(s.sweptAt, now)
+	if s.sweepErr != nil {
+		return s.sweepErr
+	}
+	return s.memStore.CleanupRefreshTokens(ctx, userID, now)
 }
 
 func TestLoginSweepsExpiredTokens(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("başarılı giriş kullanıcının süresi dolmuş token'larını süpürür", func(t *testing.T) {
-		s, st, _ := newTestService(t)
+	t.Run("başarılı giriş kullanıcının ölü ailelerini ve süresi dolmuş token'larını süpürür", func(t *testing.T) {
+		s, st, now := newTestService(t)
 		u, err := s.Register(ctx, "ali@example.com", "Ali", goodPassword)
 		if err != nil {
 			t.Fatalf("Register: %v", err)
+		}
+		// Çıkış yapılmış (iptal edilmiş) eski bir oturum: bir sonraki girişte süpürülmeli.
+		old, err := s.Login(ctx, "ali@example.com", goodPassword)
+		if err != nil {
+			t.Fatalf("Login: %v", err)
+		}
+		oldFamily, _ := st.familyOf(t, old.RefreshToken)
+		if err := s.Logout(ctx, old.RefreshToken); err != nil {
+			t.Fatalf("Logout: %v", err)
 		}
 		sw := &sweepStore{memStore: st}
 		s.store = sw
@@ -434,7 +709,14 @@ func TestLoginSweepsExpiredTokens(t *testing.T) {
 			t.Fatalf("Login: %v", err)
 		}
 		if len(sw.sweptFor) != 1 || sw.sweptFor[0] != u.ID {
-			t.Errorf("DeleteExpiredRefreshTokens(%d) bir kez çağrılmalıydı, çağrılar %v", u.ID, sw.sweptFor)
+			t.Errorf("CleanupRefreshTokens(%d) bir kez çağrılmalıydı, çağrılar %v", u.ID, sw.sweptFor)
+		}
+		// Tek saat: temizlik servisin saatiyle (s.now) koşar, DB'nin now()'ıyla değil.
+		if len(sw.sweptAt) != 1 || !sw.sweptAt[0].Equal(*now) {
+			t.Errorf("temizlik servisin saatini almalı: istenen %v, gelen %v", *now, sw.sweptAt)
+		}
+		if _, ok := st.families[oldFamily]; ok {
+			t.Error("iptal edilmiş eski aile girişte silinmeliydi")
 		}
 	})
 
@@ -454,8 +736,8 @@ func TestLoginSweepsExpiredTokens(t *testing.T) {
 		if sess.AccessToken != "" || sess.RefreshToken != "" {
 			t.Errorf("hata durumunda oturum dönmemeli: %+v", sess)
 		}
-		if len(st.tokens) != 0 {
-			t.Errorf("hata durumunda refresh token kaydedilmemeli, %d kayıt var", len(st.tokens))
+		if len(st.tokens) != 0 || len(st.families) != 0 {
+			t.Errorf("hata durumunda aile/token kaydedilmemeli: %d token, %d aile", len(st.tokens), len(st.families))
 		}
 	})
 }
@@ -516,7 +798,7 @@ func TestMe(t *testing.T) {
 // aksi hâlde bir DB kesintisi kullanıcıya 401 olarak görünür ve oturumlar düşer.
 type errStore struct {
 	*memStore
-	byEmailErr, byIDErr, consumeErr, saveErr error
+	byEmailErr, byIDErr, rotateErr, startErr, revokeErr error
 }
 
 func (s *errStore) UserByEmail(ctx context.Context, email string) (db.User, error) {
@@ -533,18 +815,25 @@ func (s *errStore) UserByID(ctx context.Context, id int64) (db.User, error) {
 	return s.memStore.UserByID(ctx, id)
 }
 
-func (s *errStore) ConsumeRefreshToken(ctx context.Context, h []byte) (int64, time.Time, error) {
-	if s.consumeErr != nil {
-		return 0, time.Time{}, s.consumeErr
+func (s *errStore) RotateRefreshToken(ctx context.Context, oldHash, newHash []byte, now, newExp time.Time) (Rotation, error) {
+	if s.rotateErr != nil {
+		return Rotation{}, s.rotateErr
 	}
-	return s.memStore.ConsumeRefreshToken(ctx, h)
+	return s.memStore.RotateRefreshToken(ctx, oldHash, newHash, now, newExp)
 }
 
-func (s *errStore) SaveRefreshToken(ctx context.Context, userID int64, h []byte, exp time.Time) error {
-	if s.saveErr != nil {
-		return s.saveErr
+func (s *errStore) StartRefreshFamily(ctx context.Context, userID int64, h []byte, tokenExp, familyExp time.Time) error {
+	if s.startErr != nil {
+		return s.startErr
 	}
-	return s.memStore.SaveRefreshToken(ctx, userID, h, exp)
+	return s.memStore.StartRefreshFamily(ctx, userID, h, tokenExp, familyExp)
+}
+
+func (s *errStore) RevokeRefreshFamily(ctx context.Context, h []byte, now time.Time) error {
+	if s.revokeErr != nil {
+		return s.revokeErr
+	}
+	return s.memStore.RevokeRefreshFamily(ctx, h, now)
 }
 
 // TestInfraErrorsAreNotAuthErrors: altyapı hatası olduğu gibi (sarılı) yukarı çıkar;
@@ -586,15 +875,18 @@ func TestInfraErrorsAreNotAuthErrors(t *testing.T) {
 		sess, err := s.Login(ctx, "ali@example.com", goodPassword)
 		assertInfra(t, sess, err, ErrInvalidCredentials)
 	})
-	t.Run("Login: refresh token kaydedilemedi", func(t *testing.T) {
+	t.Run("Login: refresh token ailesi kaydedilemedi", func(t *testing.T) {
 		s, es, _ := setup(t)
-		es.saveErr = dbDown
+		es.startErr = dbDown
 		sess, err := s.Login(ctx, "ali@example.com", goodPassword)
 		assertInfra(t, sess, err, ErrInvalidCredentials)
 	})
-	t.Run("Refresh: tüketme kesintisi", func(t *testing.T) {
+	// Eskiden "tüketme kesintisi" ve "yeni token kaydedilemedi" iki ayrı alt-testti (iki ayrı
+	// store çağrısı). Faz 13'te harcama + halefin kaydı TEK atomik çağrı (RotateRefreshToken,
+	// tek tx) — ikisinin kesintisi servise aynı yoldan gelir; tek alt-test ikisini de kapsar.
+	t.Run("Refresh: rotasyon (harcama + halef) kesintisi", func(t *testing.T) {
 		s, es, old := setup(t)
-		es.consumeErr = dbDown
+		es.rotateErr = dbDown
 		sess, err := s.Refresh(ctx, old.RefreshToken)
 		assertInfra(t, sess, err, ErrInvalidToken)
 	})
@@ -604,10 +896,13 @@ func TestInfraErrorsAreNotAuthErrors(t *testing.T) {
 		sess, err := s.Refresh(ctx, old.RefreshToken)
 		assertInfra(t, sess, err, ErrInvalidToken)
 	})
-	t.Run("Refresh: yeni token kaydedilemedi", func(t *testing.T) {
+	t.Run("Logout: iptal kesintisi olduğu gibi döner", func(t *testing.T) {
 		s, es, old := setup(t)
-		es.saveErr = dbDown
-		sess, err := s.Refresh(ctx, old.RefreshToken)
-		assertInfra(t, sess, err, ErrInvalidToken)
+		es.revokeErr = dbDown
+		// Logout'un "idempotent, hep başarılı" sözü BİLİNMEYEN token içindir; DB kesintisi
+		// yutulursa kullanıcı çıktığını sanır ama ailesi yaşamaya devam eder.
+		if err := s.Logout(ctx, old.RefreshToken); !errors.Is(err, dbDown) {
+			t.Errorf("iptal kesintisi yutulmamalı, gelen %v", err)
+		}
 	})
 }

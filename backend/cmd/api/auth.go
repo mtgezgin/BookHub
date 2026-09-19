@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -155,6 +156,20 @@ func handleRefresh(svc authService) http.HandlerFunc {
 		sess, err := svc.Refresh(r.Context(), token)
 		switch {
 		case errors.Is(err, auth.ErrInvalidToken):
+			// Kullanılmış bir token yeniden geldi (reuse): servis ailenin tamamını çoktan öldürdü.
+			// Bu bir GÜVENLİK OLAYI (token büyük olasılıkla çalındı) → operatör için WARN. Ama
+			// istemciye giden cevap düz "geçersiz token"la BİREBİR aynı: ayrı bir kod/mesaj,
+			// saldırgana "bu token'ı biri zaten kullanmış" diyen bir kâhin (oracle) olurdu. Aynı
+			// dala düşmesi (ReuseError ErrInvalidToken'ı sarar) bu eşitliği yapısal olarak garanti
+			// eder. Token'ın kendisi ASLA loglanmaz — kimlik (user/family) ve request_id yeter.
+			var reuse *auth.ReuseError
+			if errors.As(err, &reuse) {
+				slog.Warn("refresh token yeniden kullanıldı, oturum ailesi iptal edildi",
+					"user_id", reuse.UserID,
+					"family_id", reuse.FamilyID,
+					"request_id", w.Header().Get(requestIDHeader),
+				)
+			}
 			writeError(w, http.StatusUnauthorized, "invalid_token", "geçersiz ya da süresi dolmuş refresh token")
 		case err != nil:
 			writeInternalError(w, "Refresh", err)
@@ -164,8 +179,9 @@ func handleRefresh(svc authService) http.HandlerFunc {
 	}
 }
 
-// handleLogout, POST /api/auth/logout → 204. Token'ın sahibi olmak yeterli yetki:
-// refresh token'ı bilen zaten o oturumu yenileyebilir, öldürebilmesi de doğal.
+// handleLogout, POST /api/auth/logout → 204; token'ın AİLESİ (o girişin tüm token'ları) ölür.
+// Token'ın sahibi olmak yeterli yetki: refresh token'ı bilen zaten o oturumu yenileyebilir,
+// öldürebilmesi de doğal.
 func handleLogout(svc authService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token, ok := readRefreshToken(w, r)

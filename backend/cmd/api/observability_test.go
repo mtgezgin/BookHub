@@ -21,10 +21,13 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
+// logLines, tampondaki JSON satırlarını ayrıştırır. Tamponu TÜKETMEZ (bytes.NewReader ile bir
+// kopyası üzerinden okur): çağıran sonra buf.String() ile ham logu yine görebilmeli — yoksa
+// "token loga düşmedi" gibi iddialar hep boş bir string'e bakar ve asla kırılmaz.
 func logLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
 	t.Helper()
 	var out []map[string]any
-	sc := bufio.NewScanner(buf)
+	sc := bufio.NewScanner(bytes.NewReader(buf.Bytes()))
 	for sc.Scan() {
 		var m map[string]any
 		if err := json.Unmarshal(sc.Bytes(), &m); err != nil {

@@ -106,7 +106,7 @@ func run() int {
 		moderation: moderationSvc,
 		comments:   comments.NewService(pool),
 		ratings:    ratingSvc,
-		auth:       auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL),
+		auth:       auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL, cfg.SessionMaxAge),
 		tokens:     tokens,
 		limiter:    limiter,
 

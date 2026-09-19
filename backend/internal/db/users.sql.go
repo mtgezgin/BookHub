@@ -10,41 +10,55 @@ import (
 	"time"
 )
 
-const consumeRefreshToken = `-- name: ConsumeRefreshToken :one
-DELETE FROM refresh_tokens
-WHERE token_hash = $1
-RETURNING user_id, expires_at
+const createRefreshFamily = `-- name: CreateRefreshFamily :one
+
+INSERT INTO refresh_token_families (user_id, absolute_expires_at)
+VALUES ($1, $2)
+RETURNING id
 `
 
-type ConsumeRefreshTokenRow struct {
-	UserID    int64     `json:"user_id"`
-	ExpiresAt time.Time `json:"expires_at"`
+type CreateRefreshFamilyParams struct {
+	UserID            int64     `json:"user_id"`
+	AbsoluteExpiresAt time.Time `json:"absolute_expires_at"`
 }
 
-// Token'ı TEK ATIMDA kullan: sil ve sahibini döndür. İki eşzamanlı /refresh aynı token'la
-// gelirse satırı yalnızca BİRİ silebilir; diğeri "satır yok" alır. SELECT-sonra-DELETE
-// yazsaydık ikisi de SELECT'i geçip iki yeni oturum açabilirdi (check-then-act yarışı).
-// Süresi dolmuş token da silinir (temizlik); süre kontrolü Go tarafında.
-func (q *Queries) ConsumeRefreshToken(ctx context.Context, tokenHash []byte) (ConsumeRefreshTokenRow, error) {
-	row := q.db.QueryRow(ctx, consumeRefreshToken, tokenHash)
-	var i ConsumeRefreshTokenRow
-	err := row.Scan(&i.UserID, &i.ExpiresAt)
-	return i, err
+// ---------------------------------------------------------------------------------------------
+// Refresh token AİLELERİ (Faz 13, migration 0008). Bir giriş = bir aile; rotasyonda kullanılan
+// token SİLİNMEZ, used_at ile işaretlenir ki ikinci kullanımı (reuse = çalınma belirtisi)
+// tanınabilsin. Zaman ($now) hep Go'dan parametre olarak gelir, SQL'de now() YOK: süre kararı
+// tek saatle verilir (servisin saati) ve testler saati ileri sarabilir.
+//
+// KİLİT SIRASI DEĞİŞMEZİ: bir aileye dokunan HER transaction ÖNCE refresh_token_families
+// satırını, SONRA o ailenin refresh_tokens satırlarını kilitler (0007'deki "önce ebeveyn
+// satırı" deseni). Ters sıra — rotasyon önce token'ı işaretleyip sonra aileyi beklerken
+// iptal aileyi tutup token'ı beklerse — birbirini bekleyen iki işlem = deadlock (40P01).
+// ---------------------------------------------------------------------------------------------
+func (q *Queries) CreateRefreshFamily(ctx context.Context, arg CreateRefreshFamilyParams) (int64, error) {
+	row := q.db.QueryRow(ctx, createRefreshFamily, arg.UserID, arg.AbsoluteExpiresAt)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const createRefreshToken = `-- name: CreateRefreshToken :exec
-INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-VALUES ($1, $2, $3)
+INSERT INTO refresh_tokens (user_id, family_id, token_hash, expires_at)
+VALUES ($1, $2, $3, $4)
 `
 
 type CreateRefreshTokenParams struct {
 	UserID    int64     `json:"user_id"`
+	FamilyID  int64     `json:"family_id"`
 	TokenHash []byte    `json:"token_hash"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
 func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) error {
-	_, err := q.db.Exec(ctx, createRefreshToken, arg.UserID, arg.TokenHash, arg.ExpiresAt)
+	_, err := q.db.Exec(ctx, createRefreshToken,
+		arg.UserID,
+		arg.FamilyID,
+		arg.TokenHash,
+		arg.ExpiresAt,
+	)
 	return err
 }
 
@@ -80,24 +94,100 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
-const deleteExpiredRefreshTokens = `-- name: DeleteExpiredRefreshTokens :exec
-DELETE FROM refresh_tokens WHERE user_id = $1 AND expires_at <= now()
+const deleteDeadRefreshFamilies = `-- name: DeleteDeadRefreshFamilies :exec
+DELETE FROM refresh_token_families
+WHERE id IN (
+    SELECT f.id
+    FROM refresh_token_families f
+    WHERE f.user_id = $1
+      AND (f.revoked_at IS NOT NULL
+           OR f.absolute_expires_at <= $2
+           OR NOT EXISTS (
+               SELECT 1 FROM refresh_tokens t
+               WHERE t.family_id = f.id
+                 AND t.used_at IS NULL
+                 AND t.expires_at > $2))
+    FOR UPDATE SKIP LOCKED
+)
 `
 
-// Girişte kullanıcının süresi dolmuş token'larını süpür: tablo sınırsız büyümesin.
-// (Ayrı bir zamanlanmış iş yerine bu bağlamda sınırlı, ucuz bir temizlik.)
-func (q *Queries) DeleteExpiredRefreshTokens(ctx context.Context, userID int64) error {
-	_, err := q.db.Exec(ctx, deleteExpiredRefreshTokens, userID)
+type DeleteDeadRefreshFamiliesParams struct {
+	UserID int64     `json:"user_id"`
+	Now    time.Time `json:"now"`
+}
+
+// Girişteki temizlik (1/2): kullanıcının ÖLÜ ailelerini sil (token'ları CASCADE ile gider).
+// Ölü = iptal edilmiş, mutlak tavanı geçmiş ya da hiç canlı (kullanılmamış + süresi dolmamış)
+// token'ı kalmamış.
+// FOR UPDATE SKIP LOCKED: o an bir rotasyonun (ya da iptalin) kilitlediği aile ATLANIR. Kilidi
+// bekleseydik, sahibi commit ettikten sonra satırı bu deyimin BAYAT anlık görüntüsüne göre
+// silerdik — rotasyonun az önce verdiği halef token'ı da CASCADE ile giderdi (kullanıcı
+// sebepsiz oturumdan düşer). Atlanan aile bir sonraki girişte temizlenir.
+func (q *Queries) DeleteDeadRefreshFamilies(ctx context.Context, arg DeleteDeadRefreshFamiliesParams) error {
+	_, err := q.db.Exec(ctx, deleteDeadRefreshFamilies, arg.UserID, arg.Now)
 	return err
 }
 
-const deleteRefreshToken = `-- name: DeleteRefreshToken :exec
-DELETE FROM refresh_tokens WHERE token_hash = $1
+const deleteExpiredRefreshTokens = `-- name: DeleteExpiredRefreshTokens :exec
+DELETE FROM refresh_tokens t
+WHERE t.user_id = $1
+  AND t.expires_at <= $2
+  AND t.family_id IN (
+      SELECT f.id
+      FROM refresh_token_families f
+      WHERE f.user_id = $1
+      FOR UPDATE SKIP LOCKED
+  )
 `
 
-func (q *Queries) DeleteRefreshToken(ctx context.Context, tokenHash []byte) error {
-	_, err := q.db.Exec(ctx, deleteRefreshToken, tokenHash)
+type DeleteExpiredRefreshTokensParams struct {
+	UserID int64     `json:"user_id"`
+	Now    time.Time `json:"now"`
+}
+
+// Girişteki temizlik (2/2): CANLI ailelerdeki süresi dolmuş (pratikte: harcanmış) token'lar.
+// Tespit değerleri kalmadı (süresi dolmuş token zaten reddedilir); tablo sınırsız büyümesin.
+// Aile alt sorgusu kilit sırası değişmezi için: token'lara dokunmadan ÖNCE aileleri kilitler
+// ve kilitli olanı ATLAR. Böylece bu deyim, aynı ailenin token'larını başka sırayla silen bir
+// iptalle (reuse/çıkış) birbirini beklemez — kilitlenme (deadlock) kapısı açılmaz.
+func (q *Queries) DeleteExpiredRefreshTokens(ctx context.Context, arg DeleteExpiredRefreshTokensParams) error {
+	_, err := q.db.Exec(ctx, deleteExpiredRefreshTokens, arg.UserID, arg.Now)
 	return err
+}
+
+const deleteRefreshFamilyTokens = `-- name: DeleteRefreshFamilyTokens :exec
+DELETE FROM refresh_tokens WHERE family_id = $1
+`
+
+// İptal edilen ailenin TÜM token'larını sil. Aile satırı kilitliyken koşar: bu DELETE'in anlık
+// görüntüsü, kilidi bizden önce tutan bir rotasyonun commit ettiği halef token'ı da görür.
+func (q *Queries) DeleteRefreshFamilyTokens(ctx context.Context, familyID int64) error {
+	_, err := q.db.Exec(ctx, deleteRefreshFamilyTokens, familyID)
+	return err
+}
+
+const getRefreshTokenFamily = `-- name: GetRefreshTokenFamily :one
+SELECT family_id FROM refresh_tokens WHERE token_hash = $1
+`
+
+// Token'ın ailesini KİLİTSİZ bul: family_id bir token'ın ömrü boyunca asla değişmez, bu yüzden
+// kilitsiz okumak güvenli. Kilit bir SONRAKİ adımda ailede alınır (kilit sırası).
+func (q *Queries) GetRefreshTokenFamily(ctx context.Context, tokenHash []byte) (int64, error) {
+	row := q.db.QueryRow(ctx, getRefreshTokenFamily, tokenHash)
+	var family_id int64
+	err := row.Scan(&family_id)
+	return family_id, err
+}
+
+const getRefreshTokenUsedAt = `-- name: GetRefreshTokenUsedAt :one
+SELECT used_at FROM refresh_tokens WHERE token_hash = $1
+`
+
+func (q *Queries) GetRefreshTokenUsedAt(ctx context.Context, tokenHash []byte) (*time.Time, error) {
+	row := q.db.QueryRow(ctx, getRefreshTokenUsedAt, tokenHash)
+	var used_at *time.Time
+	err := row.Scan(&used_at)
+	return used_at, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
@@ -136,6 +226,72 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const lockRefreshFamily = `-- name: LockRefreshFamily :one
+SELECT user_id, revoked_at, absolute_expires_at
+FROM refresh_token_families
+WHERE id = $1
+FOR UPDATE
+`
+
+type LockRefreshFamilyRow struct {
+	UserID            int64      `json:"user_id"`
+	RevokedAt         *time.Time `json:"revoked_at"`
+	AbsoluteExpiresAt time.Time  `json:"absolute_expires_at"`
+}
+
+// Aileyi KİLİTLE: aynı ailede rotasyon, reuse iptali ve çıkış bu satırda sıraya girer. Kilidi
+// bekleyen işlem, sahibi commit edince satırın EN GÜNCEL hâlini okur (READ COMMITTED) — yani
+// az önce iptal edilmiş bir aileyi "canlı" sanamaz.
+func (q *Queries) LockRefreshFamily(ctx context.Context, id int64) (LockRefreshFamilyRow, error) {
+	row := q.db.QueryRow(ctx, lockRefreshFamily, id)
+	var i LockRefreshFamilyRow
+	err := row.Scan(&i.UserID, &i.RevokedAt, &i.AbsoluteExpiresAt)
+	return i, err
+}
+
+const markRefreshTokenUsed = `-- name: MarkRefreshTokenUsed :one
+UPDATE refresh_tokens
+SET used_at = $1::timestamptz
+WHERE token_hash = $2 AND used_at IS NULL
+RETURNING user_id, expires_at
+`
+
+type MarkRefreshTokenUsedParams struct {
+	Now       time.Time `json:"now"`
+	TokenHash []byte    `json:"token_hash"`
+}
+
+type MarkRefreshTokenUsedRow struct {
+	UserID    int64     `json:"user_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// Token'ı HARCA: yalnız henüz kullanılmamışsa. 0 satır = ya yok ya da ZATEN kullanılmış
+// (hangisi olduğunu GetRefreshTokenUsedAt ayırır).
+func (q *Queries) MarkRefreshTokenUsed(ctx context.Context, arg MarkRefreshTokenUsedParams) (MarkRefreshTokenUsedRow, error) {
+	row := q.db.QueryRow(ctx, markRefreshTokenUsed, arg.Now, arg.TokenHash)
+	var i MarkRefreshTokenUsedRow
+	err := row.Scan(&i.UserID, &i.ExpiresAt)
+	return i, err
+}
+
+const revokeRefreshFamily = `-- name: RevokeRefreshFamily :exec
+UPDATE refresh_token_families
+SET revoked_at = $1::timestamptz
+WHERE id = $2 AND revoked_at IS NULL
+`
+
+type RevokeRefreshFamilyParams struct {
+	Now time.Time `json:"now"`
+	ID  int64     `json:"id"`
+}
+
+// Aileyi öldür (reuse ya da çıkış). "revoked_at IS NULL": ilk iptalin zamanı korunur.
+func (q *Queries) RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error {
+	_, err := q.db.Exec(ctx, revokeRefreshFamily, arg.Now, arg.ID)
+	return err
 }
 
 const setUserRole = `-- name: SetUserRole :execrows

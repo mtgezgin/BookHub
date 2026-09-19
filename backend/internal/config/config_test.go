@@ -144,6 +144,47 @@ func TestLoadJWT(t *testing.T) {
 	}
 }
 
+// TestLoadSessionMaxAge: oturumun mutlak tavanı varsayılan 30 gün; pozitif ve refresh
+// penceresinden kısa olmamalı (kısa olsaydı JWT_REFRESH_TTL sessizce etkisiz kalırdı).
+func TestLoadSessionMaxAge(t *testing.T) {
+	tests := []struct {
+		name, maxAge, refresh string
+		want                  time.Duration
+		wantErr               bool
+	}{
+		{name: "tanımsız → 720h (30 gün)", want: 30 * 24 * time.Hour},
+		{name: "özel değer", maxAge: "240h", want: 240 * time.Hour},
+		// Sınır: EŞİTLİK geçerli (kayan pencere yok, her giriş tam bu kadar yaşar).
+		{name: "refresh = tavan → geçerli", maxAge: "24h", refresh: "24h", want: 24 * time.Hour},
+		{name: "refresh'ten kısa → hata", maxAge: "72h", wantErr: true}, // varsayılan refresh 168h
+		{name: "sıfır → hata", maxAge: "0s", wantErr: true},
+		{name: "negatif → hata", maxAge: "-1h", wantErr: true},
+		{name: "geçersiz süre → hata", maxAge: "30gün", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("JWT_SECRET", testJWTSecret)
+			t.Setenv("JWT_SESSION_MAX_AGE", tt.maxAge)
+			t.Setenv("JWT_REFRESH_TTL", tt.refresh)
+
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("hata bekleniyordu (JWT_SESSION_MAX_AGE=%q)", tt.maxAge)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("beklenmeyen hata: %v", err)
+			}
+			if cfg.SessionMaxAge != tt.want {
+				t.Errorf("SessionMaxAge: istenen %s, gelen %s", tt.want, cfg.SessionMaxAge)
+			}
+		})
+	}
+}
+
 func TestLoadRatingMinVotes(t *testing.T) {
 	tests := []struct {
 		value   string
