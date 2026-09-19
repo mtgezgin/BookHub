@@ -29,6 +29,11 @@ spec:
       labels:
         app: api
     spec:
+      # Kubernetes her pod'a varsayılan service account'un API token'ını takar
+      # (/var/run/secrets/kubernetes.io/serviceaccount). API Kubernetes API'sini hiç
+      # çağırmıyor; token'ı takmak, pod ele geçirilirse saldırgana bedava bir kimlik
+      # vermek demek. En az yetki: hiç takma (SonarQube kubernetes:S6865).
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532 # imajdaki sayısal uid ile aynı (distroless "nonroot")

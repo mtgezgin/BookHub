@@ -11,6 +11,7 @@ spec:
   ttlSecondsAfterFinished: 600 # tamamlanan Job 10 dk sonra kendiliğinden temizlensin
   template:
     spec:
+      automountServiceAccountToken: false # Kubernetes API'si kullanılmıyor (bkz. api.yaml)
       restartPolicy: Never
       securityContext:
         runAsNonRoot: true

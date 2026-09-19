@@ -24,6 +24,7 @@ spec:
       labels:
         app: redis
     spec:
+      automountServiceAccountToken: false # Kubernetes API'si kullanılmıyor (bkz. api.yaml)
       securityContext:
         runAsNonRoot: true
         runAsUser: 999 # redis imajındaki "redis" kullanıcısı

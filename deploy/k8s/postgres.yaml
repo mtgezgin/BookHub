@@ -27,6 +27,7 @@ spec:
       labels:
         app: postgres
     spec:
+      automountServiceAccountToken: false # Kubernetes API'si kullanılmıyor (bkz. api.yaml)
       containers:
         - name: postgres
           image: postgres:16
