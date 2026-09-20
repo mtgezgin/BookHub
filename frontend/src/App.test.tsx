@@ -16,6 +16,7 @@ vi.mock("./pages/BookDetail", () => ({ BookDetail: () => <p>detail-page</p> }));
 vi.mock("./pages/Suggest", () => ({ Suggest: () => <p>suggest-page</p> }));
 vi.mock("./pages/Auth", () => ({ Login: () => <p>login-page</p>, Register: () => <p>register-page</p> }));
 vi.mock("./pages/admin/Moderation", () => ({ Moderation: () => <p>moderation-page</p> }));
+vi.mock("./pages/Account", () => ({ Account: () => <p>account-page</p> }));
 
 import { App } from "./App";
 
@@ -56,6 +57,22 @@ describe("RequireRole", () => {
   it("ADMIN /admin'de içeriği görür", () => {
     expect(main(render("/admin", ADMIN))).toBe("moderation-page");
   });
+
+  // /account ROL İSTEMEZ ama GİRİŞ ister: sayfa parola değiştirmeyi ve (ileride) oturum
+  // yönetimini barındırıyor. Girişsiz bir ziyaret sayfayı ÇİZMEMELİ — arayüzdeki bu koruma
+  // yalnız deneyim içindir (asıl kontrol backend'de requireAuth), ama boş bir "Hesabım"
+  // formu göstermek kullanıcıyı parolasını girmeye davet etmek olurdu.
+  it("girişsiz /account login'e yönlendirir", () => {
+    expect(main(render("/account", null))).toBe("login-page");
+  });
+
+  it("girişli kullanıcı /account sayfasını görür (rol şartı YOK)", () => {
+    expect(main(render("/account", USER))).toBe("account-page");
+  });
+
+  it("ADMIN de /account sayfasını görür", () => {
+    expect(main(render("/account", ADMIN))).toBe("account-page");
+  });
 });
 
 describe("App nav", () => {
@@ -75,6 +92,18 @@ describe("App nav", () => {
     const links = navLinks(render("/", ADMIN));
     expect(links).toContain("Kitap öner");
     expect(links).toContain("Moderasyon");
+  });
+
+  it("girişsiz: \"Hesabım\" yok", () => {
+    expect(navLinks(render("/", null))).not.toContain("Hesabım");
+  });
+
+  it("USER: \"Hesabım\" var", () => {
+    expect(navLinks(render("/", USER))).toContain("Hesabım");
+  });
+
+  it("ADMIN: \"Hesabım\" var", () => {
+    expect(navLinks(render("/", ADMIN))).toContain("Hesabım");
   });
 
   it("\"Çıkış\" logout'u çağırır", () => {

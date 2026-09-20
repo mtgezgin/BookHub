@@ -8,10 +8,10 @@ vi.mock("../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/client")>()),
   api: {},
 }));
+const SIGNED_IN = { id: 7, email: "ali@example.com", display_name: "Ali", role: "USER", created_at: "" };
+const h = vi.hoisted(() => ({ auth: { user: null as unknown, ready: true } }));
 // Sayfa yalnız kullanıcı adını göstermek için useAuth kullanıyor; oturum mantığı client.ts'te.
-vi.mock("../auth/AuthContext", () => ({
-  useAuth: () => ({ user: { id: 7, email: "ali@example.com", display_name: "Ali", role: "USER", created_at: "" }, ready: true }),
-}));
+vi.mock("../auth/AuthContext", () => ({ useAuth: () => h.auth }));
 
 import { api, ApiError } from "../api/client";
 import { Account } from "./Account";
@@ -23,6 +23,7 @@ let result: () => Promise<unknown>;
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach((f) => f()));
 beforeEach(() => {
+  h.auth = { user: SIGNED_IN, ready: true };
   calls = [];
   result = async () => ({ id: 7 });
   (api as unknown as Record<string, unknown>).changePassword = (current: string, next: string) => {
@@ -63,6 +64,20 @@ async function submit(el: HTMLElement) {
 
 const alerts = (el: HTMLElement) => Array.from(el.querySelectorAll("[role=alert]")).map((n) => n.textContent);
 const status = (el: HTMLElement) => el.querySelector("[role=status]")?.textContent ?? null;
+
+/** identity: sayfanın üstündeki "ad · e-posta" satırı (yoksa null). */
+const identity = (el: HTMLElement) => el.querySelector("p.muted.small")?.textContent ?? null;
+
+describe("Account — kimlik satırı", () => {
+  it("useAuth kullanıcısının adını ve e-postasını gösterir", () => {
+    expect(identity(render())).toBe("Ali · ali@example.com");
+  });
+
+  it("kullanıcı yokken kimlik satırı hiç basılmaz", () => {
+    h.auth = { user: null, ready: true };
+    expect(identity(render())).toBeNull();
+  });
+});
 
 describe("Account — parola değiştirme", () => {
   it("parolalar alanları type=password ve doğru autocomplete ile gelir", () => {

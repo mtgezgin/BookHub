@@ -951,3 +951,43 @@ func TestChangePasswordRateLimitIsSeparate(t *testing.T) {
 		t.Error("login kotası parola denemelerinden etkilenmemeli")
 	}
 }
+
+// TestChangePasswordAuthBeforeRateLimit: /api/auth/password'da middleware SIRASI —
+// önce requireAuth, SONRA rateLimit("password").
+//
+// NEDEN ÖNEMLİ: sıra ters olsaydı, kimliği hiç doğrulanmamış istekler de kotayı yerdi.
+// O zaman bir saldırgan tek bir token'a sahip olmadan, sadece boş POST'lar atarak
+// kurbanın parola değiştirme hakkını tüketebilirdi (kendi hesabına erişimi olan birinin
+// parolasını değiştirmesini engellemek = hesabı kurtarmasını engellemek).
+func TestChangePasswordAuthBeforeRateLimit(t *testing.T) {
+	svc := &fakeAuth{user: sampleUser, err: auth.ErrWrongPassword}
+	// Kota 1: tek bir sayılan istek kovayı bitirir, böylece "sayıldı mı" sorusu net görünür.
+	h := newRouter(deps{auth: svc, tokens: fakeVerifier{}, cookies: testCookies, limiter: ratelimit.NewMemory(1, time.Minute)})
+	post := func(header string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/password",
+			strings.NewReader(`{"current_password":"eski-parola","new_password":"yeni-parola"}`))
+		req.RemoteAddr = "10.0.0.7:51234"
+		if header != "" {
+			req.Header.Set("Authorization", header)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	// Kimliksiz istekler: 401 ve kovaya DOKUNMAMALI.
+	for i := 1; i <= 3; i++ {
+		if got := post(""); got != http.StatusUnauthorized {
+			t.Fatalf("%d. kimliksiz istek: istenen 401, gelen %d", i, got)
+		}
+	}
+	// Kimlikli istek hâlâ sınır içinde olmalı — üstteki üç 401 kotayı yemediyse.
+	if got := post("Bearer good-user"); got != http.StatusForbidden {
+		t.Fatalf("kimlikli ilk istek sınır içinde olmalıydı (403 yanlış parola): gelen %d", got)
+	}
+	// Ve kota GERÇEKTEN çalışıyor: kimlikli ikinci istek 429. (Bu satır olmadan test,
+	// rateLimit hiç bağlı olmasa da geçerdi.)
+	if got := post("Bearer good-user"); got != http.StatusTooManyRequests {
+		t.Fatalf("kimlikli ikinci istek 429 olmalıydı: gelen %d", got)
+	}
+}

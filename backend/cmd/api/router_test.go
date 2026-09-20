@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
+	"github.com/mtgezgin/bookhub/backend/internal/config"
 )
 
 // TestRouter_NotFound, bilinmeyen bir yola gidince TUTARLI JSON hata zarfının
@@ -97,6 +98,47 @@ func TestRouter_AuthRoutes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRouter_CookieNameDefaultsWhenUnset: deps.cookies HİÇ doldurulmadığında (yalnız bir alanı
+// dolduran testlerin yaptığı gibi: deps{auth: fake}) newRouter'ın çerez adını
+// config.DefaultCookieName'e düşürdüğünü doğrular — hem YAZARKEN (login'in Set-Cookie'si) hem
+// OKURKEN (refresh'in istekten okuduğu çerez).
+//
+// NEDEN: net/http, adı boş bir çerezi HATA DÖNMEDEN düşürür. Bu düşüş olmasaydı router
+// "çerezsiz" bir dünyada koşar, oturum yazan/okuyan her iddia sessizce boşa çıkardı.
+func TestRouter_CookieNameDefaultsWhenUnset(t *testing.T) {
+	t.Run("login çerezi varsayılan adla YAZILIR", func(t *testing.T) {
+		svc := &fakeAuth{user: sampleUser, session: auth.Session{AccessToken: "a", RefreshToken: "r", User: sampleUser}}
+
+		// cookies alanı BİLEREK yok: düşüşü sınayan şey bu.
+		rec := doAuth(t, newRouter(deps{auth: svc}), http.MethodPost, "/api/auth/login", crossOriginLoginBody)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("durum kodu: istenen 200, gelen %d (%s)", rec.Code, rec.Body)
+		}
+		ck := responseCookie(rec, config.DefaultCookieName)
+		if ck == nil {
+			t.Fatalf("Set-Cookie %q bekleniyordu, gelen başlıklar: %v", config.DefaultCookieName, rec.Header()["Set-Cookie"])
+		}
+		if ck.Value != "r" {
+			t.Errorf("çerez değeri: istenen %q, gelen %q", "r", ck.Value)
+		}
+	})
+
+	t.Run("refresh çerezi varsayılan adla OKUNUR", func(t *testing.T) {
+		svc := &fakeAuth{user: sampleUser, session: auth.Session{AccessToken: "a", RefreshToken: "yeni", User: sampleUser}}
+
+		rec := doAuth(t, newRouter(deps{auth: svc}), http.MethodPost, "/api/auth/refresh", "",
+			&http.Cookie{Name: config.DefaultCookieName, Value: "eski"})
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("durum kodu: istenen 200, gelen %d (%s)", rec.Code, rec.Body)
+		}
+		if svc.gotToken != "eski" {
+			t.Errorf("servise iletilen token: istenen %q, gelen %q", "eski", svc.gotToken)
+		}
+	})
 }
 
 // crossOriginLoginBody, cross-origin testlerinde geçen isteğin handler'a ulaşıp 200 alacağı gövde.
