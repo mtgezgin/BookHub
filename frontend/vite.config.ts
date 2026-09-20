@@ -14,5 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // YALNIZ src/: vitest'in varsayılan deseni ("**/*.{test,spec}.*") e2e/*.spec.ts
+    // dosyalarını da toplardı. Onlar Playwright'in testleri — jsdom'da koşmaya
+    // çalışırlarsa "test is not defined" ile patlarlar ve `npm test` sebepsiz kırmızı olur.
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 });

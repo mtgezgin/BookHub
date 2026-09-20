@@ -6,18 +6,27 @@
 name: CI
 
 on:
+  # İKİ LİSTE AYNI KALMALI: push (main) ile pull_request farklı davranırsa, PR'da hiç
+  # koşmamış bir değişiklik main'e girdikten sonra ilk kez orada kırmızı olur.
+  # Makefile listede çünkü e2e işi `make demo-seed` çağırıyor — yani Makefile artık bir CI
+  # bağımlılığı. scripts/** savunma amaçlı: CI scripts/e2e.sh'ı koşmuyor ama dokümante
+  # edilen `make e2e` girişi CI görmeden kaymasın.
   push:
     branches: [main]
     paths:
       - 'backend/**'
       - 'frontend/**'
       - 'docker-compose.yml'
+      - 'Makefile'
+      - 'scripts/**'
       - '.github/workflows/**'
   pull_request:
     paths:
       - 'backend/**'
       - 'frontend/**'
       - 'docker-compose.yml'
+      - 'Makefile'
+      - 'scripts/**'
       - '.github/workflows/**'
 
 permissions:
@@ -146,9 +155,17 @@ jobs:
           format: table
 
   e2e:
-    name: E2E (compose + MVP smoke)
+    name: E2E (compose + MVP smoke + Playwright)
     needs: [backend]
     runs-on: ubuntu-latest
+
+    # İŞ SEVİYESİNDE, yani `docker compose up` bunu görsün: API'nin IP başına auth sınırı
+    # varsayılan 10/dk ve Playwright senaryoları tek IP'den bir dizi giriş yapıyor.
+    # (NGINX'in login|register kovası imajın içinde; o yükseltilemez — testler onun
+    # bütçesine göre yazıldı, bkz. frontend/e2e/helpers.ts.)
+    env:
+      AUTH_RATE_LIMIT_PER_MIN: "1000"
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -170,6 +187,60 @@ jobs:
           API: http://localhost:8080
           DATABASE_URL: postgres://bookhub:bookhub_dev@localhost:5432/bookhub?sslmode=disable
         run: backend/scripts/mvp_smoke.sh
+
+      # Yükseltilmiş sınır KONTEYNERE GERÇEKTEN geçti mi? compose, env değiştiğinde
+      # konteyneri yeniden oluşturur — ama bir gün oluşturmazsa (ya da değişkenin adı
+      # değişirse) testler sebebi anlaşılmaz 429'larla düşerdi. Burada, açık bir mesajla ölsün.
+      - name: Verify the API got the raised auth rate limit
+        run: |
+          docker inspect bookhub-api --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            | grep -qx 'AUTH_RATE_LIMIT_PER_MIN=1000'
+
+      # Playwright senaryoları demo katalogla konuşuyor ("Dune", "Vakıf", türler).
+      - name: Demo catalog (Playwright fixtures)
+        run: make demo-seed
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        working-directory: ./frontend
+        run: npm ci
+
+      # --only-shell: yalnız chromium-headless-shell (tam chromium değil; playwright.config.ts
+      # bu yüzden `devices['Desktop Chrome']` kullanmıyor). --with-deps: runner'a eksik
+      # sistem kütüphanelerini kurar.
+      - name: Install chromium (headless shell)
+        working-directory: ./frontend
+        run: npx playwright install --with-deps --only-shell chromium
+
+      # Admin parolası rastgele ve TEK STEP içinde kalır: $GITHUB_ENV'e yazılsaydı işin geri
+      # kalan tüm adımlarına sızardı. ::add-mask:: ile de log'da yıldızlanıyor.
+      - name: Playwright (real browser E2E)
+        working-directory: ./frontend
+        env:
+          E2E_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          E2E_ADMIN_EMAIL="e2e-admin-$E2E_RUN_ID@example.com"
+          E2E_ADMIN_PASSWORD="$(openssl rand -base64 24)"
+          echo "::add-mask::$E2E_ADMIN_PASSWORD"
+          export E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD
+          printf '%s\n' "$E2E_ADMIN_PASSWORD" \
+            | docker exec -i bookhub-api /app/manage create-admin -email "$E2E_ADMIN_EMAIL" -name "E2E Admin"
+          npx playwright test
+
+      # YALNIZ hata durumunda: rapor ve trace'ler çerez/parola içerir, her yeşil koşuda
+      # saklamanın anlamı yok. Kısa saklama süresi aynı gerekçenin devamı.
+      - name: Upload the Playwright report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 5
 
       - name: Container logs (on failure)
         if: failure()

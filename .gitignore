@@ -57,3 +57,11 @@ Thumbs.db
 
 # Frontend build çıktısı (Vite)
 frontend/dist/
+
+# ---- Playwright (uçtan uca testler) ----
+# Trace/rapor dosyaları ÇEREZLERİ ve istek gövdelerini (admin parolası dahil) içerir:
+# repoya girmeleri düpedüz sır sızdırmak olurdu. Hepsi yeniden üretilebilir çıktı.
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/

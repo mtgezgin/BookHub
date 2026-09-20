@@ -8,7 +8,7 @@ SHELL := /bin/bash
 ENV := set -a; . ./.env; set +a
 GO := go -C backend
 
-.PHONY: help up down app-up app-down logs run test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build scan web web-test k8s-up k8s-port k8s-status k8s-down
+.PHONY: help up down app-up app-down logs run test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build scan web web-test e2e k8s-up k8s-port k8s-status k8s-down
 
 help: ## Hedefleri listele
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -90,6 +90,13 @@ web: ## Frontend geliştirme sunucusu (http://localhost:5173; /api → localhost
 
 web-test: ## Frontend tip kontrolü + testler
 	cd frontend && npm run typecheck && npm test
+
+# Uçtan uca: GERÇEK tarayıcı (chromium), gerçek NGINX + API + Postgres + Redis. Betik
+# yığını kendisi kaldırır, demo veriyi basar, bu koşuya özel bir admin açar ve çıkarken
+# açtığı kullanıcıları siler. Tarayıcı bir kereliğine:
+#   cd frontend && npx playwright install --only-shell chromium
+e2e: ## Playwright uçtan uca testleri (yığını kendisi kaldırır)
+	scripts/e2e.sh
 
 # ---- Kubernetes (Faz 12): yerel kind kümesi ----
 # Her kubectl çağrısı AÇIKÇA --context kind-bookhub: makinede başka (iş) kümeleri tanımlıysa

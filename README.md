@@ -55,9 +55,13 @@ make run         # API → http://localhost:8080
 make web         # frontend → http://localhost:5173 (/api → 8080)
 make test-db     # Go testleri (Postgres + Redis entegrasyonu dahil)
 make web-test    # frontend tip kontrolü + testler
+make e2e         # uçtan uca: gerçek tarayıcı (Playwright) + gerçek yığın
 make scan        # yayınlanan imajları bilinen açıklara karşı tara (Trivy)
 make help        # tüm hedefler
 ```
+
+`make e2e` yığını kendisi kaldırır, demo veriyi basar ve bu koşuya özel bir admin açar.
+Tarayıcıyı bir kereliğine indir: `cd frontend && npx playwright install --only-shell chromium`.
 
 Kubernetes (yerel kind kümesi): `make k8s-up` → `make k8s-port` → http://localhost:3001.
 
