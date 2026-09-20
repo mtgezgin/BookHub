@@ -32,7 +32,7 @@ jobs:
       # Etiketler: git etiketi (v1.2.3 → 1.2.3) + commit sha — "hangi koddan derlendi?"
       # sorusu imaj adından cevaplanabilsin.
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/bookhub-api
           tags: |
