@@ -375,6 +375,72 @@ func TestHandleRefreshAndLogout(t *testing.T) {
 	})
 }
 
+// TestSleepCtxRespectsBudget: sleepCtx'in İKİ dalı da doğrudan sınanır.
+//
+// NEDEN AYRI BİR TEST: handleLogout testleri noLogoutBackoff ile bütün beklemeleri sıfırlıyor,
+// bu yüzden handler üzerinden sleepCtx her zaman <-t.C dalını seçiyor; <-ctx.Done() dalı
+// hiç çalışmıyor. O dal ölü kaldığı sürece sleepCtx'i düz time.Sleep'e çeviren bir değişiklik
+// (bütçe dolduktan sonra bile beklemeye devam eden, isteği 5 sn'nin ötesine taşıyan sürüm)
+// tek bir testi bile kırmazdı.
+func TestSleepCtxRespectsBudget(t *testing.T) {
+	t.Run("bütçe dolmuşsa beklemeden false döner", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // bütçe doldu (handler'da: 5 sn'lik timeout'un sona ermesi)
+		start := time.Now()
+		// Süre BİLEREK bir saat: fonksiyon timer'ı bekleseydi test orada asılı kalırdı, yani
+		// hızlı dönüşün kendisi ctx dalının seçildiğinin kanıtı.
+		if sleepCtx(ctx, time.Hour) {
+			t.Error("bütçesi dolmuş context'te false dönmeliydi (yeniden denemenin anlamı yok)")
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("erken dönmeliydi, %s bekledi", d)
+		}
+	})
+	t.Run("bütçe varken beklemeyi tamamlar ve true döner", func(t *testing.T) {
+		if !sleepCtx(context.Background(), time.Millisecond) {
+			t.Error("beklemesi tamamlanan çağrı true dönmeli (döngü yeniden denemeli)")
+		}
+	})
+}
+
+// TestHandleLogoutStopsWhenBudgetExhausted: bütçe bir backoff beklemesi sırasında dolarsa
+// döngü ERKEN durur — kalan denemeleri yapmaz — ama cevap yine 500 ve çerez yine KORUNUR.
+//
+// sleepCtx'in dönüşünü yok sayan bir döngü (ör. `sleepCtx(...)` çağrısının sonucunu atan
+// hâli) bu testte kalan denemeleri de yapar ve çağrı sayısı tutmaz. Diğer logout testleri
+// bunu göremez: onlarda bekleme sıfır olduğu için bütçe hiç dolmuyor.
+func TestHandleLogoutStopsWhenBudgetExhausted(t *testing.T) {
+	// Beklemeler bütçeden (handler'daki sabit 5 sn) UZUN: ilk deneme patlar, sleepCtx bütçe
+	// dolana dek bekler ve false döner. noLogoutBackoff'un tersi bir kurulum.
+	//
+	// Bu alt test gerçekten ~5 sn sürer ve kısaltılamaz: bütçe handler'da sabit kodlu, üstelik
+	// context.WithoutCancel üst context'in deadline'ını da sildiği için isteğe daha kısa bir
+	// süre takıp bütçeyi dışarıdan daraltmak mümkün değil.
+	old := logoutRevokeBackoff
+	logoutRevokeBackoff = []time.Duration{time.Hour, time.Hour}
+	t.Cleanup(func() { logoutRevokeBackoff = old })
+
+	svc := &fakeAuth{err: errors.New("db")}
+	rec := doAuth(t, handleLogout(svc, testCookies), http.MethodPost, "/", "", refreshCookie("tok"))
+
+	// Bütçe dolduğu an duruldu: ilk deneme + hiç. Tam sayı yazılı, çünkü asıl iddia
+	// "len(backoff)+1 denemenin HEPSİ yapılmadı".
+	if svc.logoutCalls != 1 {
+		t.Errorf("bütçe dolunca döngü ilk denemeden sonra durmalıydı, %d kez denendi", svc.logoutCalls)
+	}
+	if svc.logoutCalls >= len(logoutRevokeBackoff)+1 {
+		t.Errorf("tüm denemeler yapılmış: bütçe hiç dikkate alınmamış (%d çağrı)", svc.logoutCalls)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("iptal edilemedi: 500 bekleniyordu, gelen %d %s", rec.Code, rec.Body)
+	}
+	// Erken çıkış da bir BAŞARISIZLIK: aile DB'de canlı kaldı, onu öldürebilecek tek anahtar
+	// tarayıcıdaki bu çerez — silinmemeli.
+	if ck := responseCookie(rec, testCookies.name); ck != nil {
+		t.Errorf("bütçe dolduğunda da çerez SİLİNMEMELİ, gelen Set-Cookie: %q", ck)
+	}
+}
+
 // TestHandleLoginSetsRefreshCookie: başarılı giriş, refresh token'ı YALNIZCA çerezle verir.
 // Öznitelikler tek tek sabitlenir — biri sessizce düşerse (ör. HttpOnly) Faz 13'ün tüm
 // gerekçesi buharlaşır ve kimse fark etmez.
@@ -472,6 +538,29 @@ func TestHandleLoginRevokesOldCookie(t *testing.T) {
 		}
 		if ck := responseCookie(rec, testCookies.name); ck != nil {
 			t.Errorf("başarısız giriş çerez YAZMAMALI: %v", ck)
+		}
+	})
+	// EN İYİ ÇABA'nın sınandığı yer burası: iptal PATLASA da giriş başarılıdır. Bu dala
+	// kazara bir return/writeInternalError girseydi (ör. "hatayı yutma, bildir" refleksiyle),
+	// DB'nin bir anlık sarsıntısı, tarayıcısında eski bir çerez taşıyan HERKESİ girişten
+	// men ederdi — üstelik mevcut alt testlerin (iptal tutar / çerez yok / giriş başarısız)
+	// hiçbiri kırılmadan. Eski çerez kullanıcıya ait bile olmayabilir; onu iptal edememek
+	// girişi reddetmek için bir gerekçe değil.
+	t.Run("iptal patlasa da giriş başarılı: 200 + yeni çerez", func(t *testing.T) {
+		// Hata logoutErrs ile veriliyor, fakeAuth.err ile DEĞİL: err olsaydı aynı hata
+		// Login'den de dönerdi ve test, iptalin değil girişin hatasını sınardı.
+		svc := &fakeAuth{session: sess, logoutErrs: []error{errors.New("db")}}
+		rec := doAuth(t, handleLogin(svc, testCookies), http.MethodPost, "/api/auth/login", body, refreshCookie("eski-refresh"))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("iptal patlasa da 200 bekleniyordu: %d %s", rec.Code, rec.Body)
+		}
+		if svc.logoutCalls != 1 {
+			t.Errorf("iptal bir kez denenmeliydi, %d kez denendi", svc.logoutCalls)
+		}
+		// Asıl kırılma noktası: hata dalından erken dönülseydi Set-Cookie hiç yazılmazdı ve
+		// kullanıcı 200 alsa bile bir sonraki yenilemede oturumunu kaybederdi.
+		if ck := responseCookie(rec, testCookies.name); ck == nil || ck.Value != "yeni-refresh" {
+			t.Errorf("cevap YENİ refresh çerezini taşımalı: %v", ck)
 		}
 	})
 }
