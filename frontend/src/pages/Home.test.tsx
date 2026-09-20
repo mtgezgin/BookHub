@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Book, TopRated } from "../api/types";
+import type { Book, Page, TopRated } from "../api/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -190,5 +190,51 @@ describe("Home", () => {
     await submitSearch(el, "   ");
     expect(params().has("q")).toBe(false);
     expect(params().get("genre")).toBe("roman");
+  });
+
+  // Cevapları ELLE çözen bir stub: "hangisi önce döndü" sırasını testin kendisi belirlesin.
+  function deferredBooks() {
+    const pending: ((p: Page<Book>) => void)[] = [];
+    const rejects: ((e: unknown) => void)[] = [];
+    stub({
+      books: () =>
+        new Promise<Page<Book>>((resolve, reject) => {
+          pending.push(resolve);
+          rejects.push(reject);
+        }),
+    });
+    return { pending, rejects };
+  }
+
+  // Gerçek hata: filtresiz sorgu tüm katalogu taradığı için daha YAVAŞ dönüyor; "Dune"
+  // araması 47 ms'de gelip ızgarayı doldurduktan sonra 243 ms'lik filtresiz cevap üstüne
+  // yazıyordu → URL ?q=Dune, liste ise tüm kitaplar (Playwright catalog senaryosu kırmızı).
+  it("geç gelen ESKİ liste cevabı yeni filtrenin üstüne YAZMAZ", async () => {
+    const { pending } = deferredBooks();
+    const { el } = await render("/");
+    await submitSearch(el, "Dune");
+    expect(pending).toHaveLength(2); // [0] filtresiz (bayat), [1] q=Dune (güncel)
+
+    // Önce GÜNCEL cevap, sonra bayat olan.
+    await act(async () => pending[1]({ items: [bookOf(7)], total: 1, limit: 12, offset: 0 }));
+    await act(async () => pending[0]({ items: [bookOf(1), bookOf(2)], total: 30, limit: 12, offset: 0 }));
+    await flush();
+
+    expect(el.querySelector("section p.muted")!.textContent).toBe("1 kitap");
+    expect(el.querySelector(".grid")!.textContent).toContain("Kitap 7");
+    expect(el.querySelector(".grid")!.textContent).not.toContain("Kitap 1");
+  });
+
+  it("geç gelen ESKİ isteğin HATASI da yutulur", async () => {
+    const { pending, rejects } = deferredBooks();
+    const { el } = await render("/");
+    await submitSearch(el, "Dune");
+
+    await act(async () => pending[1]({ items: [bookOf(7)], total: 1, limit: 12, offset: 0 }));
+    await act(async () => rejects[0](new ApiError(500, "internal", "bayat hata")));
+    await flush();
+
+    expect(el.querySelector("[role=alert]")).toBeNull();
+    expect(el.querySelector(".grid")!.textContent).toContain("Kitap 7");
   });
 });

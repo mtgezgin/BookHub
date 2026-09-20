@@ -26,8 +26,21 @@ export function Home() {
     api.topRated(5).then(setTop).catch(setError);
   }, []);
 
+  // ESKİ CEVAP KORUMASI (usePaged'deki ile aynı dert, burada elle): filtre değişince yeni
+  // bir istek gider ama ÖNCEKİ istek hâlâ uçuyordur. Filtresiz sorgu tüm katalogu taradığı
+  // için tipik olarak daha YAVAŞTIR → "Dune" araması 47 ms'de dönerken 243 ms'lik filtresiz
+  // cevap sonra gelip ızgaranın üstüne yazıyordu: URL ?q=Dune, liste ise tüm kitaplar.
+  // (Playwright'in catalog senaryosu tam bu yüzden kırmızı yandı; katalog büyüdükçe fark
+  // açıldığı için hata "ara sıra" görünüyordu.) Temizlik fonksiyonu effect yeniden koşmadan
+  // ÖNCE çalışır: geç gelen cevabı sessizce düşürüyoruz.
   useEffect(() => {
-    api.books({ q, genre, limit: PAGE, offset }).then(setPage).catch(setError);
+    let current = true;
+    api.books({ q, genre, limit: PAGE, offset })
+      .then((p) => current && setPage(p))
+      .catch((e) => current && setError(e));
+    return () => {
+      current = false;
+    };
   }, [q, genre, offset]);
 
   const update = (next: Record<string, string>) => {
