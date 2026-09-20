@@ -142,8 +142,8 @@ bir kez çalışıp biten migration → **Job**; hepsinin önünde sabit DNS ad�
    çok platformlu imajların yalnız bu makinenin platformu var. Çözüm: `docker save --platform …`
    ile tek platformlu arşiv, `kind load image-archive`.
 
-**Sonuç:** smoke 21/21; istekler iki API kopyasına dağıldı (28/30) — oturum JWT'de, sayaçlar
-Redis'te olduğu için hangi kopyanın cevap verdiği fark etmiyor.
+**Sonuç:** smoke 21/21 (o günkü sayı; Faz 13'ten beri 25/25); istekler iki API kopyasına dağıldı
+(28/30) — oturum JWT'de, sayaçlar Redis'te olduğu için hangi kopyanın cevap verdiği fark etmiyor.
 
 **🔗 İlgili:** [deploy/k8s/](../../deploy/k8s/) · [Makefile](../../Makefile) (`k8s-*`)
 
@@ -203,7 +203,7 @@ trivy image --ignore-unfixed --exit-code 1 --severity HIGH,CRITICAL bookhub-api:
 `--ignore-unfixed` neden: dağıtımın henüz yama yayınlamadığı bir açık için yapacak bir şey yok;
 CI'ı onunla kırmak yalnızca gürültü.
 
-**Bugünkü bulgular (ve ne yapıldı / neyin beklediği):**
+**Bugünkü bulgular (ve ne yapıldı):**
 - `node:24-alpine` (**derleme aşaması**): 4H 5M = 9 CVE, hepsi npm'in **kendi içine gömdüğü**
   paketlerde (`tar`, `undici`, `ip-address`, `brace-expansion`). Multi-stage build'in sonunda
   node/npm yok → **yayınlanan imaja girmiyor**. `npm@latest` bile aynı sürümleri gömüyor →
@@ -212,17 +212,22 @@ CI'ı onunla kırmak yalnızca gürültü.
 - `nginx-unprivileged:stable-alpine` (**sunum**): Trivy 0, Scout 1H. `stable-alpine-slim`
   hiç kullanmadığımız dinamik modülleri (geoip, image-filter, njs, xslt) ve kütüphanelerini
   içermiyor: Scout 0H, 91 MB → 30 MB, 35 → 21 paket. Bizim NGINX ayarıyla denendi: `nginx -t`,
-  `/healthz` 200, healthcheck'in `wget`'i mevcut → **geçiş HENÜZ YAPILMADI**: `frontend/Dockerfile`
-  hâlâ `stable-alpine` kullanıyor. Deneme başarılı ama imaj değişikliği, oturum/çerez işiyle aynı
-  commit'e karışmasın diye ayrı bir `build(web):` commit'e bırakıldı (repo slim üstünde hiç build
-  edilmedi; geçişten önce `docker build` + `nginx -t` + `/healthz` + `wget` yeniden doğrulanacak).
+  `/healthz` 200, healthcheck'in `wget`'i mevcut → **geçiş `c79707b` ile yapıldı**:
+  `frontend/Dockerfile` artık `stable-alpine-slim`'i, üstelik **digest'e sabitlenmiş** hâlde
+  kullanıyor (`@sha256:c2c3905b…`). İmaj değişikliği, oturum/çerez işiyle karışmasın diye ayrı bir
+  `build(docker):` commit'inde tutuldu.
 - Yayınlanan `bookhub-api:dev` ve `bookhub-web:dev`: Trivy 0.
-- Eksik olan asıl kontrol: **CI'da imaj taraması** (Trivy, HIGH/CRITICAL → iş kırmızı) + yerel
-  `make scan` + temel imajları **digest ile sabitleme** + **Dependabot** (sabitleme, güncelleme
-  otomasyonu olmadan güvenlik yamalarını dondurur).
+- O gün eksik olan kontroller **aynı commit'te (`c79707b`) kapandı**: CI'daki `images` işi iki
+  imajı da derleyip `trivy-action` (commit SHA'sıyla pinli) ile tarıyor — *düzeltmesi olan*
+  HIGH/CRITICAL bir açıkta iş kırmızı; aynı kural yerelde `make scan`; temel imajlar digest'e
+  sabitlendi ve `.github/dependabot.yml` (docker, gomod, npm, github-actions; haftalık)
+  sabitlemenin "güncelleme" yarısını üstleniyor.
 
 **🔗 İlgili:**
 - [#1 Multi-stage imaj](#1-multi-stage-docker-imajı-ve-distroless-neden-38-mb) — derleme aşaması
   neden yayınlanmıyor
+- [docs/phases/phase-13-session-hardening.md](../phases/phase-13-session-hardening.md) — Faz 13'ün
+  imaj sertleştirme özeti
 - [frontend/Dockerfile](../../frontend/Dockerfile) · [.github/workflows/ci.yml](../../.github/workflows/ci.yml)
+- [.github/dependabot.yml](../../.github/dependabot.yml) · [Makefile](../../Makefile) (`make scan`)
 - [security-and-auth.md](security-and-auth.md) — kod tarafındaki güvenlik notları

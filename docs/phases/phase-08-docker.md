@@ -39,4 +39,4 @@ make smoke       # MVP DoD'u çalışan API'ye karşı doğrula
 
 - [x] İmaj 38 MB, root değil, healthcheck'li.
 - [x] `docker compose --profile app up -d --build` → api `healthy`.
-- [x] `mvp_smoke.sh` konteynere karşı 21/21.
+- [x] `mvp_smoke.sh` konteynere karşı 21/21 (o günkü sayı; Faz 13'ten beri 25/25).

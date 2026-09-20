@@ -29,7 +29,8 @@ Redis'i **gerçek bir performans/durum problemi çözdüğü için** ekle — ha
 - [x] Top-rated cache'leniyor (`books:top-rated:v1`, TTL 60 sn); puan yazımı ve moderasyon commit'i invalidate ediyor.
 - [x] Yük testi öncesi/sonrası: 327 → 2892 istek/sn, p95 236 → 27 ms (WHY §12).
 - [x] Login/register rate limit: bellek içi (tek instance) + Redis (paylaşılan) — iki instance'la canlı fark: 10 vs 5.
-- [x] **MVP tamam:** `backend/scripts/mvp_smoke.sh` brief §15'in her maddesini uçtan uca doğruluyor (21/21).
+- [x] **MVP tamam:** `backend/scripts/mvp_smoke.sh` brief §15'in her maddesini uçtan uca doğruluyor
+      (o gün 21/21; betiğe sonradan kontroller eklendi — Faz 13'ten beri 25/25).
 
 ## 🧾 Ne yapıldı
 

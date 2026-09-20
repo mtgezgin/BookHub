@@ -38,8 +38,12 @@ lokal Docker Postgres ↔ Supabase, lokal Redis ↔ Upstash.
 | `LOG_FORMAT` | `json` | Platform log toplayıcısı alanları ayrıştırsın |
 | `PORT` | platformun verdiği | Çoğu platform `PORT`'u kendisi enjekte eder |
 | `COOKIE_SECURE` | `true` (varsayılan) | Refresh çerezi yalnız HTTPS'te gider → **prod HTTPS ŞART**. `false` yalnız lokal denemeler için |
-| `COOKIE_NAME` | `bookhub_refresh` (varsayılan) | Çerezler porta göre değil **host'a** göre kapsanır: aynı host'ta birden çok yığın varsa her birine ayrı ad ver |
-| `RATING_MIN_VOTES`, `AUTH_RATE_LIMIT_PER_MIN`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`, `JWT_SESSION_MAX_AGE` | varsayılanlar makul | |
+| `COOKIE_NAME` | `bookhub_refresh` (varsayılan) | Çerezler porta göre değil **host'a** göre kapsanır: aynı host'ta birden çok yığın varsa her birine ayrı ad ver (kind: `bookhub_refresh_k8s`). Boot'ta doğrulanır (RFC 6265 token; `__Host-` öneki `Path=/` istediği için kullanılamaz) |
+| `TRUSTED_PROXIES` | Proxy'nin IP'si ya da CIDR'ı (boş = hiç kimseye güvenme) | `X-Real-IP`/`X-Forwarded-For` yalnız bu adreslerden gelirse dikkate alınır (Faz 11); yanlış değer = rate limit'i atlatan sahte IP |
+| `JWT_ACCESS_TTL` | `15m` (varsayılan) | İptal gecikmesinin üst sınırı: çıkış/parola/rol değişimi bu süre kadar access token'ı etkilemez |
+| `JWT_REFRESH_TTL` | `168h` = 7 gün (varsayılan) | Hareketsizlik penceresi; her rotasyon yeniden başlatır |
+| `JWT_SESSION_MAX_AGE` | `720h` = 30 gün (varsayılan) | Bir girişin (token ailesinin) **mutlak** ömrü; `JWT_REFRESH_TTL`'den kısa olamaz (boot'ta doğrulanır) |
+| `RATING_MIN_VOTES`, `AUTH_RATE_LIMIT_PER_MIN` | varsayılanlar makul | Ağırlıklı puanın `m` değeri · IP başına dakikalık kimlik isteği kotası (login/register/parola) |
 
 ## 3. Adımlar
 
@@ -70,7 +74,15 @@ lokal Docker Postgres ↔ Supabase, lokal Redis ↔ Upstash.
 
 ## 4. Bilinen sınırlar / yapılacaklar
 
-- Refresh token `localStorage`'da → prod öncesi httpOnly + `SameSite=Strict` çereze taşımak önerilir.
+- **HTTPS ŞART.** Refresh token httpOnly + `Secure` + `SameSite=Strict` bir çerezte taşınıyor
+  (Faz 13): düz HTTP'de tarayıcı o çerezi ne yazar ne geri gönderir → kullanıcı her sayfa
+  yenilemesinde düşer. `COOKIE_SECURE=false` yalnızca lokal denemeler içindir, prod'da ASLA.
+  Ayrıca tarayıcılar `Sec-Fetch-Site` başlığını yalnız güvenli bağlama yollar; düz HTTP'de
+  CSRF korumasının tek dayanağı `Origin == Host` kontrolü kalır (proxy `Host`'u **portuyla**
+  iletmeli — bkz. `frontend/nginx/api-proxy.conf`).
+- Access token'lar stateless: çıkış, reuse iptali, parola değişimi ve rol değişikliği refresh
+  tarafını anında keser, ama verilmiş access token'lar süreleri dolana kadar (`JWT_ACCESS_TTL`,
+  varsayılan 15 dk) geçerli kalır.
 - Tek API instance'ı varsayımıyla bellek içi rate limit; birden çok instance → `REDIS_URL` şart.
 - `X-Forwarded-For` güveni: NGINX arkasında gerçek istemci IP'si için Faz 11 yapılandırması.
 - Yedekleme: Supabase günlük yedek alır; point-in-time recovery ücretli katmanda.

@@ -12,14 +12,17 @@ içindeki Türkçe yorumlar "neden böyle"yi anlatır; her faz bir kavram öğre
 
 - **Katalog:** arama (başlık/yazar), tür filtresi, sayfalama; kitap detayı, tür etiketleri.
 - **Kimlik:** kayıt/giriş, JWT (HS256, algoritma sabitli) + tek kullanımlık, döndürülen refresh
-  token; USER/ADMIN rolleri; bcrypt (cost 12); zamanlama eşitlemeli giriş.
+  token **httpOnly çerezte** (`SameSite=Strict`, `Secure`); token **ailesi** + yeniden kullanım
+  (reuse) tespiti ve mutlak oturum tavanı; parola değişimi tüm cihazları düşürür; USER/ADMIN
+  rolleri; bcrypt (cost 12); zamanlama eşitlemeli giriş.
 - **Moderasyon:** öneri → PENDING → onay/red/arşiv (durum makinesi), her karar aynı transaction'da
   append-only denetim kaydına.
 - **Topluluk:** yorumlar (yalnız admin siler, yumuşak silme), 1–10 puan (kullanıcı başına bir,
   `ON CONFLICT`), ortalama/sayı her yazımda kaynaktan türetilir.
 - **Sıralama:** `WR = v/(v+m)·R + m/(v+m)·C` sorgu anında; Redis cache (~8.8× verim).
 - **Koruma:** IP başına rate limit (Redis ile çok kopyada paylaşılan), güvenilen proxy'den gerçek
-  IP, CSP ve güvenlik başlıkları, root olmayan konteynerler.
+  IP, cross-origin yazma isteklerinin reddi (CSRF), CSP ve güvenlik başlıkları, root olmayan
+  konteynerler, imaj açık taraması (Trivy).
 
 ## Yığın
 
@@ -72,6 +75,7 @@ Kubernetes (yerel kind kümesi): `make k8s-up` → `make k8s-port` → http://lo
 | `GET /api/books` · `/api/books/{id}` · `/api/books/top-rated` · `/api/genres` | herkes |
 | `GET /api/books/{id}/comments` · `/ratings/summary` | herkes |
 | `POST /api/auth/register\|login\|refresh\|logout` · `GET /api/auth/me` | — / giriş |
+| `POST /api/auth/password` (parola değiştir; diğer tüm oturumları kapatır) | giriş |
 | `POST /api/books/suggestions` · `POST /api/books/{id}/comments` · `GET/PUT/DELETE /api/books/{id}/rating` | giriş |
 | `/api/admin/books…` (kuyruk, approve/reject/restore, PATCH, DELETE=arşiv, audit) · `/api/admin/genres…` · `DELETE /api/admin/comments/{id}` | admin |
 
@@ -81,7 +85,8 @@ Hata zarfı her yerde aynı: `{"error":{"code":"…","message":"…"}}`; her cev
 
 - [docs/STATUS.md](docs/STATUS.md) — neredeyiz (oturum devri)
 - [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md) — neyin ne olduğu (dosya haritası, istek yolculuğu)
-- [docs/phases/](docs/phases/) — 12 fazın rehberleri · [docs/learning-notes/](docs/learning-notes/) — kavram notları
+- [docs/phases/](docs/phases/) — 13 fazın rehberleri · [docs/learning-notes/](docs/learning-notes/) — kavram notları
+- [docs/REVIEW_FEEDBACK.md](docs/REVIEW_FEEDBACK.md) — inceleme bulguları ve çözüm kayıtları (canlı backlog)
 - [docs/WHY_GO_VS_TS.md](docs/WHY_GO_VS_TS.md) — Go vs TS: ölçülmüş, dürüst karşılaştırma
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — buluta dağıtım rehberi (Supabase + Upstash + konteyner)
 - [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md) — ürün tanımı ve yol haritası

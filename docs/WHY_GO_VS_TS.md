@@ -241,7 +241,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 7. context.Context propagation: cancellation, timeouts, deadlines
 
-**Status:** `PARTIAL` (Faz 2 + Faz 7) · **Illustration:** `backend/cmd/api/books.go` (`r.Context()` → `store.Get(ctx, ...)`), `backend/internal/database/tx.go:WithTx`, `backend/internal/cache/cache.go:NewRedis` (3 sn PING deadline + 500 ms okuma/yazma zaman aşımı)
+**Status:** `PARTIAL` (Faz 2 + Faz 7 + Faz 13) · **Illustration:** `backend/cmd/api/books.go` (`r.Context()` → `store.Get(ctx, ...)`), `backend/internal/database/tx.go:WithTx`, `backend/internal/cache/cache.go:NewRedis` (3 sn PING deadline + 500 ms okuma/yazma zaman aşımı), `backend/cmd/api/auth.go:handleLogout` (`context.WithoutCancel` + bağımsız 5 sn bütçe)
+>
+> **🟡 Faz 13:** Bu faz disiplinin TERSİNİ öğretti: bazen isteğin ctx'ini geçirmek YANLIŞ. Çıkışta oturum ailesini öldüren sorgu `r.Context()`'e bağlı kalsaydı, sekme kapanırken kopan bağlantı iptali yarıda keserdi — kullanıcı "çıktım" sanarken sunucuda aile yaşardı. `handleLogout` bu yüzden `context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)` ile koşuyor: ctx'in DEĞERLERİ (request_id, log alanları) taşınır, iptal sinyali taşınmaz ve işin kendi bütçesi olur. Ders: "ctx'i her imzaya geçir" bir şey söylemiyor; asıl soru **hangi** ctx. Hipotez yine de PARTIAL — iptal edilen bir isteğin uçuştaki DB sorgusunu gerçekten kestiğini hâlâ ölçmedik.
 >
 > **🟡 Faz 7:** Redis'te ctx + kısa zaman aşımları işe yaradı: yavaş bir Redis'i beklemek yerine "miss" sayıp DB'ye düşüyoruz; cache hatası isteği asla düşürmüyor (testli). Hâlâ ölçmediğimiz: istemci bağlantıyı kesince uçuştaki bir sorgunun GERÇEKTEN iptal edildiği — bu yüzden PARTIAL kalıyor.
 >
@@ -318,7 +320,9 @@ This is the index + the rules. The fill-in protocol and per-phase checklist live
 
 ## 10. Data-race detection & concurrent correctness (`go test -race` + DB transactions)
 
-**Status:** `CONFIRMED` (Faz 2–5, bir düzeltmeyle) · **Illustration:** `backend/internal/ratings/service.go:Rate`, `backend/internal/ratings/service_integration_test.go:TestConcurrentRatingsRealDB`
+**Status:** `CONFIRMED` (Faz 2–5, bir düzeltmeyle + Faz 13) · **Illustration:** `backend/internal/ratings/service.go:Rate`, `backend/internal/ratings/service_integration_test.go:TestConcurrentRatingsRealDB`, `backend/internal/auth/repository_integration_test.go` (`pg_blocking_pids` ile deterministik kilit testleri, gerçek `40P01`)
+>
+> **✅ Faz 13:** Faz 5'in dersi ("yarış Go belleğinde değil, iki transaction arasında") burada bir TEST TEKNİĞİNE dönüştü. `time.Sleep` ile "herhalde şimdi bloklanmıştır" demek yerine testler `pg_blocking_pids(pid)` ile bir backend'in gerçekten kimi beklediğini yokluyor (`blockedBy` yardımcısı); her bekleyiş context ile sınırlı, testin kendi transaction'ı ayrı bir bağlantıda. Kazanç: kilit sırası değişmezi (`users` → `refresh_token_families` → `refresh_tokens`) artık bir iddia değil, mutation ile kanıt — sırayı ters çeviren ya da `users` kilidini `FOR UPDATE` yapan her mutasyon testi GERÇEK bir `40P01` ile kırmızıya çeviriyor (`isDeadlock`, `pgErr.Code == "40P01"`). Go'nun payı yine sınırlı ve dürüstçe küçük: goroutine'ler eşzamanlı istemciyi YAZMAYI kolaylaştırdı, doğruluğu veren şey SQL ve kilit disiplini.
 >
 > **✅ Faz 5 (düzeltmeli):** Hipotezin İKİNCİ yarısı güçlü biçimde doğrulandı: doğru çözüm DB'de. Kitap satırı `FOR UPDATE` ile kilitlenmeden, 25 eşzamanlı oy sonunda `rating_count` 16–19 çıktı (3 deneme) — klasik kayıp güncelleme; kilitle her seferinde 25. Ama hipotezin İLK yarısı ("`-race` gerçek hataları bedavaya yakalar") burada **yanlış çıktı**: bu hata Go belleğinde değil, iki Postgres transaction'ı arasındaydı; race detector hiçbir şey görmedi (paylaşılan Go değişkeni yok). `-race` bellekteki yarışlar içindir; veri yarışlarını ancak **eşzamanlı entegrasyon testi + mutation** yakalar. Aynı desen dört kez tekrarlandı: tür değiştirme (Faz 2), refresh token tüketme (Faz 3), moderasyon kararı (Faz 4), puan agregatı (Faz 5) — hepsinde çözüm dil değil, SQL (kilit ya da tek atımlık deyim).
 
@@ -535,6 +539,16 @@ Seed entries:
     küçülür; Bun/Deno tek dosya derleme de sunar. Go'nun avantajı "varsayılan olarak statik
     tek binary" — ekstra araç gerekmiyor. Fark gerçek ama "Node imajı şişkindir" kaderi değil.
 
+**Faz 13'te eklenen dürüst gözlemler:**
+25. **Sekmeler arası koordinasyon (§9):** tek kullanımlık refresh token'ın aynı origin'deki
+    sekmeler tarafından SIRAYLA kullanılmasını sağlayan şey **Web Locks**
+    (`navigator.locks.request("bookhub-refresh", ...)`), bir sekmedeki çıkışı diğerlerine duyuran
+    şey de `storage` olayı — ikisi de tarayıcı platformunun kendi primitifleri
+    (`frontend/src/api/client.ts`: `withRefreshLock` ve `storage` dinleyicisi). Sunucu tarafında
+    bunların karşılığı yok: Go'da aynı işi yapmak paylaşılan bir kilit servisi (Redis / Postgres
+    advisory lock) yazmak demekti. Bu fazda oturumu ayakta tutan eşzamanlılık aracı dilden değil,
+    **tarayıcıdan** geldi.
+
 > **Refleksiyon (TR):** Buraya her Go bölümü doldurduğunda en az bir dürüst "TS/JS kazanırdı"
 > girdisi ekle. Bu bölüm büyümüyorsa, doküman Go reklamına kaymış demektir.
 
@@ -560,6 +574,7 @@ At the **end of every roadmap phase** (§11), before calling the phase done:
    - **Phase 8 / 12** → §11
    - **Phase 9** → §15
    - **Phase 10** → §13
+   - **Phase 13** → §7, §10, §15
 2. **Replace each `[… — TBD]`** with a real reference — prefer a stable
    `path:Symbol` (e.g. `backend/internal/ratings/score.go:WeightedScore`) over a bare line
    number, so it survives refactors — plus a 3–5 line **Türkçe** reflection: did the code

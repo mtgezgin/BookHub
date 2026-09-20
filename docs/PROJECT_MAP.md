@@ -4,7 +4,7 @@
 > hangi araç niye var. Uzun aradan sonra dönünce burayı oku.
 > **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
 >
-> Son güncelleme: 12 fazın tamamı bitti (2026-09-18).
+> Son güncelleme: 13 fazın tamamı bitti (2026-09-20 — Faz 13: oturum sertleştirme).
 
 ---
 
@@ -15,11 +15,11 @@ birinin backend teknolojilerini *neden var oldukları* üzerinden Go ile öğren
 gerçek bir problem doğunca eklendi; kodun içi Türkçe "neden böyle" yorumlarıyla dolu.
 
 - **Yığın:** Go (chi, pgx, sqlc, goose, slog) · PostgreSQL · Redis · React + Vite · NGINX ·
-  Docker · Kubernetes · GitHub Actions. **ORM yok.**
-- **Kapsam:** MVP (Faz 1–7) + altyapı rayı (Faz 8–12) tamam. Buluta deploy rehberi hazır, deploy
-  edilmedi (hesap gerektirir).
-- **Boyut:** ~6.5k satır Go (+ ~6k satır test, 151 test fonksiyonu), ~1k satır TypeScript,
-  7 migration, 41 öğrenme notu.
+  Docker · Kubernetes · GitHub Actions · Playwright. **ORM yok.**
+- **Kapsam:** MVP (Faz 1–7) + altyapı rayı (Faz 8–12) + oturum sertleştirme (Faz 13) tamam.
+  Buluta deploy rehberi hazır, deploy edilmedi (hesap gerektirir).
+- **Boyut:** ~7.7k satır Go (+ ~9.3k satır test, 226 test fonksiyonu), ~1.2k satır TypeScript
+  (+ ~2.4k vitest, ~0.9k Playwright), 8 migration, 51 öğrenme notu.
 
 ---
 
@@ -30,7 +30,9 @@ cp .env.example .env            # bir kez
 make app-up                     # her şey konteynerde → http://localhost:3000
 make demo-seed                  # örnek katalog
 make admin EMAIL=sen@ornek.com  # ilk admin (parola gizli sorulur)
-make smoke                      # MVP tanımını uçtan uca doğrula
+make smoke                      # MVP tanımını uçtan uca doğrula (25 kontrol)
+make e2e                        # gerçek tarayıcı (Playwright): yığını kendisi kaldırır
+make scan                       # yayınlanan imajları Trivy ile tara
 make help                       # tüm hedefler
 ```
 
@@ -56,6 +58,7 @@ tarayıcı ─▶ NGINX (Faz 11)          CSP/başlıklar · /api/auth/ için ik
 Go API ─ chi middleware zinciri (router.go)
    RequestID ─▶ resolveClientIP (yalnız güvenilen proxy'nin başlığına inan)
    ─▶ requestLogger (tek JSON satırı + X-Request-Id) ─▶ Recoverer
+   ─▶ crossOriginProtection (Faz 13: başka siteden gelen YAZMA isteği → 403; GET'ler geçer)
    ─▶ requireAuth (JWT: HS256 sabit, iss/aud/exp) → Principal context'e
    ─▶ handleRateBook (community.go): gövde doğrula (1–10), kullanıcı = TOKEN'dan (IDOR yok)
    ─▶ ratings.CachedService.Rate
@@ -82,7 +85,9 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `docker-compose.yml` | Postgres + Redis (her zaman) · api + web (`app` profili) · sabit alt ağ |
 | `.env.example` | env şablonu (dev değerleri, açıklamalı); gerçek `.env` git dışı |
 | `.githooks/` | pre-commit (gofmt + vet), pre-push (golangci-lint + test -race) |
-| `.github/workflows/` | `ci.yml` (backend/frontend/e2e), `release.yml` (yalnız tag/elle imaj yayını) |
+| `.github/workflows/` | `ci.yml` (backend / frontend / **images** = Trivy taraması / e2e = compose + smoke + Playwright), `release.yml` (yalnız tag/elle imaj yayını) |
+| `.github/dependabot.yml` | haftalık bağımlılık PR'ları: docker digest'leri, Go modülleri, npm, actions — digest pinlemenin diğer yarısı (Faz 13) |
+| `scripts/e2e.sh` | `make e2e`: yığını kaldırır, NGINX auth kovasını sıfırlar (web restart), demo veriyi basar, koşuya özel rastgele parolalı admin açar, Playwright'i koşar, çıkarken bu koşunun kullanıcılarını siler |
 | `deploy/k8s/` | Kubernetes manifestleri (kustomize) |
 
 ### `backend/cmd/api/` — HTTP katmanı (paket `main`)
@@ -90,7 +95,7 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | Dosya | Ne |
 |---|---|
 | `main.go` | `run() int`: config → migrate (ops.) → pgxpool → Redis (ops.) → servisler → router → graceful shutdown; `healthcheck` alt komutu |
-| `router.go` | `deps` struct'ı, middleware zinciri, tüm rotalar (public / giriş / admin grupları) |
+| `router.go` | `deps` struct'ı, middleware zinciri, tüm rotalar (public / giriş / admin grupları); `crossOriginProtection()` = Go 1.25 `http.CrossOriginProtection` + JSON 403 `cross_origin_request` (Faz 13) |
 | `middleware.go` | `requireAuth` (401), `requireAdmin` (403), `rateLimit` (429), `resolveClientIP`, `requestLogger` |
 | `respond.go` | `writeJSON`, hata zarfı, `writeInternalError` (request id'li log), `readJSON` (1 MiB, bilinmeyen alan = 400) |
 | `validate.go` | `validator` (hataları biriktirir), alan sınırları, slug/dil/URL kuralları |
@@ -98,7 +103,7 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `moderation.go` | öneri ucu + admin kitap uçları, admin DTO, durum geçişleri (method expression) |
 | `community.go` | yorum + puan + top-rated uçları |
 | `genres.go` | tür uçları |
-| `auth.go` | register/login/refresh/logout/me |
+| `auth.go` | register/login/refresh/logout/me + `handleChangePassword` (`POST /api/auth/password`); refresh çerezi yardımcıları: `cookieSettings`/`cookieSettingsFrom`, `newRefreshCookie`, `setRefreshCookie`, `clearRefreshCookie`, `readRefreshCookie` (`r.CookiesNamed`: tam 1, ≤256 bayt) |
 | `*_test.go` | sahte (fake) servislerle DB'siz handler testleri; sözleşme (alan listesi) testleri; korelasyon testi |
 
 ### `backend/cmd/manage/` — operatör komutları
@@ -109,12 +114,12 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 
 | Paket | Ne |
 |---|---|
-| `config` | env → `Config`, fail-fast doğrulama (JWT ≥32 bayt, TTL'ler, proxy CIDR'ları…) |
+| `config` | env → `Config`, fail-fast doğrulama (JWT ≥32 bayt, TTL'ler, proxy CIDR'ları, `JWT_SESSION_MAX_AGE ≥ JWT_REFRESH_TTL`, `COOKIE_NAME` RFC 6265 token + `__Host-`/`__Secure-` önek kuralları) |
 | `database` | pgxpool (`New`), `Migrate` (goose + advisory lock), `WithTx`, Postgres hata kodları |
 | `db` | **sqlc'nin ürettiği** kod — elle düzenlenmez (`make sqlc`) |
 | `books` | kitap repository'si (public okuma yalnız APPROVED), statüler, `ParseStatus` |
 | `genres` | tür repository'si |
-| `auth` | bcrypt, JWT (`TokenManager`), refresh token, `Service` (ilk servis katmanı) |
+| `auth` | bcrypt, JWT (`TokenManager`), refresh token **aileleri**, `Service` (ilk servis katmanı). Repository: `StartRefreshFamily` (girişte `FOR SHARE` hash kontrolü), `RotateRefreshToken` (→ `Rotation{UserID, FamilyID, ExpiresAt, User}`), `RevokeRefreshFamily`, `CleanupRefreshTokens`, `ChangePassword`; hata tipi `ReuseError` (`Unwrap → ErrInvalidToken`), sentinel `ErrWrongPassword` |
 | `moderation` | durum makinesi (`Next`, veri olarak), öneri/onay/red/arşiv, `WithPublicChangeHook` |
 | `audit` | denetim kaydı yazıcısı (append-only tablo) |
 | `comments` | yorum servisi (yumuşak silme + denetim) |
@@ -135,8 +140,22 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `0005` | liste index'leri `(created_at DESC, id DESC)` — EXPLAIN ANALYZE bulgusu |
 | `0006` | puan silinince (CASCADE dahil) kitap istatistiklerini yenileyen trigger |
 | `0007` | o trigger önce kitabı kilitlesin (eşzamanlı oyla kayıp güncelleme olmasın) |
+| `0008` | refresh token **aileleri**: `refresh_token_families` (`id`, `user_id`, `created_at`, `absolute_expires_at`, `revoked_at`) + `refresh_tokens.family_id` (NOT NULL, CASCADE) ve `refresh_tokens.used_at`; `TRUNCATE refresh_tokens` (eski token'ların ailesi yok) |
 
 `sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
+
+`users.sql`'deki Faz 13 sorguları (hepsinin üstünde NEDEN yorumu var):
+`CreateRefreshFamily` · `CreateRefreshToken` · `GetRefreshTokenFamily` (kilitsiz) ·
+`LockRefreshFamily` (`FOR UPDATE` — kilit sırasının ilk adımı) · `MarkRefreshTokenUsed` ·
+`GetRefreshTokenUsedAt` (reuse ayrımı) · `RevokeRefreshFamily` · `DeleteRefreshFamilyTokens` ·
+`DeleteDeadRefreshFamilies` / `DeleteExpiredRefreshTokens` (girişteki temizlik, `FOR UPDATE SKIP
+LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswordForLogin`
+(`FOR SHARE`) · `UpdateUserPassword` · `LockUserLiveRefreshFamilies` · `RevokeUserRefreshFamilies` ·
+`DeleteUserRefreshTokens`.
+
+> **Kilit sırası değişmezi (Faz 13):** bir aileye dokunan her transaction `users` →
+> `refresh_token_families` → `refresh_tokens` sırasıyla kilitler. Ters sıra gerçek bir deadlock
+> (`40P01`) üretti; bugün gerçek DB testleri bunu koruyor.
 
 ### `backend/scripts/`
 
@@ -146,12 +165,14 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 
 | Dosya | Ne |
 |---|---|
-| `src/api/client.ts` | fetch sarmalayıcı, token saklama, 401 → **tek uçuşlu** yenileme → tekrar |
-| `src/api/types.ts` | API sözleşmesinin TS tipleri |
+| `src/api/client.ts` | fetch sarmalayıcı + **oturum durum makinesi** (Faz 13'te yeniden yazıldı): access token yalnız bellekte, refresh token httpOnly çerezte (bu dosya onu hiç görmez), `localStorage`'da yalnız sır olmayan `bookhub.session` ipucu ve `bookhub.logout_pending` bayrağı; çerez yazan tüm istekler (login / refresh / logout / password) **Web Locks** (`bookhub-refresh`) ile origin başına seri; `sessionEpoch` geç gelen cevabın oturumu diriltmesini engeller |
+| `src/api/types.ts` | API sözleşmesinin TS tipleri (`Session`'da `refresh_token` YOK) |
 | `src/auth/AuthContext.tsx` | oturum durumu, açılışta geri yükleme |
-| `src/pages/` | Home (katalog + en iyiler), BookDetail, Auth, Suggest, admin/Moderation |
-| `nginx/` | `default.conf`, `api-proxy.conf`, `security-headers.conf` |
-| `Dockerfile` | node build → nginx-unprivileged (uid 101, :8080) |
+| `src/pages/` | Home (katalog + en iyiler), BookDetail, Auth, Suggest, **Account** ("Hesabım": parola değiştirme, Faz 13), admin/Moderation |
+| `e2e/` | Playwright senaryoları (`catalog`, `auth-flow`, `reuse`, `tabs`, `cross-origin`, `rating-comment`, `moderation`) + `env.ts`, `helpers.ts` (**rate limit bütçesi tablosu**), `global-setup.ts` |
+| `playwright.config.ts` | yalnız chromium, `baseURL` = `E2E_BASE_URL`, `trace: retain-on-failure`, CI'da 1 yeniden deneme |
+| `nginx/` | `default.conf` (auth + **password** rate limit zone'ları, `$api_host` map'i), `api-proxy.conf` (`Host` = `$http_host` → port korunur), `security-headers.conf` |
+| `Dockerfile` | node build → nginx-unprivileged **stable-alpine-slim** (uid 101, :8080), tabanlar digest ile pinli |
 
 ---
 
@@ -163,7 +184,12 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | Ayrı request/response DTO | `status`/`role` gönderen istek 400; iç alanlar public'e sızmıyor (sözleşme testleri) |
 | JWT algoritma sabitleme | sabitleme kaldırılınca HS512 token kabul ediliyor (mutation) |
 | bcrypt 72 bayt koruması | koruma kaldırılınca "72 bayt + sonek" giriş yapıyor (regresyon testi) |
-| Tek kullanımlık refresh (`DELETE … RETURNING`) | 20 eşzamanlı tüketim → tam 1 kazanan |
+| Tek kullanımlık refresh (Faz 13'ten beri `used_at` ile işaretlenir, silinmez) | 20 eşzamanlı yenileme → tam 1 kazanan, ≥1 `ReuseError`, aile iptal |
+| Reuse tespiti = aile iptali | harcanmış token tekrar gelince **halefi de** 401 (Playwright `reuse.spec.ts`) |
+| Kilit sırası `users → families → tokens` | ters sıra gerçek `40P01`; kilit testleri mutasyonda kırılıyor |
+| `FOR NO KEY UPDATE` (parola) vs `FOR KEY SHARE` (FK) | `FOR UPDATE`'e çevirince deadlock (mutation testi) |
+| Refresh token httpOnly çerezte | gövdede `refresh_token` yok, `localStorage`'da yalnız `{bookhub.session:"1"}` (gerçek tarayıcı testi) |
+| Cross-origin yazma reddi | `Sec-Fetch-Site: cross-site` → 403; `Origin == Host` → geçer (NGINX regresyonu) |
 | Moderasyonda `FOR UPDATE` | kilitsiz: iki admin de "kazanıyor", denetimde çelişen iki karar |
 | Puanda kilit + kaynaktan türetme | kilitsiz: 25 oydan sayım 16–19 (kayıp güncelleme) |
 | Ağırlıklı skor query-time | SQL skoru = Go spesifikasyonu (1e-9) |
@@ -184,13 +210,32 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | **Docker Compose** | dev altyapısı; `app` profiliyle tüm uygulama |
 | **kind** | Docker içinde Kubernetes (yerel küme) |
 | **ab** (ApacheBench) | yük testi (Faz 7 ölçümleri) |
+| **Playwright** | gerçek tarayıcıda (chromium) uçtan uca testler: çerez, sekmeler, dialog (`make e2e`) |
+| **Trivy** | imaj açık taraması; CI'daki `images` işi ve `make scan` aynı kuralı koşar |
+| **Dependabot** | digest/bağımlılık güncellemelerini haftalık PR olarak getirir |
 
 ---
 
 ## 7. Bilinen borçlar
 
-- Refresh token `localStorage`'da → httpOnly + `SameSite=Strict` çerez daha güçlü (backend değişikliği ister).
-- Token "aile" iptali (eski refresh token tekrar gelirse tüm aileyi düşür) yok.
-- Arayüzün giriş gerektiren akışları tarayıcıda otomatik test edilmedi (API seviyesinde smoke ile kapsanıyor).
+**Faz 13'te KAPANANLAR** (kayıt kalsın diye siliniyor değil, üstü çiziliyor):
+
+- ~~Refresh token `localStorage`'da → httpOnly + `SameSite=Strict` çerez daha güçlü.~~
+  ✅ Kapandı (`1d2e92d`): `Path=/api/auth`, `HttpOnly`, `SameSite=Strict`, `Secure`; JSON gövdesinde
+  `refresh_token` yok. `localStorage`'da yalnız sır olmayan `bookhub.session` ipucu var.
+- ~~Token "aile" iptali (eski refresh token tekrar gelirse tüm aileyi düşür) yok.~~
+  ✅ Kapandı (`362dc11`): aile + `used_at` + reuse tespiti + mutlak tavan.
+- ~~Arayüzün giriş gerektiren akışları tarayıcıda otomatik test edilmedi.~~
+  ✅ Kapandı (`5192b19`): gerçek chromium'da 11 Playwright senaryosu (`make e2e`), CI'da da koşuyor.
+
+**Açık kalanlar:**
+
+- Access token'lar stateless: çıkış / reuse iptali / parola değişimi / rol değişikliği **refresh**
+  tarafını anında keser ama verilmiş access token'lar ≤ `JWT_ACCESS_TTL` (15 dk) yaşar
+  ([REVIEW_FEEDBACK F06](REVIEW_FEEDBACK.md)).
+- [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki açık bulgular: F03–F09, F11–F15, F17 + F10'un
+  BookDetail yarısı, F16'nın release-gating yarısı.
+- Kullanıcı silme ucu yok (hesap yalnızca veritabanından silinebiliyor).
 - Buluta deploy yapılmadı — [DEPLOYMENT.md](DEPLOYMENT.md).
 - Küme içi Postgres yalnız demo içindir; prod'da yönetilen veritabanı.
+- Ürün tarafındaki istekler ayrı bir listede: [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md).

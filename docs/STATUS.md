@@ -3,9 +3,16 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-09-18):** **12 fazın tamamı ✅** — MVP (Faz 1–7, brief §15; `backend/scripts/mvp_smoke.sh`
-21/21) + altyapı rayı (Docker, React frontend, CI/CD, NGINX, Kubernetes). Tek açık madde: gerçek bulut
-deploy'u (senin hesapların gerekiyor — [DEPLOYMENT.md](DEPLOYMENT.md)).
+**Son güncelleme (2026-09-20):** **13 fazın tamamı ✅** — MVP (Faz 1–7, brief §15;
+`backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React frontend, CI/CD, NGINX,
+Kubernetes) + **Faz 13 oturum sertleştirme** (httpOnly refresh çerezi, token aileleri + reuse
+tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright). Açık maddeler: gerçek bulut
+deploy'u (senin hesapların gerekiyor — [DEPLOYMENT.md](DEPLOYMENT.md)) ve
+[REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular.
+
+> **Faz 13 push edilmedi.** Bu satırlar yazılırken Faz 13'ün commit'leri (`ec2da77`…`5192b19` +
+> bu doküman commit'i) yereldeydi; push faz sonunda tek seferde yapılır (aşağıdaki "Git kapıları"
+> notu). Uzaktaki dal geride görünüyorsa önce `git log --oneline origin/main..HEAD` ile bak.
 
 > **Ortam notu:** Kabukta `go` bulunamazsa `export PATH="/opt/homebrew/bin:$HOME/go/bin:$PATH"`
 > — git hook'ları da `go: command not found` ile bu yüzden patlıyor.
@@ -29,6 +36,7 @@ deploy'u (senin hesapların gerekiyor — [DEPLOYMENT.md](DEPLOYMENT.md)).
 | 10 | CI/CD (servis konteynerleri, E2E, release) | ✅ (deploy hesap ister) |
 | 11 | NGINX (tek origin, CSP, güvenilen proxy) | ✅ |
 | 12 | Kubernetes (kind'da doğrulandı) | ✅ |
+| 13 | Oturum sertleştirme (httpOnly çerez, token ailesi + reuse, CSRF, parola değişimi, Playwright) | ✅ |
 
 ## Faz 2'de ne oldu (özet)
 
@@ -97,13 +105,38 @@ deploy'u (senin hesapların gerekiyor — [DEPLOYMENT.md](DEPLOYMENT.md)).
   imaj yayını yalnız `v*` etiketi/elle (`release.yml`).
 - **11 NGINX:** tek origin, CSP + başlıklar (add_header tuzağı snippet ile aşıldı), `X-Real-IP`'ye
   yalnız güvenilen proxy'den güven; root olmayan NGINX.
-- **12 Kubernetes:** kustomize manifestleri, migrate Job, 2 API kopyası, pod güvenliği; kind'da 21/21.
+- **12 Kubernetes:** kustomize manifestleri, migrate Job, 2 API kopyası, pod güvenliği; kind'da 21/21
+  (o günkü smoke; Faz 13'te kontrol sayısı 25'e çıktı).
+
+## Faz 13'te ne oldu (özet)
+
+Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)) + senin
+"httpOnly çerez + token ailesi iptali + Playwright" isteğin. Ayrıntı ve NEDEN'ler:
+[phases/phase-13-session-hardening.md](phases/phase-13-session-hardening.md).
+
+- **Token aileleri + reuse tespiti** (migration `0008`): bir giriş = bir aile; kullanılmış token
+  silinmez (`used_at`), ikinci kez gelirse **aile** ölür. Mutlak tavan `JWT_SESSION_MAX_AGE`
+  (30 gün). Kilit sırası değişmezi `users → families → tokens`; ters sıra gerçek `40P01` üretmişti.
+- **Refresh token httpOnly çerezte** (`Path=/api/auth`, `SameSite=Strict`, `Secure`): JSON gövdesinde
+  `refresh_token` yok, `localStorage`'da sır yok (yalnız `bookhub.session` ipucu bayrağı).
+- **CSRF:** Go 1.25 `http.CrossOriginProtection` (403 `cross_origin_request`) + NGINX `$http_host`
+  (Host'u portuyla ilet, yoksa meşru istek 403 alıyordu).
+- **Parola değiştirme** (`POST /api/auth/password`, `/account` sayfası): kullanıcının TÜM ailelerini
+  aynı transaction'da iptal eder; işlemi yapan cihaz yeni bir aileyle içeride kalır.
+- **Playwright** (`make e2e`, `frontend/e2e/`): gerçek chromium'da 11 senaryo — çerez hijyeni,
+  reuse, üç sekme/Web Locks, cross-origin, moderasyon. Katalogda bayat cevap hatasını (F10) buldu.
+- **İmaj sertleştirme:** slim nginx tabanı (91 → 30 MB), digest pinleri + Dependabot, CI'da Trivy
+  işi (`make scan` ile aynı kural), pod'larda `automountServiceAccountToken: false`.
+- **Smoke 25/25** (Faz 13 kontrolleri dahil).
 
 ## Sıradaki (opsiyonel)
 
-1. Bulut deploy'u: [DEPLOYMENT.md](DEPLOYMENT.md) (Supabase + Upstash + konteyner platformu).
-2. Bilinen borçlar: [PROJECT_MAP.md](PROJECT_MAP.md) §7 (refresh çerezi, token ailesi, kullanıcı silme).
-3. Brief §12 ekstraları (okuma listeleri, raporlar, öneri sistemi…).
+1. **Canlı backlog'lar:** [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) (inceleme bulguları; açık olanlar
+   F03–F09, F11–F15, F17 + F10/F16'nın kalan yarıları) ve [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)
+   (ürün fikirleri — senin sahipliğinde).
+2. Bulut deploy'u: [DEPLOYMENT.md](DEPLOYMENT.md) (Supabase + Upstash + konteyner platformu).
+3. Bilinen borçlar: [PROJECT_MAP.md](PROJECT_MAP.md) §7.
+4. Brief §12 ekstraları (okuma listeleri, raporlar, öneri sistemi…).
 
 ## Ortam / gerçekler
 
@@ -131,3 +164,6 @@ deploy'u (senin hesapların gerekiyor — [DEPLOYMENT.md](DEPLOYMENT.md)).
 - [PROJECT_BRIEF.md](PROJECT_BRIEF.md) — ürün + roadmap (§11) + kararlar (§18).
 - [phases/](phases/) — faz rehberleri · [GO_CONVENTIONS.md](GO_CONVENTIONS.md) · [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md)
 - [learning-notes/](learning-notes/) — sorulan kavramların kalıcı notları (`/not` skill'i ekler).
+- **Canlı backlog'lar:** [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) — inceleme bulguları + çözüm
+  kayıtları (kutuyu ancak kabul kriteri doğrulanınca işaretle) · [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)
+  — ürün/özellik istekleri (senin sahipliğinde; ajanlar buraya kendiliğinden yazmaz).

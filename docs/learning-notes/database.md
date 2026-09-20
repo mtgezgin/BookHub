@@ -13,6 +13,10 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 6. [Durum makinesi + denetim kaydı: kural nerede yaşamalı?](#6-durum-makinesi--denetim-kaydı-kural-nerede-yaşamalı)
 7. [Kayıp güncelleme (lost update): neden kilit, neden türetilmiş veri?](#7-kayıp-güncelleme-lost-update-neden-kilit-neden-türetilmiş-veri)
 8. [EXPLAIN ANALYZE nasıl okunur? (index'in neden kullanılmadığını bulmak)](#8-explain-analyze-nasıl-okunur-indexin-neden-kullanılmadığını-bulmak)
+9. [Kilit sırası değişmezi: gerçek bir deadlock (40P01) nasıl doğdu](#9-kilit-sırası-değişmezi-gerçek-bir-deadlock-40p01-nasıl-doğdu)
+10. [Satır kilidi türleri: FOR UPDATE, FOR NO KEY UPDATE, FOR KEY SHARE, FOR SHARE](#10-satır-kilidi-türleri-for-update-for-no-key-update-for-key-share-for-share)
+11. [SELECT ... FOR UPDATE SKIP LOCKED: beklemek yerine atlamak](#11-select--for-update-skip-locked-beklemek-yerine-atlamak)
+12. [COMMIT'ten sonra başarısız olabilecek adım bırakma](#12-committen-sonra-başarısız-olabilecek-adım-bırakma)
 
 ---
 
@@ -407,3 +411,190 @@ Index `(created_at DESC, id DESC)` olunca: yalnızca gereken 20 satır, ~100 kat
 - [backend/migrations/0005_listing_indexes.sql](../../backend/migrations/0005_listing_indexes.sql)
 - [backend/scripts/perf_seed.sql](../../backend/scripts/perf_seed.sql)
 - [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §12
+
+## 9. Kilit sırası değişmezi: gerçek bir deadlock (40P01) nasıl doğdu
+
+**🗓️ Bağlam:** Faz 13'te token ailelerini yazarken. İlk tasarımda rotasyon önce token satırını
+işaretliyor, sonra aileyi kilitliyordu; iptal ise tam tersini yapıyordu. Test gerçek Postgres'te
+`40P01` verdi ve "deadlock neden oldu, nasıl kural hâline getiririz?" sorusu buradan çıktı.
+
+**⚡ Kısa cevap:** Deadlock, iki transaction'ın **birbirinin tuttuğu kilidi beklemesidir**. Çaresi
+akıllı bir yeniden deneme değil, **tek bir global sıra**: aynı veriye dokunan herkes kilitleri
+AYNI sırayla alır. Bizde bu sıra `users → refresh_token_families → refresh_tokens`.
+
+**📖 Açıklama:**
+
+Somut senaryo (kuralı koymadan önceki hâli):
+
+```
+T1 (rotasyon)                          T2 (çıkış/iptal)
+UPDATE refresh_tokens  … used_at  ⟵ token satırını kilitledi
+                                       UPDATE refresh_token_families … revoked_at  ⟵ aileyi kilitledi
+SELECT … families … FOR UPDATE  ⟶ T2'yi bekler
+                                       DELETE FROM refresh_tokens WHERE family_id=…  ⟶ T1'i bekler
+                                       ▶ Postgres birini seçip öldürür: ERROR 40P01 deadlock detected
+```
+
+Postgres bu durumu **tespit eder** (`deadlock_timeout`, varsayılan 1 sn sonra grafiğe bakar) ve
+kurbanlardan birini `40P01` ile iptal eder. Yani veri bozulmaz — ama kullanıcı rastgele bir hata
+alır ve sorunun kaynağı zamanlamaya bağlı olduğu için "bazen oluyor" diye kaydedilir.
+
+**Kural:** *bir ağaç varsa her zaman kökten yaprağa kilitle.* Bizde ağaç
+`users → families → tokens`; Faz 5'teki `0007` migration'ı da aynı deseni kullanıyor (trigger
+önce kitabı kilitler, sonra puanları). Kuralı koyduktan sonra rotasyon şöyle: aileyi `FOR UPDATE`
+kilitle → **sonra** token'ı işaretle. Aynı ailedeki her rotasyon/iptal/çıkış artık o tek satırda
+sıraya giriyor; READ COMMITTED'da kilidi bekleyen işlem uyandığında satırın **en güncel** hâlini
+okur, yani az önce iptal edilmiş bir aileyi "canlı" sanamaz.
+
+**Bir incelik — `ORDER BY` ile kilitleme.** Toplu bir `UPDATE … WHERE user_id = $1` satırları
+**rastgele** sırada kilitler; iki işlem aynı kümeyi ters sırada kilitlerse yine deadlock. Bu
+yüzden parola değişimi önce `SELECT id … ORDER BY id FOR UPDATE` yapıyor: sonuç kümesi
+kullanılmıyor, **tek amacı kilitlerin sırasını sabitlemek**.
+
+**Nasıl deterministik test edilir (uyku yok):** testin kendi transaction'ı ayrı bir bağlantıda
+açılır, üretim kodu bir goroutine'de koşar ve `pg_blocking_pids()` ile "gerçekten bekliyor mu"
+diye **yoklanır**; her bekleyiş bir context ile sınırlanır. Sonra test tx'i commit/rollback edilir
+ve sonuç doğrulanır. Kilit sırasını bozan mutasyon testi `40P01` ile kırar — kanıt böyle üretilir.
+
+**🔗 İlgili:**
+- [#7 Kayıp güncelleme](#7-kayıp-güncelleme-lost-update-neden-kilit-neden-türetilmiş-veri) — kilitle ilk tanışma
+- [#10 Satır kilidi türleri](#10-satır-kilidi-türleri-for-update-for-no-key-update-for-key-share-for-share)
+- [backend/sql/queries/users.sql](../../backend/sql/queries/users.sql) · [backend/internal/auth/repository_integration_test.go](../../backend/internal/auth/repository_integration_test.go)
+- [docs/phases/phase-13-session-hardening.md](../phases/phase-13-session-hardening.md)
+
+## 10. Satır kilidi türleri: FOR UPDATE, FOR NO KEY UPDATE, FOR KEY SHARE, FOR SHARE
+
+**🗓️ Bağlam:** Faz 13'te parola değiştirme akışını yazarken. `users` satırını `FOR UPDATE` ile
+kilitlemek "en güvenlisi" gibi görünüyordu ama test `40P01` verdi — üstelik ortada ikinci bir
+`users` yazıcısı yoktu. "Kim bu kilidi alıyor?" sorusunun cevabı **foreign key** çıktı.
+
+**⚡ Kısa cevap:** Postgres'te dört farklı satır kilidi var ve **daha zayıf olan daha çok
+eşzamanlılık** demek. Bir FK'yi INSERT eden transaction, hedef satırda kendiliğinden
+`FOR KEY SHARE` alır; `FOR UPDATE` onunla çakıştığı için deadlock'a davetiye çıkarır,
+`FOR NO KEY UPDATE` çakışmaz.
+
+**📖 Açıklama:**
+
+Güçten zayıfa ve çakışma tablosu (Postgres 16, "Row-Level Locks"):
+
+| Kilit | Ne demek | Çakıştıkları |
+|---|---|---|
+| `FOR UPDATE` | "bu satırı silebilirim / anahtarını değiştirebilirim" | hepsi |
+| `FOR NO KEY UPDATE` | "yalnız anahtar OLMAYAN kolonları değiştireceğim" | `FOR UPDATE`, `FOR NO KEY UPDATE`, `FOR SHARE` |
+| `FOR SHARE` | "okuyacağım, kimse değiştirmesin" | `FOR UPDATE`, `FOR NO KEY UPDATE` |
+| `FOR KEY SHARE` | "anahtarı sabit kalsın" (FK'lerin aldığı kilit) | yalnız `FOR UPDATE` |
+
+BookHub'daki üç somut kullanım:
+
+1. **`LockRefreshFamily` → `FOR UPDATE`.** Aile satırı gerçekten silinebiliyor/iptal edilebiliyor;
+   burada en güçlü kilit doğru olanı — aynı ailedeki rotasyon, reuse iptali ve çıkış bu satırda
+   sıraya girsin istiyoruz.
+2. **`LockUserPasswordForChange` → `FOR NO KEY UPDATE`.** Parola değişimi `users.password_hash`'i
+   yazar; `password_hash` bir anahtar değil. Neden `FOR UPDATE` olmasın: uçuştaki bir rotasyon
+   ailesinin kilidini tutarken halef token'ı INSERT ediyor ve `refresh_tokens.user_id` FK'si için
+   `users` satırında **`FOR KEY SHARE`** alıyor. `FOR UPDATE` bununla çakışır → biz `users`'ı tutup
+   ailesini beklerken o bizim `users` kilidimizi bekler → **`40P01`**. `FOR NO KEY UPDATE`
+   `FOR KEY SHARE` ile çakışmaz; rotasyon rahatça devam eder.
+3. **`LockUserPasswordForLogin` → `FOR SHARE`.** Giriş, `bcrypt` karşılaştırmasını transaction'ın
+   **dışında** yapıyor (~250 ms). O aralıkta parola değişirse yeni aile iptalden **sonra** doğar ve
+   eski parolayla yaşardı. Bu yüzden aile açılmadan önce hash kilit altında yeniden okunur.
+   `FOR SHARE` bilerek seçildi: `FOR NO KEY UPDATE` ile **çakışır** (giriş ile parola değişimi seri
+   olur — doğru olan da bu), rotasyonların `FOR KEY SHARE`'iyle **çakışmaz** (girişler rotasyonları
+   bekletmez).
+
+**Akılda kalıcı özet:** ihtiyacın olan **en zayıf** kilidi al. "Ne olur ne olmaz `FOR UPDATE`"
+demek, görünmez bir FK kilidiyle çakışıp deadlock üretmenin en kolay yoludur.
+
+**🔗 İlgili:**
+- [#9 Kilit sırası değişmezi](#9-kilit-sırası-değişmezi-gerçek-bir-deadlock-40p01-nasıl-doğdu)
+- [PostgreSQL 16 — Explicit Locking / Row-Level Locks](https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS)
+- [backend/sql/queries/users.sql](../../backend/sql/queries/users.sql) (üç sorgunun üstündeki NEDEN yorumları)
+
+## 11. SELECT ... FOR UPDATE SKIP LOCKED: beklemek yerine atlamak
+
+**🗓️ Bağlam:** Faz 13'te girişteki temizliği (`CleanupRefreshTokens`) yazarken. "Ölü aileleri
+silen bir DELETE, tam o sırada dönen bir oturumu da öldürebilir mi?" diye sorduk — evet,
+öldürüyordu.
+
+**⚡ Kısa cevap:** `SKIP LOCKED`, "o an başka bir transaction'ın kilitlediği satırları **atla**"
+demektir. Temizlik/kuyruk gibi işlerde beklemek yanlış cevaptır: bekleyen deyim, uyandığında
+**bayat** bir anlık görüntüyle karar verir.
+
+**📖 Açıklama:**
+
+Sorun tam olarak şuydu: temizliğin alt sorgusu "bu ailenin canlı token'ı kalmamış" diye karar
+verir. Aynı anda bir rotasyon aile kilidini tutuyor ve halef token'ı yazıyor olabilir. `SKIP
+LOCKED` olmasaydı temizlik kilidi bekler, rotasyon commit eder, temizlik uyanır ve **kendi eski
+anlık görüntüsüne göre** aileyi siler — CASCADE ile az önce kullanıcıya verilmiş halef token da
+gider. Sonuç: kullanıcı sebepsiz yere oturumdan düşer.
+
+```sql
+DELETE FROM refresh_token_families
+WHERE id IN (
+    SELECT f.id FROM refresh_token_families f
+    WHERE f.user_id = $1 AND (… ölü olma koşulları …)
+    FOR UPDATE SKIP LOCKED     -- işlem gören aileye HİÇ dokunma
+);
+```
+
+Atlanan aile kaybolmaz: bir sonraki girişte yeniden değerlendirilir. **Temizlik işleri için doğru
+ödünleşim budur** — "şimdi değilse sonra" kabul edilebilir, "yanlış satırı sil" değil.
+
+Aynı desenin klasik kullanımı **iş kuyruklarıdır**: `SELECT … FOR UPDATE SKIP LOCKED LIMIT 1` ile
+N işçi aynı tablodan birbirini beklemeden farklı işler çeker (Postgres'i basit bir kuyruk gibi
+kullanmanın standart yolu).
+
+Üç seçeneğin farkı:
+
+| Yazım | Davranış | Nerede doğru |
+|---|---|---|
+| (düz) `FOR UPDATE` | kilidi **bekler** | tek bir satırı doğru güncellemek (rotasyon, puan) |
+| `FOR UPDATE NOWAIT` | kilitliyse **hata** verir | "meşgulse hemen söyle" isteyen etkileşimli işler |
+| `FOR UPDATE SKIP LOCKED` | kilitli satırı **atlar** | kuyruk, toplu temizlik, süpürme |
+
+**🔗 İlgili:**
+- [#9 Kilit sırası değişmezi](#9-kilit-sırası-değişmezi-gerçek-bir-deadlock-40p01-nasıl-doğdu)
+- [backend/sql/queries/users.sql](../../backend/sql/queries/users.sql) (`DeleteDeadRefreshFamilies`, `DeleteExpiredRefreshTokens`)
+- [PostgreSQL 16 — SELECT / The Locking Clause](https://www.postgresql.org/docs/16/sql-select.html#SQL-FOR-UPDATE-SHARE)
+
+## 12. COMMIT'ten sonra başarısız olabilecek adım bırakma
+
+**🗓️ Bağlam:** Faz 13'ün inceleme turunda çıkan F02 bulgusu. Refresh rotasyonu transaction'da
+bitiyor, kullanıcı satırı **sonra** ayrı bir sorguyla okunuyordu. "Bu niye sorun, sonuçta sadece
+bir okuma?" diye sordum.
+
+**⚡ Kısa cevap:** COMMIT, dış dünyaya verilmiş geri alınamaz bir sözdür. Ondan sonra atılan her
+adım **başarısız olabilir** ve artık geri alınamaz; istemci ile sunucu farklı gerçekleri doğru
+sanır. Kural: bir isteğin başarılı sayılması için gereken her şeyi **aynı transaction'a** al.
+
+**📖 Açıklama:**
+
+Bizdeki zincir şöyle kırılıyordu:
+
+1. Rotasyon: eski token harcanır, halef yazılır → **COMMIT** (geri dönüşü yok).
+2. Ayrı sorgu: kullanıcı okunur → **patlarsa** handler 500 döner.
+3. Tarayıcıdaki çerez hâlâ **eski** token'ı taşıyor; istemci yeniden dener.
+4. Sunucu için bu, harcanmış bir token'ın ikinci kullanımıdır → **reuse** → **tüm aile iptal**.
+
+Yani bir saniyelik bir DB sarsıntısı, kullanıcıyı **her cihazdan** atıyordu. Düzeltme basit:
+kullanıcıyı rotasyonun **kendi** transaction'ında düz bir `SELECT` ile oku ve sonuçla birlikte dön
+(`Rotation.User`). Hesap silinmişse rotasyon geri alınır — yani "token harcandı ama iş yarım
+kaldı" durumu artık mümkün değil. Okuma düz `SELECT` olduğu için kilit almaz, kilit sırası
+değişmezini de etkilemez.
+
+**Genelleme (dağıtık sistemlerde "dual write" problemi):**
+
+- COMMIT'ten sonra kaçınılmaz olarak kalan tek şey **cevabı göndermek** olmalı.
+- Commit sonrası zorunlu bir yan etki varsa (e-posta, cache temizleme, webhook) onu **idempotent**
+  yap ve "olmadıysa zararsız" olacak şekilde tasarla. BookHub'da puan yazımından sonra Redis
+  cache'ini silmek böyle: başarısız olursa en kötü ihtimalle 60 sn bayat veri gösterilir.
+- Geriye kalan pencereyi **politika olarak yaz**: commit başarılı ama **cevap** kaybolduysa
+  (ağ koptu, sekme kapandı) bizde bir sonraki yenileme gerçekten reuse'dur → aile ölür, kullanıcı
+  yeniden girer. Alternatifi (harcanmış token'ı kısa süre kabul eden tolerans penceresi) çalınmış
+  token'la yarışı kazanan saldırgana fark edilmeden alan açardı. İstemcideki `keepalive: true` bu
+  pencereyi daraltıyor.
+
+**🔗 İlgili:**
+- [#7 Kayıp güncelleme](#7-kayıp-güncelleme-lost-update-neden-kilit-neden-türetilmiş-veri) — transaction sınırının diğer yüzü
+- [docs/REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F02 · [docs/phases/phase-13-session-hardening.md](../phases/phase-13-session-hardening.md)
+- [backend/internal/auth/repository.go](../../backend/internal/auth/repository.go) (`Rotation.User`, `RotateRefreshToken`)

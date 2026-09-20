@@ -22,4 +22,5 @@ make k8s-down    # kümeyi sil
 - `kind load docker-image` Docker Desktop'ta çok platformlu imajlarda düşüyor → tek platformlu arşiv.
 
 ## ✅ Tamamlanma
-- [x] Job Completed, tüm pod'lar Running; smoke 21/21; yük iki API kopyasına dağıldı (28/30).
+- [x] Job Completed, tüm pod'lar Running; smoke 21/21 (o günkü sayı; Faz 13'ten beri 25/25); yük iki
+      API kopyasına dağıldı (28/30).

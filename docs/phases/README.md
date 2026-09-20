@@ -19,7 +19,8 @@ Tek seferde bir kavram. **Hiçbir soru fazla basit değil.** Takıldığın an "
 
 ## Öğrenme merdiveni
 
-**MVP = Faz 1–7.** Asıl kazanma koşulu burası. Faz 8–12 "bonus altyapı" rayı, opsiyonel.
+**MVP = Faz 1–7.** Asıl kazanma koşulu burası. Faz 8–12 "bonus altyapı" rayı, opsiyonel;
+Faz 13 ise ilk kapsamlı incelemeden doğan "sertleştirme" fazı.
 
 | Faz | Ne kuracağız | Yeni kavram | Durum |
 | --- | --- | --- | --- |
@@ -36,6 +37,7 @@ Tek seferde bir kavram. **Hiçbir soru fazla basit değil.** Takıldığın an "
 | [10](phase-10-cicd.md) | CI/CD | servis konteynerleri, E2E, release | ✅ bitti (deploy hesap ister) |
 | [11](phase-11-nginx.md) | NGINX | reverse proxy, güvenilir IP başlığı, CSP | ✅ bitti |
 | [12](phase-12-kubernetes.md) | Kubernetes | Deployment/Job/probe, pod güvenliği | ✅ bitti |
+| [13](phase-13-session-hardening.md) | Oturum sertleştirme | httpOnly çerez, token ailesi + reuse, CSRF, kilit sırası, Playwright | ✅ bitti |
 
 **Durum işaretleri:** ✅ bitti · 📖 detaylı (hazır) · 📝 taslak (sırası gelince birlikte
 detaylandırılacak) · ⏭️ ileride.

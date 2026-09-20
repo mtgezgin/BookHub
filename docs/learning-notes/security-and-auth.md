@@ -13,6 +13,9 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 6. [User enumeration: generic mesaj YETMEZ, süre de eşit olmalı](#6-user-enumeration-generic-mesaj-yetmez-süre-de-eşit-olmalı)
 7. [Refresh token, rotasyon ve "çıkış yap" (stateless JWT iptal edilemez)](#7-refresh-token-rotasyon-ve-çıkış-yap-stateless-jwt-iptal-edilemez)
 8. [Refresh token yaşam döngüsü: sektör nasıl kurguluyor, BookHub nerede?](#8-refresh-token-yaşam-döngüsü-sektör-nasıl-kurguluyor-bookhub-nerede)
+9. [httpOnly çerez mi localStorage mı: neyi çözer, neyi ÇÖZMEZ](#9-httponly-çerez-mi-localstorage-mı-neyi-çözer-neyi-çözmez)
+10. [CSRF katmanları: SameSite=Strict, CrossOriginProtection ve login-CSRF](#10-csrf-katmanları-samesitestrict-crossoriginprotection-ve-login-csrf)
+11. [Parola değiştirmek neden "her yerden çıkış" demektir](#11-parola-değiştirmek-neden-her-yerden-çıkış-demektir)
 
 ---
 
@@ -447,3 +450,176 @@ sağlayıcısı (OAuth) olduğunda gösterir. BookHub'da brief ve öğrenme amac
 - [#5 JWT](#5-jwt-nedir-ve-algoritma-sabitleme-neden-en-önemli-satır) — access token'ın kendisi
 - [database.md](database.md) — kilit sırası / transaction notları (aile iptalinin eşzamanlılık tarafı)
 - RFC 9700 §4.14 (refresh token koruması), RFC 9449 (DPoP), IETF taslağı "OAuth 2.0 for Browser-Based Applications" (BFF)
+
+## 9. httpOnly çerez mi localStorage mı: neyi çözer, neyi ÇÖZMEZ
+
+**🗓️ Bağlam:** Faz 13'te "httpOnly çerez + token ailesi iptali + Playwright" isteğini uygularken.
+`client.ts` refresh token'ı `localStorage`'da tutuyordu; incelemede de "token'ı localStorage'a
+taşımayın" notu geçti. Ben de "çereze geçince XSS'i çözmüş mü oluyoruz?" diye sordum — TS/JS
+tarafında refleks, token'ı `localStorage`'a koyup `Authorization` başlığıyla göndermektir.
+
+**⚡ Kısa cevap:** httpOnly çerez, **uzun ömürlü sırrın saldırganın sunucusuna kopyalanmasını**
+engeller; XSS'i **çözmez**. Enjekte edilmiş bir betik hâlâ `/api/auth/refresh`'e POST atıp
+15 dakikalık bir access token alabilir — ama o saldırı kurbanın tarayıcısı açıkken yaşar, çalınan
+7 günlük token gibi başka bir makineye taşınamaz.
+
+**📖 Açıklama:**
+
+| | `localStorage` | httpOnly çerez |
+|---|---|---|
+| JS okuyabilir mi | **evet** (`localStorage.getItem`) | **hayır** (`document.cookie` görmez) |
+| XSS sızdırabilir mi | evet, değeri dışarı POST eder | hayır, ama **kullanabilir** (tarayıcı çerezi kendiliğinden ekler) |
+| CSRF riski | yok (tarayıcı kendiliğinden göndermez) | **var** → `SameSite` + cross-origin koruması şart (bkz. #10) |
+| Kapsam | origin (port dahil) başına | **host** başına, port'a bakmaz (RFC 6265 §8.5) |
+| Sunucu ayarı gerekir mi | hayır | evet (`Set-Cookie` öznitelikleri) |
+
+BookHub'ın bugünkü hâli (`backend/cmd/api/auth.go`):
+
+```
+Set-Cookie: bookhub_refresh=…; Path=/api/auth; HttpOnly; Secure; SameSite=Strict; Expires=…
+```
+
+- **`Path=/api/auth`** — sır yalnızca ona ihtiyaç duyan uçlara gider; `/api/books`'a giden her
+  istekte ağda dolaşmaz (ara loglar, proxy'ler, hata ayıklama çıktıları).
+- **`Secure`** — düz HTTP'de yazılmaz/gönderilmez. Bu yüzden prod'da **HTTPS şart**; `localhost`
+  tarayıcılarca "güvenli bağlam" sayıldığı için lokalde de çalışır.
+- **`Expires`** = oturumun **gerçek** (mutlak tavana kırpılmış) bitişi.
+- **Ad ayarlanabilir (`COOKIE_NAME`)** — çerezler **host** başına kapsandığı için
+  `localhost:3000` (compose) ve `localhost:3001` (kind) aynı çerezi ezerdi. Web Locks ve
+  `localStorage` ise origin (port dahil) başınadır; ikisi aynı şeyi kapsamıyor.
+
+**"Peki `localStorage` tamamen boş mu?"** Hayır ama **sır yok**: yalnız `bookhub.session="1"`
+ipucu ("bu tarayıcıda bir oturum açık olmalı") ve `bookhub.logout_pending` bayrağı var. İpucu sır
+değil — bilinmesi kimseye bir şey kazandırmaz — ama üç iş görür: (1) anonim ziyaretçi her açılışta
+boşuna `/refresh` atmaz, (2) bir sekmedeki çıkış diğer sekmelere `storage` olayıyla duyurulur,
+(3) uçuştaki bir yenileme, arada çıkış yapıldığını anlayıp oturumu **diriltmez**. Faz 13 öncesinden
+kalan `bookhub.refresh` anahtarı açılışta siliniyor.
+
+**Sunucuda çerez okumanın tuzağı:** `r.Cookie` aynı addaki **ilk** çerezi döndürüp gerisini yutar.
+Aynı adla birden fazla çerez gelmesi normal değildir; tipik nedeni **gölgeleme (cookie
+shadowing)**: saldırgan bir alt alan adı ya da farklı bir `Path` üzerinden ikinci bir çerez
+yazdırır, tarayıcı ikisini de gönderir ve istek başlığında `Path`/`Domain` bilgisi olmadığı için
+sunucu hangisinin gerçek olduğunu ayırt edemez. Bu yüzden `r.CookiesNamed` ile okuyup "tam 1 tane,
+boş değil, ≤ 256 bayt" şartını koyuyoruz; aksi hâlde tahmin etmiyoruz, reddediyoruz.
+
+**Dürüst not:** en sıkı tarayıcı modeli **BFF** (Backend-for-Frontend) — token tarayıcıya hiç
+gelmez, yalnız oturum çerezi taşınır. Bizimki "yarı-BFF": access token hâlâ JS belleğinde.
+
+**🔗 İlgili:**
+- [#8 Refresh token yaşam döngüsü](#8-refresh-token-yaşam-döngüsü-sektör-nasıl-kurguluyor-bookhub-nerede) — bu kararın çıktığı yer
+- [#10 CSRF katmanları](#10-csrf-katmanları-samesitestrict-crossoriginprotection-ve-login-csrf) — çereze geçince açılan yeni kapı
+- [docs/phases/phase-13-session-hardening.md](../phases/phase-13-session-hardening.md)
+- [backend/cmd/api/auth.go](../../backend/cmd/api/auth.go) (`newRefreshCookie`, `readRefreshCookie`) · [frontend/src/api/client.ts](../../frontend/src/api/client.ts)
+
+## 10. CSRF katmanları: SameSite=Strict, CrossOriginProtection ve login-CSRF
+
+**🗓️ Bağlam:** Faz 13'te refresh token'ı çereze taşımadan hemen önce. "Çerez gelince CSRF diye
+bir şey doğuyor mu, `SameSite=Strict` yetmez mi?" diye sordum — `Authorization: Bearer` ile
+çalışırken CSRF'i hiç düşünmemiştim, çünkü tarayıcı o başlığı kendiliğinden eklemez.
+
+**⚡ Kısa cevap:** Çerez, tarayıcının isteğe **kendiliğinden eklediği** bir kimliktir; CSRF tam
+olarak bunu sömürür. `SameSite=Strict` güçlü ama tek başına yeterli sayılmaz (kardeş alt alan,
+eski tarayıcı, yanlış yapılandırma) — bu yüzden ikinci bir katman olarak Go 1.25'in
+`http.CrossOriginProtection`'ı zincire takıldı.
+
+**📖 Açıklama:**
+
+**CSRF nedir:** kötü niyetli bir sayfa (evil.example), ziyaretçinin tarayıcısına **bizim**
+API'mize bir istek attırır. Tarayıcı bizim sitemize ait çerezleri ekler → istek kullanıcının
+kimliğiyle çalışır, kullanıcı habersizdir. Saldırgan cevabı **okuyamaz** (same-origin politikası)
+ama yazma isteğinin **yan etkisi** olmuştur bile.
+
+**login-CSRF** ters yönde çalışır ve daha az bilinir: saldırgan kurbanın tarayıcısında **kendi**
+hesabıyla oturum açtırır; kurban farkında olmadan saldırganın hesabına yorum yazar, puan verir,
+kart bilgisi girer. Çerez tabanlı oturumun doğal riski budur — bu yüzden koruma, çerez gelmeden
+**bir commit önce** eklendi.
+
+**İki katman:**
+
+| Katman | Ne yapar | Boşluğu |
+|---|---|---|
+| `SameSite=Strict` | Başka bir siteden **başlatılan** hiçbir istekte çerez gönderilmez | Kardeş alt alan (`blog.bookhub.example`) "same-site" sayılır → çerez YİNE gider |
+| `http.CrossOriginProtection` | `Sec-Fetch-Site` `cross-site` **veya** `same-site` ise yazma isteğini 403'ler | Başlığı hiç göndermeyen istemcide `Origin == Host` yedeğine düşer |
+
+`Sec-Fetch-Site` başlığını **tarayıcının kendisi** yazar; sayfadaki JS onu ne ekleyebilir ne
+değiştirebilir (yasaklı başlık). Ama kritik bir ayrıntı var: tarayıcılar Fetch Metadata
+başlıklarını **yalnız güvenli bağlama** (HTTPS veya `localhost`) yollar. Düz HTTP'de yayınlanmış
+bir kurulumda (ör. `http://192.168.1.5:3000`) bu başlık hiç gelmez ve asıl savunma
+`Origin` host:port == `Host` karşılaştırması olur. **Port da karşılaştırılır** — bizim NGINX
+`proxy_set_header Host $host` kullanırken portu düşürüyordu (`"localhost:3000" ≠ "localhost"`) ve
+tamamen meşru istekler 403 alıyordu; `$http_host`'a geçmek bunu çözdü.
+
+Karar tablosu (`go doc net/http.CrossOriginProtection`):
+
+| Girdi | Sonuç |
+|---|---|
+| `GET` / `HEAD` / `OPTIONS` | **her zaman geçer** → hiçbir GET ucu durum değiştirmemeli |
+| `Sec-Fetch-Site: same-origin` \| `none` | geçer (adres çubuğu, yer imi "none"dur) |
+| `Sec-Fetch-Site: cross-site` \| `same-site` | **403** |
+| Başlık yok, `Origin` host:port == `Host` | geçer |
+| Başlık yok, `Origin` farklı | **403** |
+| Ne `Sec-Fetch-Site` ne `Origin` | geçer — curl/smoke gibi istemciler; CSRF bir **tarayıcı** saldırısıdır |
+
+**Neden klasik CSRF token'ı (gizli form alanı / double-submit çerez) değil:** sunucuda durum ya da
+istemcide ek bir başlık/çerez dansı ister. `Sec-Fetch-Site` aynı güvenceyi **durumsuz** ve tek
+yerde verir. Not: `readJSON` `Content-Type`'a bakmaz — `text/plain` gövdeli bir form CORS
+ön kontrolüne (preflight) takılmadan handler'a ulaşabilir, yani asıl kapı gerçekten burasıdır.
+
+**🔗 İlgili:**
+- [#9 httpOnly çerez vs localStorage](#9-httponly-çerez-mi-localstorage-mı-neyi-çözer-neyi-çözmez)
+- [docs/phases/phase-13-session-hardening.md](../phases/phase-13-session-hardening.md)
+- [backend/cmd/api/router.go](../../backend/cmd/api/router.go) (`crossOriginProtection`) · [frontend/nginx/api-proxy.conf](../../frontend/nginx/api-proxy.conf)
+
+## 11. Parola değiştirmek neden "her yerden çıkış" demektir
+
+**🗓️ Bağlam:** Faz 13'te, #8'deki "iptal olayları" listesini konuşurken "parola değişince tüm
+aileleri iptal edelim mi?" diye sordun; karar evet oldu ve `POST /api/auth/password` o kararla
+yazıldı.
+
+**⚡ Kısa cevap:** İnsanlar parolayı çoğunlukla "hesabıma biri girmiş olabilir" diye değiştirir.
+Parolayı değiştirip eski oturumları ayakta bırakmak, kilidi değiştirip hırsızın elindeki anahtarı
+çalışır durumda bırakmaktır. Bu yüzden değişim, kullanıcının **tüm** token ailelerini aynı
+transaction'da öldürür; işlemi yapan cihaz yeni bir aileyle içeride kalır.
+
+**📖 Açıklama:**
+
+Tek transaction'da olan bitenler (`auth.Repository.ChangePassword`):
+
+1. `users` satırını kilitle, hash'in servisin doğruladığı hash olduğunu teyit et (araya giren
+   eşzamanlı bir değişim varsa geri al).
+2. Yeni hash'i yaz.
+3. Kullanıcının canlı ailelerini deterministik sırayla kilitle → hepsini iptal et → tüm
+   token'larını sil.
+4. **Bu cihaz için** yeni bir aile + token aç.
+
+Neden tek transaction: yarım kalmış bir durum ("parola değişti ama oturumlar duruyor" ya da
+"herkes düştü, parola değişmedi") kullanıcıyı yanlış bir güvenlik hissine sokardı.
+
+**Üç incelik:**
+
+- **Yanlış mevcut parola → 403, 401 değil.** İstemci 401'i "access token bitti" sayıp sessizce
+  yenileme yapıp isteği tekrarlar; kullanıcı hatasını hiç göremez, üstüne boşuna bir rotasyon
+  harcanır. 403 = "kimliğin belli, ama bu isteğe iznin yok".
+- **Kendi rate limit kovası.** Çalınmış bir access token'la mevcut parolayı kaba kuvvetle deneyen
+  biri, kurbanın **giriş** kotasını da yiyip onu dışarıda bırakabilirdi. NGINX'te ayrı bir zone
+  (`password`, 10r/m) ve API'de ayrı bir anahtar var.
+- **`bcrypt`in 72 bayt tuzağı burada da geçerli** (bkz. #4): mevcut parola 72 baytı aşıyorsa
+  doğrudan "hatalı" denir.
+
+**Bilinen sınır — iptal ANINDA değil.** Access token stateless bir JWT: parola değişiminden önce
+verilmiş access token'lar süreleri dolana kadar (`JWT_ACCESS_TTL`, varsayılan **15 dk**) geçerli
+kalır. Yani "her yerden çıkış" refresh tarafında anında, access tarafında 15 dakikaya kadar
+gecikmeli. Gerçek "anında iptal" istiyorsan token'a bir `password_changed_at` / `token_version`
+iddiası koyup hassas uçlarda DB'den doğrulaman gerekir — bedeli, her istekte bir okuma (yani
+stateless olmanın faydasından vazgeçmek).
+
+**Bir de yarış vardı.** `bcrypt` karşılaştırması transaction'ın **dışında** yapılıyor (~250 ms).
+O aralıkta parola değişirse, girişin açacağı aile **iptalden sonra** doğar ve eski parolayla
+yaşardı. Çözüm: giriş, aileyi açmadan önce hash'i kilit altında yeniden okuyup karşılaştırıyor —
+ayrıntısı ve kilit türlerinin neden özellikle seçildiği [database.md #10](database.md#10-satır-kilidi-türleri-for-update-for-no-key-update-for-key-share-for-share)'da.
+
+**🔗 İlgili:**
+- [#8 Refresh token yaşam döngüsü](#8-refresh-token-yaşam-döngüsü-sektör-nasıl-kurguluyor-bookhub-nerede) — "iptal olayları" maddesi
+- [#4 Parola hash'leme](#4-parola-hashleme-neden-bcrypt-cost-ne-demek-72-bayt-tuzağı) — 72 bayt tuzağı
+- [docs/phases/phase-13-session-hardening.md](../phases/phase-13-session-hardening.md)
+- [backend/internal/auth/repository.go](../../backend/internal/auth/repository.go) (`ChangePassword`) · [frontend/src/pages/Account.tsx](../../frontend/src/pages/Account.tsx)

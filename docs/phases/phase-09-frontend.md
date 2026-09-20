@@ -7,7 +7,10 @@ API'yi kullanan bir arayüz: katalog, detay (puan + yorum), giriş/kayıt, öner
 
 ## 🧠 Yeni kavram(lar)
 - SPA + geliştirmede **Vite proxy** (aynı origin → CORS yok).
-- Token yönetimi: access bellekte, refresh `localStorage`'da (ödünleşim yazılı), **tek uçuşlu yenileme**.
+- Token yönetimi: access bellekte, **tek uçuşlu yenileme**. Refresh token o gün `localStorage`'a
+  konmuştu (ödünleşim yazılıydı); ⚠️ **Faz 13'te httpOnly çereze taşındı** — bugün tarayıcıda sır
+  tutulmuyor, yalnız sır olmayan bir ipucu bayrağı var:
+  [phase-13](phase-13-session-hardening.md).
 - Rota koruması yalnız UX içindir; yetki API'de.
 
 ## ⚠️ Önemli noktalar

@@ -11,6 +11,7 @@ commit ritmi. Format: [README.md](README.md).
 4. [gofmt vs golangci-lint (Prettier vs ESLint)](#4-gofmt-vs-golangci-lint-prettier-vs-eslint)
 5. [pre-commit vs pre-push: kontrolleri maliyete göre katmanlama](#5-pre-commit-vs-pre-push-kontrolleri-maliyete-göre-katmanlama)
 6. [VS Code eklentisi aktivasyonu ve "command not found" yarışı](#6-vs-code-eklentisi-aktivasyonu-ve-command-not-found-yarışı)
+7. [Playwright ile uçtan uca test: gerçek tarayıcı, rate limit bütçesi ve storageState tuzağı](#7-playwright-ile-uçtan-uca-test-gerçek-tarayıcı-rate-limit-bütçesi-ve-storagestate-tuzağı)
 
 ---
 
@@ -240,3 +241,73 @@ aynı sınıf sorun böyle çözülmüş).
 - [golang/vscode-go#3065](https://github.com/golang/vscode-go/issues/3065) (aynı hata, teşhissiz kapanmış), [#457](https://github.com/golang/vscode-go/issues/457) (aynı sınıf sorunun düzeltilmesi)
 - [docs/STATUS.md](../STATUS.md) (o sırada çalıştığımız faz)
 - Yukarıda [Girdi 1](#1-memory-mi-skill-mi-hook-mu-kalıcılık--tetiklenme) (VS Code / Claude Code araç katmanları)
+
+## 7. Playwright ile uçtan uca test: gerçek tarayıcı, rate limit bütçesi ve storageState tuzağı
+
+**🗓️ Bağlam:** Faz 13'te, "httpOnly çerez + token ailesi iptali + Playwright" isteğinin son
+parçası. O ana kadar "E2E" dediğimiz şey CI'da `curl`'le API'ye atılan isteklerdi; inceleme de
+(F16) "gerçek tarayıcı akışları doğrulanmıyor" dedi. "Zaten vitest ve smoke var, Playwright ne
+ekliyor?" sorusunun cevabı bu not.
+
+**⚡ Kısa cevap:** vitest jsdom'da koşar ve orada **çerez diye bir şey yoktur**; `curl` ise
+tarayıcı değildir. Faz 13'ün konusu tam olarak tarayıcıya ait (httpOnly çerez, `SameSite`,
+sekmeler arası Web Locks, `window.prompt`) — onu ancak çerez kavanozu olan gerçek bir tarayıcı
+sınayabilir. Ama gerçek yığına karşı koşmanın kendi kısıtları var: rate limit ve oturum durumu.
+
+**📖 Açıklama:**
+
+**Üç test katmanı ne sınar:**
+
+| Katman | Nerede koşar | Ne yakalar | Ne YAKALAMAZ |
+|---|---|---|---|
+| vitest (jsdom) | `fetch` sahte | istemci mantığı, dallar, hata yolları | çerez, tarayıcı politikaları |
+| `mvp_smoke.sh` (curl) | gerçek API | sözleşme, durum kodları | NGINX + tarayıcı davranışı |
+| Playwright (chromium) | gerçek yığın | çerez öznitelikleri, rotasyon, sekmeler, dialog | birim seviyesi ayrıntı |
+
+**1) Rate limit bütçesi = SERT KURAL.** Testler gerçek NGINX'ten geçiyor ve NGINX'in
+`login|register` kovası **imajın içinde** (yükseltilemez): anında 11 istek, sonra 3 saniyede 1.
+Host'tan gelen her istek konteyner için aynı adres. Suite kararlı hâlde **9** harcıyor. Bunu
+disiplin hâline getiren dört karar:
+
+- Bütçe **tablosu** `e2e/helpers.ts`'in başında; yeni senaryo eklerken önce tabloya satır eklenir.
+- 429 gelince test **adıyla patlar** (sessiz yeniden deneme bütçe aşımını gizlerdi — bu bir
+  tripwire).
+- Bütçeye girmemesi gereken çağrılar NGINX'i **atlar** (`DIRECT_API_URL`): paylaşılan hesabın
+  kaydı, "eski parola reddedilmeli" gibi başarısız olması beklenen kontroller.
+- Koşucu (`scripts/e2e.sh`) her koşudan önce web konteynerini **yeniden başlatır**: `limit_req`
+  sayacı nginx sürecinin paylaşılan belleğindedir, restart onu sıfırlar → arka arkaya `make e2e`
+  koşuları güvenli olur. Garantisi bundan ibaret: **koşunun BAŞINDA dolu kova**. Koşu İÇİNDEKİ
+  yeniden denemeler bütçeyi tekrar harcar (`playwright.config.ts` `retries: CI ? 1 : 0`);
+  auth-flow'un tek bir tekrarı 9'u **13**'e çıkarır (> 11). CI ayrıca `scripts/e2e.sh`'ı hiç
+  koşmaz (doğrudan `npx playwright test`; kovayı orada her job'ın yeniden kurduğu konteynerler
+  sıfırlar). 429 bu yüzden "yeniden denenebilir hata" değil, **tripwire**.
+
+**2) `storageState` neden PAYLAŞILMIYOR.** Playwright'in klasik hızlandırması "bir kez giriş yap,
+oturum durumunu (`storageState`) tüm testlere ver"dir. Bizde bu **yanlış**: refresh token tek
+kullanımlık ve tekrar kullanımı **tüm aileyi** iptal ediyor. Aynı çerezi iki test kullanırsa
+ikincisi harcanmış bir token sunar, reuse tespiti devreye girer ve testler birbirini düşürür.
+Mutasyonla da doğrulandı: iki test arasında `storageState` paylaşmak suite'i kırmızıya çevirdi.
+**Genel ders:** hazır test deseni, uygulamanın oturum modeliyle çelişebilir; deseni değil modeli
+esas al.
+
+**3) Bir e2e suite'i de mutasyonla sınanır.** "Yeşil" tek başına bir şey söylemez — suite gerçekten
+bir şey mi tutuyor? Üç mutasyon denendi ve her biri bir senaryoyu kırmızıya çevirdi:
+NGINX'in `Host` başlığını eski hâline (`$host`) almak, `refresh_token`'ı login cevabının gövdesine
+geri koymak, `storageState` paylaşmak. Kırmızıya çevirmeyen bir test, koruduğunu iddia ettiği şeyi
+korumuyordur.
+
+**4) Suite gerçek bir hata buldu.** Katalog senaryosu, yerel kalabalık bir veritabanında kırmızıya
+döndü: filtre değişince atılan yeni istek ile uçuştaki eski istek yarışıyor ve **filtresiz sorgu
+daha yavaş** olduğu için geç cevap ızgaranın üstüne boyuyordu. Gerçekçi veri hacmi olmadan hiç
+görünmeyecekti (inceleme bulgusu F10).
+
+**Pratik ayrıntılar:** izler (trace) çerez ve parola içerir → `.gitignore` + `.dockerignore`,
+CI'da yalnız hata durumunda ve kısa saklama süresiyle yüklenir. Sır (admin parolası) rastgele
+üretilir, tek bir adımın içinde kalır ve `::add-mask::` ile log'da yıldızlanır. vitest'in
+`include`'u `src/**`'e daraltıldı ki spec'leri toplamasın.
+
+**🔗 İlgili:**
+- [docs/phases/phase-13-session-hardening.md](../phases/phase-13-session-hardening.md)
+- [frontend/e2e/helpers.ts](../../frontend/e2e/helpers.ts) (bütçe tablosu) · [frontend/playwright.config.ts](../../frontend/playwright.config.ts) · [scripts/e2e.sh](../../scripts/e2e.sh)
+- [#5 pre-commit vs pre-push](#5-pre-commit-vs-pre-push-kontrolleri-maliyete-göre-katmanlama) — kontrolleri maliyete göre katmanlamanın aynı mantığı
+- [docs/REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F16, F10

@@ -42,7 +42,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [ ] | F15 | Orta | Audit kapsamı değişiklik yollarında tutarlı değil |
 | [ ] | F16 | Orta | CI/CD gerçek tarayıcı ve release doğrulamasını tamamlamıyor |
 | [ ] | F17 | İyileştirme | Frontend oturum sorumlulukları sadeleştirilmeli |
-| [ ] | F18 | Düşük | Dokümanlar mevcut uygulamayla eşitlenmeli |
+| [x] | F18 | Düşük | Dokümanlar mevcut uygulamayla eşitlenmeli |
 
 ## F01 — Başarısız logout sonrasında sunucu oturumu canlı kalabiliyor
 
@@ -200,6 +200,16 @@ usePaged içinde eski yanıt koruması var; ana katalog ve kitap detayında ayn�
 
 **Kabul kriteri:** Yanıtlar ters sırayla tamamlandığında yalnız güncel sorgu/kitap gösterilmeli. Route değişimi sırasında eski içeriğin üzerinden yeni kaynağa işlem yapılamamalı.
 
+**Durum:** Kısmen tamamlandı (20 Eylül 2026) — **Home yarısı kapandı, BookDetail açık** (kutu bu yüzden işaretli değil).
+
+**Çözüm özeti:** `Home.tsx`'teki katalog effect'i artık kendi temizliğinde (cleanup) önceki isteği BAYAT olarak işaretliyor ve o isteğin sonucu — başarı da hata da — yok sayılıyor (`usePaged`'de zaten var olan korumanın kataloga taşınmış hâli). BookDetail'deki iki sorun (route değişince eski `book`'un hemen temizlenmemesi, eski içerik görünürken yeni ID'ye yazma) bu commit'in kapsamı dışında; ayrı bir düzeltme olarak açık kalıyor.
+
+**Commit:** `2925550` (fix(web): drop stale catalog responses so a slow query cannot overwrite a new filter) — kısmi.
+
+**Doğrulama ve sonuç:** Hatayı yeni Playwright katalog senaryosu buldu: yerel, kalabalık bir veritabanında filtresiz sorgu (tüm katalog taranır) "Dune" aramasından yavaş dönüyor ve ızgaranın üstüne boyuyordu (47 ms'e karşı 243 ms; URL `?q=Dune` derken liste her kitabı gösteriyordu). Regresyon testi `Home.test.tsx`'te iki isteği elle TERS sırayla çözüyor → düzeltme olmadan zamanlamadan bağımsız olarak kırılıyor.
+
+**Kalan risk / erteleme gerekçesi:** BookDetail'de route değişimi sırasında eski kitap kısa süre görünmeye devam edebilir; o ekrandaki puan/yorum yazma butonları görünen kitapla hedefin eşleştiğini henüz şart koşmuyor.
+
 ## F11 — Formlarda tekrar gönderim ve eşzamanlı puan yazımı korunmuyor
 
 **Öncelik:** Orta · UX ve veri doğruluğu
@@ -285,6 +295,16 @@ CI E2E işi localhost:8080 API'sine doğrudan curl gönderiyor. NGINX, tarayıc�
 
 **Kabul kriteri:** Kritik tarayıcı akışları CI'da çalışmalı. Başarısız veya doğrulanmamış commit yayınlanmamalı. Altyapı değişiklikleri ilgili kontrolleri tetiklemeli.
 
+**Durum:** Kısmen tamamlandı (20 Eylül 2026) — **tarayıcı yarısı kapandı, release doğrulaması ve path filtreleri açık** (kutu bu yüzden işaretli değil).
+
+**Çözüm özeti:** CI'nın `e2e` işi artık curl'e ek olarak GERÇEK bir tarayıcıda (chromium) 11 Playwright senaryosu koşuyor: katalog, kayıt → yenileme → ikinci cihaz → parola değişimi, çerez hijyeni + reuse, üç sekme (Web Locks), cross-origin 403 (ve `Origin == Host` → 401 regresyonu), puan + yorum, `window.prompt` ile moderasyon. Hepsi NGINX'in arkasından, demo'nun sunduğu yığına karşı. Ayrıca yeni bir `images` işi iki imajı Trivy ile tarıyor. **Kapsanmayan:** `release.yml` hâlâ aynı commit'in yeşil doğrulamasına bağlı değil ve yalnız Kubernetes/Makefile değişiklikleri CI path filtrelerine girmiyor.
+
+**Commit:** `5192b19` (test(e2e): real-browser Playwright suite and its CI job) — kısmi; `c79707b` (CI'daki imaj taraması).
+
+**Doğrulama ve sonuç:** Üç ardışık yeşil koşu (11 passed, 0 flaky, 429 yok). Üç mutasyon senaryoları kırmızıya çevirdi: NGINX'in `Host` başlığını `$host`'a geri almak, `refresh_token`'ı login gövdesine geri koymak ve iki test arasında `storageState` paylaşmak (reuse tespitine takılır — her testin kendi girişini yapmasının sebebi). Rate limit bütçesi sert kural olarak yazıldı: NGINX'in login|register kovası 11 istek, suite 9 harcıyor (tablo `frontend/e2e/helpers.ts`), 429 gelirse test sessizce yeniden denemek yerine adıyla patlıyor.
+
+**Kalan risk / erteleme gerekçesi:** `release.yml` hâlâ hiçbir CI sonucuna bağlı değil (`needs`/`workflow_run` yok) → doğrulanmamış bir commit'ten imaj yayınlanabilir. Path filtrelerine `scripts/**` eklendi (Makefile zaten vardı) ama `deploy/k8s/**` hâlâ dışarıda: yalnız Kubernetes manifesti değiştiren bir commit CI'yı tetiklemez.
+
 ## F17 — Frontend oturum sorumlulukları sadeleştirilmeli
 
 **Öncelik:** İyileştirme · Mimari
@@ -309,11 +329,15 @@ DEPLOYMENT.md'nin bilinen sınırlar bölümünde refresh token'ın localStorage
 
 **Kabul kriteri:** Dağıtım rehberi ve kod yorumları güncel oturum saklama/iptal davranışıyla çelişmemeli; tamamlanmış geçişler yapılacak olarak görünmemeli.
 
-**Durum:** Kısmen tamamlandı
+**Durum:** Tamamlandı (20 Eylül 2026)
 
-**Çözüm özeti:** DEPLOYMENT.md'nin "refresh token localStorage'da" ifadesi ve env tablosu httpOnly çerez geçişiyle birlikte güncellendi (`COOKIE_SECURE`, `COOKIE_NAME`, `JWT_SESSION_MAX_AGE` satırları eklendi). Kalan doküman eşitlemesi (STATUS, PROJECT_MAP, faz belgesi, öğrenme notları) Faz 13'ün dokümantasyon adımında yapılacak.
+**Çözüm özeti:** İki adımda kapandı. (1) `1d2e92d` ile DEPLOYMENT.md'nin "refresh token localStorage'da" ifadesi ve env tablosu httpOnly çerez geçişine göre güncellendi (`COOKIE_SECURE`, `COOKIE_NAME`, `JWT_SESSION_MAX_AGE` satırları). (2) Bu commit ile kalan eşitleme: yeni faz belgesi [phases/phase-13-session-hardening.md](phases/phase-13-session-hardening.md) (tehdit → cevap, token aileleri, kilit sırası, çerez, CSRF, parola değişimi, Playwright, bilinen sınırlar); [STATUS.md](STATUS.md)'e Faz 13 satırı/özeti + canlı backlog işaretçileri; [PROJECT_MAP.md](PROJECT_MAP.md)'e migration `0008`, yeni auth sorguları/repository metotları, çerez yardımcıları + `handleChangePassword`, Account sayfası + yeniden yazılan istemci durum makinesi, `frontend/e2e/`, `scripts/e2e.sh`, `.github/dependabot.yml`, CI `images` işi; DEPLOYMENT.md'de env tablosunun `internal/config` ile eşitlenmesi ve "prod'da HTTPS ŞART" maddesi; üç öğrenme notu dosyasına Faz 13 girdileri; [learning-notes/infra-and-devops.md](learning-notes/infra-and-devops.md) §5'te "geçiş HENÜZ YAPILMADI / eksik olan asıl kontrol" bulgularının `c79707b`'nin gönderdiği hâle çekilmesi (kriterin "tamamlanmış geçişler yapılacak olarak görünmemeli" yarısı); [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md)'de faz sonu ritüeli (§7 `handleLogout` + `context.WithoutCancel`, §10 `pg_blocking_pids`/`40P01` kilit testleri, §15'e 25. dürüst gözlem — Web Locks + `storage`); `mvp_smoke.sh`'ın 21 → 25 kontrole çıkmasının tarihî kayıtlarda (Faz 7/8/11/12, STATUS, infra notu) işaretlenmesi. Kapanan borçlar PROJECT_MAP §7'de **silinmedi**, üstü çizilip commit'iyle işaretlendi (geçmiş kayıt olarak kalsın). Faz 9 belgesindeki "refresh `localStorage`'da" satırı tarihî karar olarak duruyor ama Faz 13'e yönlendiren bir uyarı aldı.
 
-**Commit:** `1d2e92d` (kısmi)
+**Commit:** `1d2e92d` (DEPLOYMENT.md) + (bu commit) docs(phase-13): faz belgesi, STATUS/PROJECT_MAP/DEPLOYMENT eşitlemesi, öğrenme notları, WHY_GO_VS_TS faz ritüeli (bu son dosya tasarımın E bölümünde listelenmiyordu; faz belgesi onu doldurulmuş saydığı için aynı commit'e alındı — commit mesajında da böyle yazıyor)
+
+**Doğrulama ve sonuç:** Dokunulan dosyalardaki her göreli markdown linki bir betikle çözümlendi (hedef dosya + başlık anchor'ları dahil, kırık link yok). `grep` ile bayat iddiaların kalmadığı gösterildi: refresh token'ın `localStorage`'da olduğunu söyleyen tek satır kalmadı (öğrenme notlarındaki tarihî anlatım ve Faz 9'un uyarılı satırı hariç), cevap gövdesinde `refresh_token` alanı iddia eden doküman yok; **güncel** sayıyı iddia eden her yerde smoke 25/25 (README, PROJECT_MAP, STATUS, Faz 13) ve faz DoD'larındaki 21/21 kayıtları (Faz 7, 8, 11, 12, STATUS ve infra-and-devops notu) o günkü tarihî sonuçlar olarak bırakıldı — ama artık hepsi "(o günkü sayı; Faz 13'ten beri 25/25)" notunu taşıyor, işaretsiz tek bir 21/21 kalmadı. `go test ./...` ve `npm test` yeşil — bu commit yalnız `docs/` ve `README.md`'ye dokunuyor.
+
+**Kalan risk:** Dokümanlar koddan ayrı yaşamaya devam ediyor; bunu otomatik doğrulayan bir kapı yok. Faz sonu ritüeli (STATUS + PROJECT_MAP + faz belgesi) tek koruma.
 
 ## Korunması gereken iyi tasarım kararları
 
