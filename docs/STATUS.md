@@ -19,6 +19,9 @@ deploy'u (senin hesapların gerekiyor — [DEPLOYMENT.md](DEPLOYMENT.md)) ve
 
 ---
 
+> **Öğrenme modu (20 Eylül 2026'da yeniden kuruldu):** teori önce, minik deney, sonra kod —
+> ayrıntı ve sonraki oturumun başlangıç noktası: [LEARNING_PLAN.md](LEARNING_PLAN.md).
+
 ## Faz durumu
 
 | Faz | Konu | Durum |
