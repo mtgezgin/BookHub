@@ -46,6 +46,13 @@ kalıyor.
 (`async`/`await`, tek iş parçacığı, olay döngüsü); Go'da *çalışma zamanına* gömülüdür —
 kod düz ve bloklayıcı yazılır, paralelliği zamanlayıcı sağlar.
 
+### 3.0 Hazır materyal
+
+| Oturum | Ders | Test |
+|---|---|---|
+| 1–2 | [learning/01-concurrency-goroutines.md](learning/01-concurrency-goroutines.md) — goroutine, "renkli fonksiyon" problemi, neden bloklamak serbest, bu repodaki 6 dayanak, iki yarış türü, tuzaklar, 5 deney, kaynak listesi | [learning/01-concurrency-test.md](learning/01-concurrency-test.md) — 18 soru + cevap anahtarı + puanlama |
+| 3–6 | yazılacak | |
+
 ### 3.1 Altı oturumluk sıra
 
 Her oturum ~30–45 dk: kavram → bu repodaki karşılığı → 1–2 minik deney → yoklama sorusu.
