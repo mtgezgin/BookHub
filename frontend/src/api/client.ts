@@ -352,7 +352,7 @@ export const api = {
   },
 
   // Katalog
-  books: (p: { q?: string; genre?: string; limit?: number; offset?: number }) =>
+  books: (p: { q?: string; genre?: string; limit?: number; offset?: number; sort?: "rating" }) =>
     request<Page<Book>>("GET", `/api/books${qs(p)}`),
   book: (id: number) => request<Book>("GET", `/api/books/${id}`),
   topRated: (limit = 10) => request<TopRated>("GET", `/api/books/top-rated${qs({ limit })}`),

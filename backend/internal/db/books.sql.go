@@ -270,6 +270,91 @@ func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]Book, e
 	return items, nil
 }
 
+const listBooksByRating = `-- name: ListBooksByRating :many
+SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count FROM books b
+WHERE b.status = 'APPROVED'
+  AND ($1::text IS NULL OR EXISTS (
+        SELECT 1 FROM book_genres bg
+        JOIN genres g ON g.id = bg.genre_id
+        WHERE bg.book_id = b.id AND g.slug = $1))
+  AND ($2::text IS NULL
+       OR b.title  ILIKE '%' || $2 || '%'
+       OR b.author ILIKE '%' || $2 || '%')
+ORDER BY
+  CASE WHEN b.rating_count = 0 THEN NULL ELSE
+       (b.rating_count::float8 / (b.rating_count + $3::float8)) * b.average_rating::float8
+     + ($3::float8 / (b.rating_count + $3::float8)) * (
+         SELECT COALESCE(
+                    sum(o.average_rating * o.rating_count)::float8 / NULLIF(sum(o.rating_count), 0),
+                    $4::float8)
+         FROM books o
+         WHERE o.status = 'APPROVED' AND o.rating_count > 0)
+  END DESC NULLS LAST,
+  b.rating_count DESC, b.created_at DESC, b.id DESC
+LIMIT $6 OFFSET $5
+`
+
+type ListBooksByRatingParams struct {
+	Genre    *string `json:"genre"`
+	Query    *string `json:"query"`
+	M        float64 `json:"m"`
+	Fallback float64 `json:"fallback"`
+	Offset   int32   `json:"offset"`
+	Limit    int32   `json:"limit"`
+}
+
+// Katalogda "en yüksek puan" sırası: ListTopRated ile AYNI ağırlıklı (Bayes) skor. Basit
+// ortalama olsaydı 1 oyla 10 alan kitap, 40 oyla 9 alanın önüne geçerdi.
+// C (genel ortalama) bağımsız bir alt sorgu: Postgres onu bir kez hesaplar (InitPlan).
+// Oysuz kitap NULL → en sonda (kendi aralarında en yeni önce). CASE, m = 0 iken oysuz
+// kitapta 0/0 bölmesini de önler (RATING_MIN_VOTES 0 olabilir).
+// Filtreler ListBooks ile birebir aynı; birini değiştiren ikisini de değiştirir.
+func (q *Queries) ListBooksByRating(ctx context.Context, arg ListBooksByRatingParams) ([]Book, error) {
+	rows, err := q.db.Query(ctx, listBooksByRating,
+		arg.Genre,
+		arg.Query,
+		arg.M,
+		arg.Fallback,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Book
+	for rows.Next() {
+		var i Book
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Slug,
+			&i.Author,
+			&i.Description,
+			&i.CoverUrl,
+			&i.PublicationYear,
+			&i.PageCount,
+			&i.Language,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SubmittedBy,
+			&i.RejectionReason,
+			&i.ModeratedBy,
+			&i.ModeratedAt,
+			&i.AverageRating,
+			&i.RatingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBooksByStatus = `-- name: ListBooksByStatus :many
 SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM books
 WHERE status = $1

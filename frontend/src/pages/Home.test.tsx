@@ -181,6 +181,29 @@ describe("Home", () => {
     expect(Object.fromEntries(params())).toEqual({ q: "tolstoy" });
   });
 
+  it("\"En yüksek puan\" sırası URL'ye sort=rating yazar, offset'i düşürür ve API'ye gider", async () => {
+    const { el, params } = await render("/?genre=roman&offset=12");
+    expect(button(el, "En yeni").getAttribute("aria-pressed")).toBe("true");
+    await act(async () => button(el, "En yüksek puan").click());
+    await flush();
+    expect(Object.fromEntries(params())).toEqual({ genre: "roman", sort: "rating" });
+    expect(calls.books.at(-1)).toEqual([{ q: "", genre: "roman", limit: 12, offset: 0, sort: "rating" }]);
+    expect(button(el, "En yüksek puan").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("\"En yeni\" varsayılan sıraya döner: sort URL'den ve API isteğinden kalkar", async () => {
+    const { el, params } = await render("/?sort=rating");
+    await act(async () => button(el, "En yeni").click());
+    await flush();
+    expect(params().has("sort")).toBe(false);
+    expect(calls.books.at(-1)).toEqual([{ q: "", genre: "", limit: 12, offset: 0 }]);
+  });
+
+  it("puan sırasındayken \"en sevilenler\" şeridi çizilmez (listenin başıyla aynı şey olurdu)", async () => {
+    const { el } = await render("/?sort=rating");
+    expect(el.querySelector(TOP)).toBeNull();
+  });
+
   it("yazmayı bırakınca (300 ms) Enter'a basmadan arar", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {

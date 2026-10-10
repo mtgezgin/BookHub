@@ -30,6 +30,8 @@ export function Home() {
   const [params, setParams] = useSearchParams();
   const q = params.get("q") ?? "";
   const genre = params.get("genre") ?? "";
+  // Yalnız iki sıra var; tanınmayan değer varsayılana (en yeni) düşer.
+  const sort = params.get("sort") === "rating" ? "rating" : "";
   // URL elle değiştirilebilir (/?offset=abc): geçersiz/negatif değer 0 sayılır (NaN API'ye gitmesin).
   const parsed = parseInt(params.get("offset") ?? "0", 10);
   const offset = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
@@ -54,13 +56,14 @@ export function Home() {
   // ÖNCE çalışır: geç gelen cevabı sessizce düşürüyoruz.
   useEffect(() => {
     let current = true;
-    api.books({ q, genre, limit: PAGE, offset })
+    // sort yalnız varsayılan değilken gider: istek adresi gereksiz yere uzamasın.
+    api.books({ q, genre, limit: PAGE, offset, ...(sort && { sort }) })
       .then((p) => current && setPage(p))
       .catch((e) => current && setError(e));
     return () => {
       current = false;
     };
-  }, [q, genre, offset]);
+  }, [q, genre, offset, sort]);
 
   // Fonksiyon biçimi (prev): gecikmeli arama 300 ms sonra çalışır; o arada bir tür seçildiyse
   // render anındaki `params`'tan kurmak o seçimi ESKİ parametrelerle ezerdi.
@@ -91,7 +94,8 @@ export function Home() {
   };
 
   const filtered = q !== "" || genre !== "";
-  const showTop = !filtered && offset === 0 && top !== null && top.items.length > 0;
+  // Puan sırasında şerit, listenin başıyla aynı şeyi gösterirdi.
+  const showTop = !filtered && sort === "" && offset === 0 && top !== null && top.items.length > 0;
 
   return (
     <div>
@@ -168,11 +172,21 @@ export function Home() {
       )}
       {page && (
         <section aria-labelledby={page.items.length > 0 ? "results-heading" : undefined}>
-          <div className="mb-4 flex items-baseline justify-between gap-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             {page.items.length > 0 && (
               <h2 id="results-heading" className="text-2xl font-semibold">{filtered ? "Sonuçlar" : "Tüm kitaplar"}</h2>
             )}
-            <p aria-live="polite" className="text-sm text-muted-foreground">{page.total} kitap</p>
+            <div className="flex items-center gap-3">
+              <p aria-live="polite" className="text-sm text-muted-foreground">{page.total} kitap</p>
+              <div role="group" aria-label="Sıralama" className="inline-flex gap-1 rounded-lg border bg-card p-1">
+                <Button size="sm" variant={sort === "" ? "default" : "ghost"} aria-pressed={sort === ""} onClick={() => update({ sort: "" })}>
+                  En yeni
+                </Button>
+                <Button size="sm" variant={sort === "rating" ? "default" : "ghost"} aria-pressed={sort === "rating"} onClick={() => update({ sort: "rating" })}>
+                  En yüksek puan
+                </Button>
+              </div>
+            </div>
           </div>
           {page.items.length === 0 ? (
             <EmptyState

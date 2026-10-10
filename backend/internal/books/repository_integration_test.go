@@ -129,6 +129,45 @@ func TestRepositoryListOrderAndVisibility(t *testing.T) {
 	}
 }
 
+// TestRepositoryListByRating, "en yüksek puan" sırasının ağırlıklı (Bayes) skor olduğunu
+// kanıtlar: 1 oyla 10 alan kitap, 40 oyla 9 alanın ÖNÜNE geçemez (basit ortalama geçirirdi);
+// oysuz kitap en sonda. Genel ortalama C bütün DB'ye bağlı olduğu için 100 düşük oylu bir
+// "ağırlık" kitabı C'yi aşağıda sabitler — testin sırası başka veriye karşı dayanıklı kalır.
+func TestRepositoryListByRating(t *testing.T) {
+	f := newFixture(t)
+
+	lucky := f.createBook(t, StatusApproved)   // 1 oy, 10
+	trusted := f.createBook(t, StatusApproved) // 40 oy, 9
+	ballast := f.createBook(t, StatusApproved) // 100 oy, 3 → C'yi aşağı çeker
+	unrated := f.createBook(t, StatusApproved) // oy yok
+	pending := f.createBook(t, StatusPending)  // 50 oy, 10 ama listede olmamalı
+	for _, r := range []struct {
+		id    int64
+		count int
+		avg   float64
+	}{{lucky.ID, 1, 10}, {trusted.ID, 40, 9}, {ballast.ID, 100, 3}, {pending.ID, 50, 10}} {
+		testdb.Exec(t, f.pool, "UPDATE books SET rating_count = $1, average_rating = $2 WHERE id = $3", r.count, r.avg, r.id)
+	}
+
+	got, _, err := f.repo.List(context.Background(), ListFilter{Sort: SortRating, MinVotes: 10, ColdStart: 5.5, Limit: 1000})
+	if err != nil {
+		t.Fatalf("liste okunamadı: %v", err)
+	}
+	position := make(map[int64]int, len(got))
+	for i, b := range got {
+		position[b.ID] = i
+	}
+	if _, leaked := position[pending.ID]; leaked {
+		t.Errorf("PENDING kitap puan sırasına SIZDI (id=%d)", pending.ID)
+	}
+	if position[trusted.ID] >= position[lucky.ID] {
+		t.Errorf("40 oyla 9, 1 oyla 10'un önünde olmalıydı (çok oylu=%d, şanslı=%d)", position[trusted.ID], position[lucky.ID])
+	}
+	if position[unrated.ID] <= position[ballast.ID] || position[unrated.ID] <= position[lucky.ID] {
+		t.Errorf("oysuz kitap bütün oylu kitaplardan sonra gelmeliydi (oysuz=%d)", position[unrated.ID])
+	}
+}
+
 // TestRepositoryCreateDuplicateSlugRealDB, 23505 → ErrDuplicateSlug çevirisini GERÇEK
 // Postgres'le kanıtlar. Birim testi PgError'ı elle kurar; bu test Postgres'in gerçekten
 // o kodu ürettiğini doğrular — ikisi birlikte zincirin iki ucunu da kapatır.

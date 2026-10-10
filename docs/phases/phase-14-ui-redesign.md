@@ -1,6 +1,6 @@
 # Faz 14 — Arayüz yeniden tasarımı (Tailwind + shadcn/ui)
 
-> Durum: 🚧 Faz A, B ve C bitti (2026-10-11); D (backend isteyenler) sırada · İlgili: [frontend/src](../../frontend/src),
+> Durum: ✅ Faz A–C bitti; D'nin sıralama yarısı bitti, gerçek kapaklar karar bekliyor (2026-10-11) · İlgili: [frontend/src](../../frontend/src),
 > [styles.css](../../frontend/src/styles.css)
 
 ## 🎯 Amaç
@@ -53,7 +53,7 @@ Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
 | **A — Temel** | Token'lar, tipografi, bileşen kiti, üretilmiş kapak + yeni kitap kartı, yükleme / boş / 404 durumları, marka (logo, favicon); bütün sayfalar yeni kitle, yerleşim aynı | ✅ (inceleme bekliyor) |
 | **B — Ana sayfa + detay** | Karşılama alanı, tür çipleri, kapaklı "en sevilenler" şeridi, yazarken arama; detayda iki sütun (kapak + puan kartı), yıldızlı puan verme, yorum deneyimi, "aynı türden" şeridi | ✅ (inceleme bekliyor) |
 | **C — Formlar, gezinme, admin, erişilebilirlik** | Parola göster/gizle, girişten sonra geldiği sayfaya dönüş, kullanıcı menüsü + mobil menü, moderasyonda `window.prompt` yerine Dialog, toast'lar, sayfa başlıkları, tema düğmesi, erişilebilirlik turu | ✅ |
-| **D — Backend isteyenler** | Katalog sıralaması (bugün yalnız en yeni: `books.sql:47`), gerçek kapaklar (ISBN + Open Library; CSP `img-src https:` izin veriyor) | ⏭️ |
+| **D — Backend isteyenler** | Katalog sıralaması (bugün yalnız en yeni: `books.sql:47`), gerçek kapaklar (ISBN + Open Library; CSP `img-src https:` izin veriyor) | 🟡 sıralama ✅ · kapaklar karar bekliyor |
 
 ## 🪜 Faz A — adımlar
 
@@ -124,6 +124,32 @@ Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
 7. **Moderasyon:** `window.prompt` yerine erişilebilir Dialog (Radix): odak hapsi, Esc, başlık.
 8. **Erişilebilirlik turu:** "İçeriğe atla" bağlantısı; `prefers-reduced-motion`'da kart
    hareketleri kapalı.
+
+## 🪜 Faz D — adımlar (backend isteyenler)
+
+**Sıralama (yapıldı):** `GET /api/books?sort=rating` — "En yüksek puan", top-rated ile AYNI
+ağırlıklı (Bayes) skor. Basit ortalama olsaydı 1 oyla 10 alan kitap, 40 oyla 9 alanın önüne
+geçerdi; Faz 6'nın çözdüğü sorun kataloğa geri gelirdi.
+
+- Ayrı sorgu (`ListBooksByRating`), `ORDER BY CASE …` değil: varsayılan "en yeni" sırası
+  `created_at` indeksini kullanmaya devam etsin.
+- C (genel ortalama) sorgunun içinde bağımsız bir alt sorgu (Postgres bir kez hesaplar); m
+  config'ten (`RATING_MIN_VOTES`), oy yokken C'nin yerine geçen değer `ratings.ColdStartMean`.
+  İkisini HTTP katmanı verir: `books`, `ratings`'i içe aktaramaz (ratings books'u aktarıyor).
+- Oysuz kitap `NULL` → en sonda. `CASE`, `RATING_MIN_VOTES=0` iken oysuz kitapta 0/0
+  bölmesini de önler.
+- **A–Z sırası bilerek yok:** Türkçe doğru sıra (Ç, Ö, Ş yerinde) ICU harmanlaması
+  (`COLLATE "tr-x-icu"`) ister; canlı Supabase'de varlığını doğrulayamadım, yoksa istek düşerdi.
+- Arayüz: sonuç başlığında "En yeni / En yüksek puan" anahtarı (`aria-pressed`); puan
+  sırasında "en sevilenler" şeridi gizli (listenin başıyla aynı olurdu).
+
+**Gerçek kapaklar (karar bekliyor):** kod tarafı hazır (`cover_url` doluysa resim, yüklenemezse
+üretilmiş kapak). Eksik olan veri ve iki karar:
+
+1. Kaynak: Open Library Covers (ücretsiz; yüksek hacimde sıcak bağlantı istemiyorlar) ya da
+   kapakları kendi depomuza almak.
+2. Hangi baskının kapağı (ISBN'e göre değişir) — 52 kitap için ISBN'leri doğrulamak gerekir;
+   yanlış ISBN yanlış kapak demek.
 
 ## ⚠️ Önemli noktalar
 
@@ -203,6 +229,16 @@ e2e testleriyle doğrulandı.
 | JS paketi (gzip) | 107,4 kB ana + 14,1 kB moderasyon parçası (lazy olmasaydı 120,4 kB) |
 | Tema | Seçim yeniden yüklemede korunuyor (`data-theme`), CSP ihlali yok (tarayıcı konsolu) |
 
+### Faz D — sıralama (2026-10-11)
+
+| Ölçüm | Sonuç |
+|---|---|
+| Backend (`make test-db`, `-race`) | bütün paketler yeşil; yeni entegrasyon testi gerçek Postgres'te: 40 oy/9 > 1 oy/10, oysuz en sonda, PENDING sızmıyor |
+| Birim testleri (vitest) | **248** yeşil |
+| E2E (`make e2e`) | **11** yeşil |
+| Canlı (lokal) yoklama | `?sort=rating` sırası "en sevilenler" ile aynı; `?sort=title` → 400 |
+| Lighthouse erişilebilirlik — `/?sort=rating` | **100** |
+
 ## ✅ Tamamlanma (Faz A)
 
 - [x] Eski CSS kaldırıldı; bütün sayfalar kitle çiziliyor.
@@ -227,3 +263,8 @@ e2e testleriyle doğrulandı.
 - [x] Kullanıcı menüsü (mobilde gezinme de içinde), tema düğmesi, "İçeriğe atla", azaltılmış hareket.
 - [x] Moderasyonda red diyaloğu; moderasyon sayfası ayrı parça.
 - [x] vitest + e2e yeşil; Lighthouse 100.
+
+## ✅ Tamamlanma (Faz D)
+
+- [x] Katalog sıralaması: en yeni / en yüksek puan (ağırlıklı), backend + arayüz + testler.
+- [ ] Gerçek kapaklar — kaynak ve baskı kararı (yukarıda).
