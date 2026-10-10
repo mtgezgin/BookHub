@@ -4,6 +4,8 @@ import { formatScore } from "../lib/format";
 import { cn } from "../lib/utils";
 import { Alert } from "./ui/alert";
 
+export { formatDate } from "../lib/format";
+
 /** Hata mesajı: ApiError'ın kullanıcıya gösterilebilir mesajı, yoksa genel metin. */
 export function ErrorBox({ error, className }: { error: unknown; className?: string }) {
   if (!error) return null;
@@ -28,6 +30,3 @@ export function Rating({ value, count, className }: { value: number | null; coun
   );
 }
 
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" });
-}

@@ -53,6 +53,7 @@ beforeEach(() => {
     ratingSummary: async () => summaryOf(0),
     comments: async (_id: number, offset: number) => ({ items: [comment(offset + 1, { id: 7, display_name: "Ali" })], total: 1, limit: 10, offset }),
     myRating: notRated,
+    books: async () => ({ items: [], total: 0, limit: 7, offset: 0 }),
   });
 });
 
@@ -89,14 +90,18 @@ const button = (el: ParentNode, text: string) =>
   Array.from(el.querySelectorAll("button")).find((b) => b.textContent === text);
 const alertText = (el: HTMLElement) => el.querySelector("[role=alert]")?.textContent ?? null;
 
-async function postComment(el: HTMLElement, text: string) {
+function type(el: HTMLElement, text: string) {
   const ta = el.querySelector("textarea")!;
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(ta, text);
     ta.dispatchEvent(new Event("input", { bubbles: true }));
   });
+}
+
+async function postComment(el: HTMLElement, text: string) {
+  type(el, text);
   await act(async () => {
-    ta.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    el.querySelector("textarea")!.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
   await flush();
 }
@@ -290,5 +295,70 @@ describe("BookDetail — yükleme ve şablon", () => {
     stub({ comments: async () => ({ items: [comment(5, null)], total: 1, limit: 10, offset: 0 }) });
     const { el } = await render();
     expect(el.querySelector('[aria-label="Yorumlar"] strong')!.textContent).toBe("silinmiş kullanıcı");
+  });
+});
+
+describe("BookDetail — aynı türden kitaplar", () => {
+  const withGenre = (id: number): Book => ({ ...bookOf(id), genres: [{ id: 1, name: "Roman", slug: "roman" }] });
+  const SIMILAR = '[aria-labelledby="similar-heading"]';
+
+  it("ilk türden en fazla 6 kitap gösterir, mevcut kitabı göstermez", async () => {
+    stub({
+      book: async (id: number) => withGenre(id),
+      books: async () => ({ items: [1, 2, 3, 4, 5, 6, 7, 8].map(withGenre), total: 8, limit: 7, offset: 0 }),
+    });
+    const { el } = await render();
+    expect(calls.books).toEqual([[{ genre: "roman", limit: 7 }]]);
+    const hrefs = Array.from(el.querySelectorAll(`${SIMILAR} h3 a`)).map((a) => a.getAttribute("href"));
+    expect(hrefs).toEqual(["/books/2", "/books/3", "/books/4", "/books/5", "/books/6", "/books/7"]);
+  });
+
+  it("türü olmayan kitapta istek atılmaz, bölüm çizilmez", async () => {
+    const { el } = await render();
+    expect(calls.books).toBeUndefined();
+    expect(el.querySelector(SIMILAR)).toBeNull();
+  });
+
+  it("istek başarısızsa hata gösterilmez, bölüm çizilmez (yardımcı içerik)", async () => {
+    stub({
+      book: async (id: number) => withGenre(id),
+      books: () => Promise.reject(new ApiError(500, "internal", "liste yüklenemedi")),
+    });
+    const { el } = await render();
+    expect(alertText(el)).toBeNull();
+    expect(el.querySelector(SIMILAR)).toBeNull();
+  });
+});
+
+describe("BookDetail — yorum deneyimi", () => {
+  it("gönderilirken düğme kilitli: çift tıklama iki yorum yazmaz", async () => {
+    stub({ addComment: () => new Promise(() => {}) });
+    const { el } = await render();
+    type(el, "merhaba");
+    await act(async () => {
+      el.querySelector("textarea")!.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(button(el, "Gönderiliyor…")!.disabled).toBe(true);
+  });
+
+  it("karakter sayacı yazılanı ve sınırı gösterir", async () => {
+    const { el } = await render();
+    type(el, "merhaba");
+    expect(el.textContent).toContain("7/2000");
+  });
+
+  it("yorum zamanı göreli yazılır, makine okunur tarih <time>'da", async () => {
+    const iso = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    stub({ comments: async () => ({ items: [{ ...comment(9, { id: 7, display_name: "Ali" }), created_at: iso }], total: 1, limit: 10, offset: 0 }) });
+    const { el } = await render();
+    const time = el.querySelector('[aria-label="Yorumlar"] time')!;
+    expect(time.textContent).toBe("3 gün önce");
+    expect(time.getAttribute("dateTime")).toBe(iso);
+  });
+
+  it("yorumda yazarın baş harfi avatar olarak görünür (dekoratif)", async () => {
+    const { el } = await render();
+    const avatar = el.querySelector('[aria-label="Yorumlar"] li [aria-hidden="true"]')!;
+    expect(avatar.textContent).toBe("A");
   });
 });

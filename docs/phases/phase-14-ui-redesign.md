@@ -1,6 +1,6 @@
 # Faz 14 — Arayüz yeniden tasarımı (Tailwind + shadcn/ui)
 
-> Durum: 🚧 Faz A bitti, kullanıcı incelemesinde (2026-10-10); B–D sırada · İlgili: [frontend/src](../../frontend/src),
+> Durum: 🚧 Faz A ve B bitti, kullanıcı incelemesinde (2026-10-10); C–D sırada · İlgili: [frontend/src](../../frontend/src),
 > [styles.css](../../frontend/src/styles.css)
 
 ## 🎯 Amaç
@@ -51,7 +51,7 @@ Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
 | Bölüm | Kapsam | Durum |
 |---|---|---|
 | **A — Temel** | Token'lar, tipografi, bileşen kiti, üretilmiş kapak + yeni kitap kartı, yükleme / boş / 404 durumları, marka (logo, favicon); bütün sayfalar yeni kitle, yerleşim aynı | ✅ (inceleme bekliyor) |
-| **B — Ana sayfa + detay** | Karşılama alanı, tür çipleri, kapaklı "en sevilenler" şeridi, yazarken arama; detayda iki sütun (kapak + puan kartı), yıldızlı puan verme, yorum deneyimi, "aynı türden" şeridi | ⏭️ |
+| **B — Ana sayfa + detay** | Karşılama alanı, tür çipleri, kapaklı "en sevilenler" şeridi, yazarken arama; detayda iki sütun (kapak + puan kartı), yıldızlı puan verme, yorum deneyimi, "aynı türden" şeridi | ✅ (inceleme bekliyor) |
 | **C — Formlar, gezinme, admin, erişilebilirlik** | Parola göster/gizle, girişten sonra geldiği sayfaya dönüş, kullanıcı menüsü + mobil menü, moderasyonda `window.prompt` yerine Dialog, toast'lar, sayfa başlıkları, tema düğmesi, erişilebilirlik turu | ⏭️ |
 | **D — Backend isteyenler** | Katalog sıralaması (bugün yalnız en yeni: `books.sql:47`), gerçek kapaklar (ISBN + Open Library; CSP `img-src https:` izin veriyor) | ⏭️ |
 
@@ -75,6 +75,34 @@ Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
    Türkçe puan biçimi, boş ve 404 durumları); e2e seçicileri.
 8. **Doğrulama:** aşağıdaki liste.
 
+## 🪜 Faz B — adımlar (ana sayfa + detay)
+
+**Ana sayfa**
+
+1. **Karşılama alanı:** görünür başlık ("Bir sonraki kitabını bul"), tek cümlelik tanıtım, büyük
+   arama kutusu.
+2. **Yazarken arama:** yazmayı 300 ms bırakınca URL'deki `q` güncellenir; Enter ve "Ara" hemen
+   arar. URL güncellemesi fonksiyon biçiminde (`setParams(prev => …)`): gecikmeli güncelleme
+   arada seçilen türü eski parametrelerle ezmesin.
+3. **Tür çipleri:** açılır liste yerine "Tümü" + her tür için basılı/basılı değil düğme
+   (`aria-pressed`); mobilde yatay kaydırma.
+4. **"Okurların en sevdikleri" şeridi:** kapaklı, sıralı 5 kitap; yan sütun kalkar, şerit mobilde
+   de en üstte görünür. Yalnız filtresiz ilk sayfada çizilir (aramada gürültü). Bayes açıklaması
+   "Nasıl sıralanıyor?" açılır kutusunda (`<details>`, JS'siz erişilebilir).
+5. Izgara tam genişlik: 2 / 3 / 4 / 6 sütun (12'lik sayfa her satırı doldurur).
+
+**Kitap detayı**
+
+1. **İki sütun (md+):** solda büyük kapak ve altında puan kartı, sağda başlık, açıklama ve
+   yorumlar. Mobilde sıra: küçük kapak + başlık, puan kartı, açıklama, yorumlar (`grid-template-areas`).
+2. **Yıldızlı puan verme:** 10 yıldız düğmesi; üstüne gelince/odaklanınca önizleme, seçili olan
+   `aria-pressed`. Düğmenin erişilebilir adı puanın kendisi (ekran okuyucuya özel metin) → e2e
+   ve birim testleri aynı adla bulur.
+3. **Yorumlar:** baş harf avatarı, göreli zaman ("3 gün önce", üzerine gelince tam tarih),
+   karakter sayacı, gönderilirken düğme kilidi (çift gönderim yok).
+4. **"Aynı türden" şeridi:** ilk türden en fazla 6 kitap (mevcut kitap hariç). Bu istek
+   başarısız olursa sayfa hata göstermez; şerit çizilmez (yardımcı içerik).
+
 ## ⚠️ Önemli noktalar
 
 - **CSP** ([security-headers.conf](../../frontend/nginx/security-headers.conf)):
@@ -89,8 +117,12 @@ Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
   doğrulanır.
 - **Ondalık:** sayılar `Intl.NumberFormat("tr-TR")` ile; `toFixed` nokta kullanır.
 - **Türkçe heceleme yok:** `hyphens: auto` Chrome'da Türkçe için çalışmadı; kapakta uzun bir
-  kelime ("Otostopçunun") çerçeveden taşıp kırpılıyordu. Çözüm: `overflow-wrap: anywhere` +
-  en uzun kelimesi 10 harften uzun başlığa küçük punto (BookCover.tsx).
+  kelime ("Otostopçunun", "Tutunamayanlar") çerçeveden taşıp kırpılıyor ya da ortadan
+  bölünüyordu. Çözüm: punto, en uzun kelime yazı alanına sığacak kadar küçülür
+  (`60 / (harf sayısı × 0,58)` cqw, en çok 10) + son çare `overflow-wrap: anywhere` (BookCover.tsx).
+- **Gecikmeli arama ve URL:** 300 ms sonra çalışan güncelleme `setParams(prev => …)` ile
+  kurulur; render anındaki parametrelerle kurulsaydı arada seçilen türü ezerdi (testte kilitli).
+  `replace: true`: her duraklama tarayıcı geçmişine ayrı kayıt eklemesin.
 - **Fontlar ilk ziyarette ~200 kB:** iki ailenin latin + latin-ext alt kümeleri (Türkçe harfler
   latin-ext'te). Kiril/Yunan dosyaları imajda durur ama `unicode-range` yüzünden indirilmez.
   Sonrasında `/assets/` bir yıl önbellekte (immutable).
@@ -122,6 +154,18 @@ JS'teki +16 kB'ın çoğu büyük ihtimalle `tailwind-merge`'ten (çıkarım; pa
 Ekran görüntüleri sürüm kontrolünde değil (masaüstü/mobil, açık/koyu, girişli/girişsiz
 çekildi).
 
+### Faz B (2026-10-10)
+
+| Ölçüm | Sonuç |
+|---|---|
+| Lighthouse erişilebilirlik — ana sayfa / tür süzülmüş / detay | **100** / **100** / **100** |
+| Birim testleri (vitest) | **221** yeşil (Faz A sonunda 202) |
+| E2E (`make e2e`) | **11** yeşil |
+| JS paketi (gzip) | 105,7 kB (Faz A: 104,5 kB) |
+
+Girişli detay sayfası (yıldızlar, yorum formu) Lighthouse'la ölçülmedi (giriş ister); birim ve
+e2e testleriyle doğrulandı.
+
 ## ✅ Tamamlanma (Faz A)
 
 - [x] Eski CSS kaldırıldı; bütün sayfalar kitle çiziliyor.
@@ -130,3 +174,11 @@ Ekran görüntüleri sürüm kontrolünde değil (masaüstü/mobil, açık/koyu,
 - [x] Testler rol/etiket tabanlı; vitest + e2e yeşil.
 - [x] Doğrulama listesindeki ölçümler yazıldı (yukarıda).
 - [ ] Kullanıcı incelemesi ve commit (dal + PR, [PROCESS.md](../PROCESS.md)).
+
+## ✅ Tamamlanma (Faz B)
+
+- [x] Karşılama alanı, tür çipleri, yazarken arama, "en sevilenler" şeridi; yan sütun kalktı.
+- [x] Detay iki sütun; yıldızlı puan verme; yorumlarda avatar, göreli zaman, sayaç, gönderim kilidi.
+- [x] "Aynı türden" şeridi (başarısız olursa sessiz).
+- [x] vitest + e2e yeşil; Lighthouse 100.
+- [ ] Kullanıcı incelemesi ve commit.

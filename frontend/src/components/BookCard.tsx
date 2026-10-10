@@ -9,7 +9,12 @@ import { Badge } from "./ui/badge";
  * link"). Kartı <a> ile sarmak yerine böyle: içerideki tür bağlantıları iç içe <a> olmadan
  * çalışır — onlar `relative z-10` ile o katmanın ÜSTÜNDE durur.
  */
-export function BookCard({ book, extra }: { book: Book; extra?: React.ReactNode }) {
+export function BookCard({ book, extra, headingLevel: Heading = "h2" }: {
+  book: Book;
+  extra?: React.ReactNode;
+  /** Katalogda h2; bir bölüm başlığının altında (ör. "Aynı türden") h3. */
+  headingLevel?: "h2" | "h3";
+}) {
   return (
     <article className="group relative flex flex-col gap-3">
       <BookCover
@@ -19,14 +24,14 @@ export function BookCard({ book, extra }: { book: Book; extra?: React.ReactNode 
         className="transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lg"
       />
       <div className="flex flex-col gap-1">
-        <h2 className="line-clamp-2 text-base leading-snug font-semibold">
+        <Heading className="line-clamp-2 text-base leading-snug font-semibold">
           <Link
             to={`/books/${book.id}`}
             className="outline-none group-hover:underline after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-[3px] focus-visible:after:ring-ring/50"
           >
             {book.title}
           </Link>
-        </h2>
+        </Heading>
         <p className="text-sm text-muted-foreground">
           {book.author}
           {book.publication_year ? ` · ${book.publication_year}` : ""}

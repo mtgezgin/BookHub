@@ -76,6 +76,7 @@ async function render(path: string) {
 const LIST = '[aria-label="Kitaplar"]';
 const PAGER = 'nav[aria-label="Sayfalar"]';
 const COUNT = "[aria-live=polite]";
+const TOP = '[aria-labelledby="top-heading"]';
 const button = (el: ParentNode, text: string) =>
   Array.from(el.querySelectorAll("button")).find((b) => b.textContent === text)!;
 const setValue = (input: HTMLInputElement | HTMLSelectElement, value: string) =>
@@ -101,9 +102,9 @@ describe("Home", () => {
     expect(params().has("offset")).toBe(false);
   });
 
-  it("tür değişince offset URL'den düşer", async () => {
+  it("tür çipi seçilince offset URL'den düşer", async () => {
     const { el, params } = await render("/?offset=24");
-    setValue(el.querySelector("select")!, "roman");
+    await act(async () => button(el, "Roman").click());
     await flush();
     expect(params().get("genre")).toBe("roman");
     expect(params().has("offset")).toBe(false);
@@ -128,13 +129,7 @@ describe("Home", () => {
     expect(button(last.el, "Sonraki →").disabled).toBe(true);
   });
 
-  it("boş top-rated listesi \"Henüz puanlanmış kitap yok.\" gösterir", async () => {
-    stub({ topRated: async (): Promise<TopRated> => ({ items: [], m: 10, c: 0 }) });
-    const { el } = await render("/");
-    expect(el.querySelector("aside")!.textContent).toContain("Henüz puanlanmış kitap yok.");
-  });
-
-  it("top-rated satırı ağırlıklı puanı, oy sayısını, ortalamayı ve C/m açıklamasını gösterir", async () => {
+  it("\"en sevilenler\" şeridi sırayı, ağırlıklı puanı ve oy sayısını gösterir; C/m açıklaması açılır kutuda", async () => {
     stub({
       topRated: async (): Promise<TopRated> => ({
         items: [{ ...bookOf(4), average_rating: 9.5, rating_count: 2, weighted_score: 7.456 }],
@@ -143,11 +138,62 @@ describe("Home", () => {
       }),
     });
     const { el } = await render("/");
-    const aside = el.querySelector("aside")!;
-    expect(aside.textContent).toContain("(C = 6,90, m = 10)");
-    const li = aside.querySelector("ol li")!;
+    const strip = el.querySelector(TOP)!;
+    const li = strip.querySelector("ol li")!;
     expect(li.querySelector("a")!.getAttribute("href")).toBe("/books/4");
-    expect(li.textContent).toBe("Kitap 4 — 7,46 (2 oy, ort. 9,5)");
+    expect(li.textContent).toContain("Kitap 4");
+    expect(li.textContent).toContain("7,46");
+    expect(li.textContent).toContain("2 oy");
+    expect(strip.querySelector("details")!.textContent).toContain("C = 6,90");
+    expect(strip.querySelector("details")!.textContent).toContain("m = 10");
+  });
+
+  it("puanlanmış kitap yoksa şerit çizilmez", async () => {
+    stub({ topRated: async (): Promise<TopRated> => ({ items: [], m: 10, c: 0 }) });
+    const { el } = await render("/");
+    expect(el.querySelector(TOP)).toBeNull();
+  });
+
+  it("arama ya da tür seçiliyken şerit çizilmez (sonuçların önüne geçmesin)", async () => {
+    expect((await render("/?q=dune")).el.querySelector(TOP)).toBeNull();
+    cleanup.splice(0).forEach((f) => f());
+    expect((await render("/?genre=roman")).el.querySelector(TOP)).toBeNull();
+  });
+
+  it("görünür bir sayfa başlığı var", async () => {
+    const { el } = await render("/");
+    expect(el.querySelector("h1")!.textContent).toBe("Bir sonraki kitabını bul");
+  });
+
+  it("tür seçili değilken \"Tümü\" basılı; seçili türün çipi basılı", async () => {
+    const all = await render("/");
+    expect(button(all.el, "Tümü").getAttribute("aria-pressed")).toBe("true");
+    expect(button(all.el, "Roman").getAttribute("aria-pressed")).toBe("false");
+    cleanup.splice(0).forEach((f) => f());
+    const roman = await render("/?genre=roman");
+    expect(button(roman.el, "Roman").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("\"Tümü\" türü kaldırır, aramayı korur", async () => {
+    const { el, params } = await render("/?q=tolstoy&genre=roman");
+    await act(async () => button(el, "Tümü").click());
+    await flush();
+    expect(Object.fromEntries(params())).toEqual({ q: "tolstoy" });
+  });
+
+  it("yazmayı bırakınca (300 ms) Enter'a basmadan arar", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { el, params } = await render("/?genre=roman");
+      setValue(el.querySelector<HTMLInputElement>("input[type=search]")!, " dune ");
+      await act(async () => vi.advanceTimersByTime(299));
+      expect(params().has("q")).toBe(false);
+      await act(async () => vi.advanceTimersByTime(1));
+      await flush();
+      expect(Object.fromEntries(params())).toEqual({ genre: "roman", q: "dune" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([

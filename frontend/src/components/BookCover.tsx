@@ -49,16 +49,17 @@ export function BookCover({ title, author, src, className }: {
   }
 
   const p = coverPalette(title, author);
-  // Tarayıcılar Türkçeyi heceleyemiyor (hyphens:auto çalışmıyor): uzun kelimeli başlık küçük punto alır.
+  // Tarayıcılar Türkçeyi heceleyemiyor (hyphens:auto çalışmıyor): punto, en uzun kelime yazı
+  // alanına (kapak genişliğinin ~%60'ı) sığacak kadar küçülür. Serif harf ≈ 0,58 em genişlikte.
   const longest = Math.max(...title.split(/\s+/).map((w) => w.length));
-  const size = longest > 10 ? "text-[clamp(0.7rem,8.5cqw,1.2rem)]" : "text-[clamp(0.75rem,10cqw,1.4rem)]";
+  const fontSize = `clamp(0.65rem, ${Math.min(10, 60 / (longest * 0.58)).toFixed(2)}cqw, 1.4rem)`;
   return (
     <div aria-hidden="true" className={cn(frame, "@container", className)} style={{ backgroundColor: p.bg, color: p.fg }}>
       {/* Sırt gölgesi: düz bir dikdörtgeni "kitap" gibi gösteren tek ayrıntı. */}
       <div className="absolute inset-y-0 left-0 w-[6%] bg-black/20" />
       <div className="absolute inset-[7%] left-[13%] flex flex-col justify-between border border-current/30 p-[8%]">
         {/* overflow-wrap:anywhere — "Otostopçunun" gibi uzun bir kelime çerçeveden taşıp kırpılmasın, satıra bölünsün. */}
-        <p className={cn("line-clamp-5 font-serif leading-tight font-semibold text-balance [overflow-wrap:anywhere]", size)}>
+        <p className="line-clamp-5 font-serif leading-tight font-semibold text-balance [overflow-wrap:anywhere]" style={{ fontSize }}>
           {title}
         </p>
         <p className="line-clamp-2 text-[clamp(0.55rem,6.5cqw,0.8rem)] tracking-widest uppercase opacity-85">{author}</p>

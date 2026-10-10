@@ -176,7 +176,7 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
 | `src/styles.css` | Tailwind + **tasarım token'ları** (açık/koyu tema, OKLCH); değeri değişince `node scripts/check-contrast.mjs` — [Faz 14](phases/phase-14-ui-redesign.md) |
 | `src/components/ui/` | shadcn/ui yaklaşımıyla repoya kopyalanmış temel bileşenler (Button, Input, Card, Badge, Alert, Skeleton, Label) |
 | `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `BookCard`, `EmptyState`, `NotFound`, `common.tsx` (ErrorBox, Rating), `usePaged` |
-| `src/lib/` | `cn()` (sınıf birleştirme), `format.ts` (Türkçe puan ve dil adı) |
+| `src/lib/` | `cn()` (sınıf birleştirme), `format.ts` (Türkçe puan, dil adı, göreli zaman, baş harf) |
 | `e2e/` | Playwright senaryoları (`catalog`, `auth-flow`, `reuse`, `tabs`, `cross-origin`, `rating-comment`, `moderation`) + `env.ts`, `helpers.ts` (**rate limit bütçesi tablosu**), `global-setup.ts` |
 | `playwright.config.ts` | yalnız chromium, `baseURL` = `E2E_BASE_URL`, `trace: retain-on-failure`, CI'da 1 yeniden deneme |
 | `nginx/` | `default.conf` (auth + **password** rate limit zone'ları, `$api_host` map'i), `api-proxy.conf` (`Host` = `$http_host` → port korunur), `security-headers.conf` |

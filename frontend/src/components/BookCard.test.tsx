@@ -17,10 +17,10 @@ const book = (over: Partial<Book> = {}): Book => ({
   average_rating: null, rating_count: 0, created_at: "", updated_at: "", ...over,
 });
 
-function render(b: Book) {
+function render(b: Book, headingLevel?: "h2" | "h3") {
   const el = document.createElement("div");
   const root = createRoot(el);
-  act(() => root.render(<MemoryRouter><BookCard book={b} /></MemoryRouter>));
+  act(() => root.render(<MemoryRouter><BookCard book={b} headingLevel={headingLevel} /></MemoryRouter>));
   cleanup.push(() => act(() => root.unmount()));
   return el;
 }
@@ -41,6 +41,12 @@ describe("BookCard", () => {
     const link = render(book()).querySelector("h2 a")!;
     expect(link.getAttribute("href")).toBe("/books/3");
     expect(link.textContent).toBe("Tutunamayanlar");
+  });
+
+  it("başlık düzeyi verilebilir: bir bölüm başlığının (h2) altında h3 olur", () => {
+    const el = render(book(), "h3");
+    expect(el.querySelector("h2")).toBeNull();
+    expect(el.querySelector("h3 a")!.getAttribute("href")).toBe("/books/3");
   });
 
   it("yıl varsa yazarın yanında görünür, yoksa ayraç da yok", () => {
