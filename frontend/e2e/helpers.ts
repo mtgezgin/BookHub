@@ -88,6 +88,16 @@ export function topbar(page: Page) {
   return page.getByRole("navigation", { name: "Ana menü" });
 }
 
+/** Kullanıcı menüsünün düğmesi (adı "Hesap menüsü: <ad>"); Hesabım ve Çıkış onun içinde. */
+export function accountMenuButton(page: Page) {
+  return topbar(page).getByRole("button", { name: /^Hesap menüsü/ });
+}
+
+/** Kullanıcı menüsünü açar: Hesabım ve Çıkış menü kapalıyken sayfada yok. */
+export async function openAccountMenu(page: Page): Promise<void> {
+  await accountMenuButton(page).click();
+}
+
 /**
  * Girişli olmayı BEKLER (yalnız "kontrol etmez"): tam sayfa yüklemesinden sonra oturum
  * çerezle geri geliyor ve o sırada üst çubuk bir an "Giriş" gösteriyor. Adın görünmesini
@@ -100,13 +110,13 @@ export async function expectLoggedIn(page: Page, displayName: string): Promise<v
 /**
  * Girişsiz olmayı bekler. "Giriş linki var" TEK BAŞINA yetmez: restore henüz bitmemişken
  * de o link görünür (user hâlâ null) — yani iddia, daha oturum geri gelmeden YANLIŞLIKLA
- * yeşile dönebilirdi. Bu yüzden girişliyken görünen "Hesabım" linkinin YOK olduğunu da
+ * yeşile dönebilirdi. Bu yüzden girişliyken görünen hesap menüsü düğmesinin YOK olduğunu da
  * şart koşuyoruz; çağıranlar ayrıca restore'un bittiğini (401 cevabı ya da HINT'in
  * silinmiş olması) kendi bağlamlarında doğruluyor.
  */
 export async function expectLoggedOut(page: Page): Promise<void> {
   await expect(topbar(page).getByRole("link", { name: "Giriş", exact: true })).toBeVisible();
-  await expect(topbar(page).getByRole("link", { name: "Hesabım", exact: true })).toBeHidden();
+  await expect(accountMenuButton(page)).toBeHidden();
 }
 
 /**
@@ -117,7 +127,8 @@ export async function expectLoggedOut(page: Page): Promise<void> {
 export async function uiLogin(page: Page, email: string, password: string): Promise<Response> {
   await page.goto("/login");
   await page.getByLabel("E-posta").fill(email);
-  await page.getByLabel("Parola").fill(password);
+  // exact: "Parolayı göster" düğmesinin adı da "Parola" ile başlıyor (Faz 14 parola alanı).
+  await page.getByLabel("Parola", { exact: true }).fill(password);
 
   // waitForResponse TIKLAMADAN ÖNCE kurulur: cevap, dinleyici takılmadan dönebilir.
   const login = page.waitForResponse((res) => isLimitedAuthResponse(res, "login"));
@@ -140,7 +151,7 @@ export async function uiRegister(
   await page.goto("/register");
   await page.getByLabel("E-posta").fill(user.email);
   await page.getByLabel("Görünen ad").fill(user.name);
-  await page.getByLabel(/^Parola/).fill(user.password);
+  await page.getByLabel("Parola (en az 8 karakter)", { exact: true }).fill(user.password);
 
   const register = page.waitForResponse((res) => isLimitedAuthResponse(res, "register"));
   const login = page.waitForResponse((res) => isLimitedAuthResponse(res, "login"));

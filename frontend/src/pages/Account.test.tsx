@@ -158,7 +158,7 @@ describe("Account — parola değiştirme", () => {
     result = () => new Promise((r) => (release = r));
     const el = render();
     fill(el, { current: "eski-parola", next: "yeni-parola", repeat: "yeni-parola" });
-    const button = el.querySelector("button")!;
+    const button = el.querySelector<HTMLButtonElement>("button[type=submit]")!;
     act(() => {
       el.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     });

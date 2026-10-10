@@ -1,5 +1,5 @@
 // Tasarım token'larının WCAG kontrastını ölçer (Faz 14): `node scripts/check-contrast.mjs`.
-// styles.css'teki açık (:root) ve koyu (prefers-color-scheme: dark) bloklarını okur, OKLCH'yi
+// styles.css'teki açık (:root) ve koyu (:root[data-theme="dark"]) bloklarını okur, OKLCH'yi
 // sRGB'ye çevirir ve metin çiftlerinde 4.5:1, arayüz öğelerinde 3:1 arar. Bir çift kalırsa
 // çıkış kodu 1.
 import { readFileSync } from "node:fs";
@@ -23,8 +23,7 @@ function tokens(body) {
 }
 
 const light = tokens(block(css, ":root"));
-const darkMedia = block(css, "@media (prefers-color-scheme: dark)");
-const dark = { ...light, ...tokens(block(darkMedia, ":root")) };
+const dark = { ...light, ...tokens(block(css, ':root[data-theme="dark"]')) };
 
 function resolve(set, name) {
   let v = set[name];

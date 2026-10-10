@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
-import { ErrorBox } from "../components/common";
+import { ErrorBox, PageTitle } from "../components/common";
+import { PasswordField } from "../components/PasswordField";
 import { Alert } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
-import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
 
 const EMPTY = { current: "", next: "", repeat: "" };
 
@@ -48,22 +47,16 @@ export function Account() {
 
   return (
     <Card className="mx-auto mt-4 w-full max-w-md p-6 sm:mt-10 sm:p-8">
+      <PageTitle title="Hesabım" />
       <form onSubmit={submit} className="flex flex-col gap-4">
         <header>
           <h1 className="text-2xl font-semibold">Hesabım</h1>
           {user && <p className="mt-1 text-sm text-muted-foreground">{user.display_name} · {user.email}</p>}
         </header>
         <h2 className="mt-2 text-lg font-semibold">Parola değiştir</h2>
-        <Label>Mevcut parola
-          <Input type="password" value={form.current} onChange={set("current")} required autoComplete="current-password" />
-        </Label>
-        <Label>
-          <span>Yeni parola <span className="font-normal text-muted-foreground">(en az 8 karakter)</span></span>
-          <Input type="password" value={form.next} onChange={set("next")} required minLength={8} autoComplete="new-password" />
-        </Label>
-        <Label>Yeni parola (tekrar)
-          <Input type="password" value={form.repeat} onChange={set("repeat")} required autoComplete="new-password" />
-        </Label>
+        <PasswordField label="Mevcut parola" value={form.current} onChange={set("current")} required autoComplete="current-password" />
+        <PasswordField label="Yeni parola" hint="(en az 8 karakter)" value={form.next} onChange={set("next")} required minLength={8} autoComplete="new-password" />
+        <PasswordField label="Yeni parola (tekrar)" value={form.repeat} onChange={set("repeat")} required autoComplete="new-password" />
         {mismatch && <Alert variant="destructive" role="alert">Yeni parolalar birbiriyle eşleşmiyor.</Alert>}
         <ErrorBox error={error} />
         {done && <Alert variant="success" role="status">Parolan değişti. Diğer tüm cihazlardaki oturumlar kapatıldı.</Alert>}

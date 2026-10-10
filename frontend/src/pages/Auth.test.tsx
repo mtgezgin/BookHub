@@ -28,7 +28,9 @@ beforeEach(() => {
   };
 });
 
-async function submit(path: string, values: string[]) {
+type Entry = string | { pathname: string; state: unknown };
+
+async function render(path: Entry) {
   const loc = { pathname: "" };
   function Probe() {
     loc.pathname = useLocation().pathname;
@@ -44,6 +46,7 @@ async function submit(path: string, values: string[]) {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/" element={<p>anasayfa</p>} />
+          <Route path="/books/:id" element={<p>kitap</p>} />
         </Routes>
         <Probe />
       </MemoryRouter>,
@@ -53,6 +56,11 @@ async function submit(path: string, values: string[]) {
     act(() => root.unmount());
     el.remove();
   });
+  return { el, loc };
+}
+
+async function submit(path: Entry, values: string[]) {
+  const { el, loc } = await render(path);
   Array.from(el.querySelectorAll("input")).forEach((input, i) =>
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, values[i]);
@@ -66,7 +74,43 @@ async function submit(path: string, values: string[]) {
   return { el, loc };
 }
 
+const fromBook = { pathname: "/login", state: { from: { pathname: "/books/5", search: "?yorum=1" } } };
+
 describe("Login", () => {
+  it("korumalı sayfadan ya da \"giriş yap\" bağlantısından geldiyse oraya döner", async () => {
+    const { loc } = await submit(fromBook, ["ali@example.com", "parola123"]);
+    expect(loc.pathname).toBe("/books/5");
+  });
+
+  it("uygulama dışı bir adrese (//site) asla yönlendirmez", async () => {
+    const { loc } = await submit({ pathname: "/login", state: { from: { pathname: "//kotu.example", search: "" } } }, ["a@b.co", "parola123"]);
+    expect(loc.pathname).toBe("/");
+  });
+
+  it("gönderilirken düğme kilitli: ikinci tıklama ikinci isteği atmaz", async () => {
+    h.login = () => new Promise(() => {});
+    const { el } = await submit("/login", ["ali@example.com", "parola123"]);
+    const btn = Array.from(el.querySelectorAll("button")).find((b) => b.type === "submit")!;
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toBe("Giriş yapılıyor…");
+  });
+
+  it("parola alanı \"Parolayı göster\" düğmesiyle görünür olur", async () => {
+    const { el } = await render("/login");
+    const input = el.querySelector<HTMLInputElement>("input[autocomplete=current-password]")!;
+    const toggle = el.querySelector<HTMLButtonElement>('button[aria-label="Parolayı göster"]')!;
+    expect(input.type).toBe("password");
+    act(() => toggle.click());
+    expect(input.type).toBe("text");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("parola alanının etiketi alana bağlı (ekran okuyucu \"Parola\" duyar)", async () => {
+    const { el } = await render("/login");
+    const input = el.querySelector<HTMLInputElement>("input[autocomplete=current-password]")!;
+    expect(el.querySelector(`label[for="${input.id}"]`)!.textContent).toBe("Parola");
+  });
+
   it("başarıda / adresine gider", async () => {
     const { loc } = await submit("/login", ["ali@example.com", "parola123"]);
     expect(order).toEqual(["login:ali@example.com:parola123"]);
@@ -82,6 +126,11 @@ describe("Login", () => {
 });
 
 describe("Register", () => {
+  it("kayıttan sonra da geldiği sayfaya döner", async () => {
+    const { loc } = await submit({ pathname: "/register", state: fromBook.state }, ["ali@example.com", "Ali", "parola123"]);
+    expect(loc.pathname).toBe("/books/5");
+  });
+
   it("önce api.register, sonra login, sonra / adresine gider", async () => {
     const { loc } = await submit("/register", ["ali@example.com", "Ali", "parola123"]);
     expect(order).toEqual(["register:ali@example.com:Ali", "login:ali@example.com:parola123"]);

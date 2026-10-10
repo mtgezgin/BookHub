@@ -9,7 +9,7 @@
 import { expect, test } from "@playwright/test";
 
 import { DIRECT_API_URL, e2eEmail, randomPassword } from "./env";
-import { expectLoggedIn, expectLoggedOut, reloadAndExpectSessionRejected, topbar, uiLogin, uiRegister } from "./helpers";
+import { expectLoggedIn, expectLoggedOut, openAccountMenu, reloadAndExpectSessionRejected, topbar, uiLogin, uiRegister } from "./helpers";
 
 test("kayıt → yenile → ikinci cihaz → parola değişimi → yalnız bu cihaz ayakta kalır", async ({
   page,
@@ -38,6 +38,7 @@ test("kayıt → yenile → ikinci cihaz → parola değişimi → yalnız bu ci
 
   // --- Cihaz A'da parola değişimi ---
   // "Hesabım" linki SPA gezintisi: tam yükleme olmadığı için access token bellekte duruyor.
+  await openAccountMenu(page);
   await topbar(page).getByRole("link", { name: "Hesabım", exact: true }).click();
   await page.getByLabel("Mevcut parola").fill(oldPassword);
   await page.getByLabel("Yeni parola (en az 8 karakter)", { exact: true }).fill(newPassword);
@@ -56,6 +57,7 @@ test("kayıt → yenile → ikinci cihaz → parola değişimi → yalnız bu ci
   await expectLoggedIn(page, name);
 
   // --- Çıkış: yerel oturum anında kapanır ---
+  await openAccountMenu(page);
   await topbar(page).getByRole("button", { name: "Çıkış" }).click();
   await expectLoggedOut(page);
 

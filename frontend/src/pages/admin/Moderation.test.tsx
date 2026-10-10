@@ -12,6 +12,7 @@ vi.mock("../../api/client", async (importOriginal) => ({
 }));
 
 import { api, ApiError } from "../../api/client";
+import { ToastProvider } from "../../components/toast";
 import { Moderation } from "./Moderation";
 
 const calls: Record<string, unknown[][]> = {};
@@ -47,7 +48,7 @@ async function render() {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
-  act(() => root.render(<Moderation />));
+  act(() => root.render(<ToastProvider><Moderation /></ToastProvider>));
   cleanup.push(() => {
     act(() => root.unmount());
     el.remove();
@@ -59,15 +60,27 @@ const button = (el: ParentNode, text: string) =>
   Array.from(el.querySelectorAll("button")).find((b) => b.textContent === text);
 const QUEUE = 'ul[aria-label="Moderasyon kuyruğu"] > li';
 const alertText = (el: HTMLElement) => el.querySelector("[role=alert]")?.textContent ?? null;
+// Diyalog document.body'ye "portal"la çizilir (sayfanın kutusunun dışında).
+const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
+const dialogButton = (text: string) => Array.from(dialog()!.querySelectorAll("button")).find((b) => b.textContent === text)!;
 
 describe("Moderation", () => {
-  it("red istemi iptal edilirse (prompt → null) api.reject ÇAĞRILMAZ", async () => {
+  it("\"Reddet\" gerekçe soran bir diyalog açar; \"Vazgeç\" api.reject'i ÇAĞIRMAZ", async () => {
     stub({ reject: async () => book(1, "REJECTED") });
-    vi.stubGlobal("prompt", () => null);
-    cleanup.push(() => vi.unstubAllGlobals());
     const el = await render();
     await act(async () => button(el, "Reddet")!.click());
+    expect(dialog()!.textContent).toContain("geri alınamaz");
+    await act(async () => dialogButton("Vazgeç").click());
+    expect(dialog()).toBeNull();
     expect(calls.reject).toBeUndefined();
+  });
+
+  it("başarılı işlem kısa bir bildirimle onaylanır", async () => {
+    stub({ approve: async () => book(1, "APPROVED") });
+    const el = await render();
+    await act(async () => button(el, "Onayla")!.click());
+    await flush();
+    expect(el.querySelector('[aria-label="Bildirimler"]')!.textContent).toContain("“Kitap 1” yayına alındı");
   });
 
   it("başarısız işlem (409 invalid_transition) mesajını ErrorBox'ta gösterir", async () => {
@@ -116,16 +129,21 @@ describe("Moderation", () => {
     expect(calls.adminBooks.at(-1)).toEqual(["APPROVED", 0]);
   });
 
-  it.each(["spam", ""])("red istemi %j dönerse api.reject o gerekçeyle çağrılır", async (reason) => {
+  it.each(["spam", ""])("gerekçe %j ile onaylanınca api.reject o gerekçeyle çağrılır, diyalog kapanır", async (reason) => {
     stub({ reject: async () => book(1, "REJECTED") });
-    vi.stubGlobal("prompt", () => reason);
-    cleanup.push(() => vi.unstubAllGlobals());
     const el = await render();
     const before = calls.adminBooks.length;
     await act(async () => button(el, "Reddet")!.click());
+    const ta = dialog()!.querySelector("textarea")!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(ta, reason);
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => dialogButton("Reddet").click());
     await flush();
     expect(calls.reject).toEqual([[1, reason]]);
     expect(calls.adminBooks.length).toBe(before + 1);
+    expect(dialog()).toBeNull();
   });
 
   it("\"Geri yayınla\" api.restoreBook'u çağırır ve listeyi yeniden yükler", async () => {

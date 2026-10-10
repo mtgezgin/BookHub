@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import type { Book, Genre, Page, TopRated } from "../api/types";
 import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
-import { ErrorBox } from "../components/common";
+import { ErrorBox, PageTitle } from "../components/common";
 import { EmptyState } from "../components/EmptyState";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -95,6 +95,7 @@ export function Home() {
 
   return (
     <div>
+      <PageTitle />
       <section className="mb-10 rounded-2xl border bg-card px-5 py-8 shadow-sm sm:px-10 sm:py-10">
         <h1 className="text-3xl font-semibold sm:text-4xl">Bir sonraki kitabını bul</h1>
         <p className="mt-2 max-w-xl text-muted-foreground">Klasiklerden bilim kurguya; okurların puanları ve yorumlarıyla.</p>

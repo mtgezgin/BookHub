@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Book, Comment, RatingSummary, User } from "../api/types";
 
@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({ user: null as unknown }));
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ user: h.user, ready: true }) }));
 
 import { api, ApiError } from "../api/client";
+import { ToastProvider } from "../components/toast";
 import { BookDetail } from "./BookDetail";
 
 const calls: Record<string, unknown[][]> = {};
@@ -61,6 +62,11 @@ const flush = async () => {
   for (let i = 0; i < 4; i++) await act(async () => {});
 };
 
+function FromProbe() {
+  const from = (useLocation().state as { from?: { pathname: string } } | null)?.from?.pathname;
+  return <p data-from={from}>login</p>;
+}
+
 async function render(path = "/books/1") {
   const nav: { go?: (to: string) => void } = {};
   function Nav() {
@@ -72,11 +78,14 @@ async function render(path = "/books/1") {
   const root = createRoot(el);
   act(() =>
     root.render(
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/books/:id" element={<><BookDetail /><Nav /></>} />
-        </Routes>
-      </MemoryRouter>,
+      <ToastProvider>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/books/:id" element={<><BookDetail /><Nav /></>} />
+            <Route path="/login" element={<FromProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>,
     ),
   );
   cleanup.push(() => {
@@ -198,6 +207,14 @@ describe("BookDetail — puan verme/kaldırma", () => {
     expect(calls.ratingSummary.length).toBe(before + 1);
   });
 
+  it("başarılı puan kısa bir bildirimle onaylanır", async () => {
+    stub({ rate: async (_id: number, score: number) => ({ score }) });
+    const { el } = await render();
+    await act(async () => button(el, "7")!.click());
+    await flush();
+    expect(el.querySelector('[aria-label="Bildirimler"]')!.textContent).toContain("Puanın kaydedildi: 7/10");
+  });
+
   it("başarısız puan hatasını gösterir", async () => {
     stub({ rate: () => Promise.reject(new ApiError(404, "not_found", "kitap bulunamadı")) });
     const { el } = await render();
@@ -251,6 +268,19 @@ describe("BookDetail — yükleme ve şablon", () => {
     stub({ book: () => new Promise<Book>(() => {}) });
     const { el } = await render();
     expect(el.querySelector('[role=status][aria-label="Kitap yükleniyor"]')).not.toBeNull();
+  });
+
+  it("girişsiz \"giriş yap\" bağlantısı kitabın adresini taşır (girişten sonra geri dönülsün)", async () => {
+    h.user = null;
+    const { el } = await render();
+    const link = Array.from(el.querySelectorAll("a")).find((a) => a.textContent === "giriş yap")!;
+    await act(async () => link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })));
+    expect(el.querySelector("[data-from]")!.getAttribute("data-from")).toBe("/books/1");
+  });
+
+  it("sekme başlığı kitabın adı", async () => {
+    await render();
+    expect(document.title).toBe("Kitap 1 — BookHub");
   });
 
   it("dil kodu Türkçe dil adıyla gösterilir", async () => {

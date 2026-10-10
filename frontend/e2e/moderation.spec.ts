@@ -50,11 +50,12 @@ test("admin öneriyi onaylar, diğerini gerekçeyle reddeder", async ({ page, br
     await queueRow(admin, approvedTitle).getByRole("button", { name: "Onayla" }).click();
     await expect(queueRow(admin, approvedTitle)).toHaveCount(0);
 
-    // Reddet, window.prompt ile gerekçe sorar. Dinleyici TIKLAMADAN ÖNCE kurulmalı:
-    // Playwright, kimse dinlemiyorsa diyaloğu kendiliğinden REDDEDER (prompt null döner)
-    // ve arayüz "vazgeçildi" sayıp hiçbir şey yapmazdı.
-    admin.once("dialog", (dialog) => dialog.accept(reason));
+    // Reddet, gerekçe soran bir diyalog açar (Faz 14; önceden window.prompt'tu). Karar
+    // yalnız diyalogdaki "Reddet"le verilir.
     await queueRow(admin, rejectedTitle).getByRole("button", { name: "Reddet" }).click();
+    const dialog = admin.getByRole("dialog");
+    await dialog.getByLabel("Gerekçe (isteğe bağlı)").fill(reason);
+    await dialog.getByRole("button", { name: "Reddet" }).click();
     await expect(queueRow(admin, rejectedTitle)).toHaveCount(0);
 
     // Gerekçe kayıtlı: red son duraktır, sebebi kuyruğun "Reddedilen" sekmesinde durur.

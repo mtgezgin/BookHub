@@ -7,6 +7,9 @@
  */
 @import "tailwindcss";
 
+/* Tailwind'in `dark:` varyantı da aynı özniteliğe baksın (sistem tercihine değil). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
   color-scheme: light;
   --background: oklch(0.977 0.008 85);
@@ -31,27 +34,29 @@
   --radius: 0.75rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --background: oklch(0.185 0.008 60);
-    --foreground: oklch(0.935 0.01 85);
-    --card: oklch(0.225 0.01 60);
-    --primary: oklch(0.74 0.1 162);
-    --primary-foreground: oklch(0.2 0.03 162);
-    --secondary: oklch(0.28 0.01 60);
-    --muted: oklch(0.26 0.01 60);
-    --muted-foreground: oklch(0.72 0.015 80);
-    --accent: oklch(0.3 0.04 162);
-    --accent-foreground: oklch(0.88 0.06 162);
-    --destructive: oklch(0.7 0.17 25);
-    --destructive-foreground: oklch(0.18 0.03 25);
-    --success: oklch(0.78 0.11 150);
-    --border: oklch(0.32 0.01 60);
-    --input: oklch(0.42 0.012 60);
-    --ring: oklch(0.74 0.1 162);
-    --star: oklch(0.8 0.15 75);
-  }
+/*
+ * Koyu tema TEK blokta. Hangi temanın geçerli olduğuna public/theme-init.js ilk boyamadan önce
+ * karar verir (kullanıcının seçimi, yoksa sistem tercihi) ve <html data-theme> koyar.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.185 0.008 60);
+  --foreground: oklch(0.935 0.01 85);
+  --card: oklch(0.225 0.01 60);
+  --primary: oklch(0.74 0.1 162);
+  --primary-foreground: oklch(0.2 0.03 162);
+  --secondary: oklch(0.28 0.01 60);
+  --muted: oklch(0.26 0.01 60);
+  --muted-foreground: oklch(0.72 0.015 80);
+  --accent: oklch(0.3 0.04 162);
+  --accent-foreground: oklch(0.88 0.06 162);
+  --destructive: oklch(0.7 0.17 25);
+  --destructive-foreground: oklch(0.18 0.03 25);
+  --success: oklch(0.78 0.11 150);
+  --border: oklch(0.32 0.01 60);
+  --input: oklch(0.42 0.012 60);
+  --ring: oklch(0.74 0.1 162);
+  --star: oklch(0.8 0.15 75);
 }
 
 @theme inline {
@@ -97,5 +102,17 @@
   h2,
   h3 {
     @apply font-serif tracking-tight text-balance;
+  }
+}
+
+/* "Hareketi azalt" diyen kullanıcıya kart kalkması, iskelet nabzı gibi hareketler yok. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

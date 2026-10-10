@@ -38,7 +38,7 @@ Faz 13 ise ilk kapsamlı incelemeden doğan "sertleştirme" fazı.
 | [11](phase-11-nginx.md) | NGINX | reverse proxy, güvenilir IP başlığı, CSP | ✅ bitti |
 | [12](phase-12-kubernetes.md) | Kubernetes | Deployment/Job/probe, pod güvenliği | ✅ bitti |
 | [13](phase-13-session-hardening.md) | Oturum sertleştirme | httpOnly çerez, token ailesi + reuse, CSRF, kilit sırası, Playwright | ✅ bitti |
-| [14](phase-14-ui-redesign.md) | Arayüz yeniden tasarımı | Tailwind, tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik | 🚧 A–B bitti (inceleme), C–D sırada |
+| [14](phase-14-ui-redesign.md) | Arayüz yeniden tasarımı | Tailwind, tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik | 🚧 A–C bitti, D sırada |
 
 **Durum işaretleri:** ✅ bitti · 📖 detaylı (hazır) · 📝 taslak (sırası gelince birlikte
 detaylandırılacak) · ⏭️ ileride.

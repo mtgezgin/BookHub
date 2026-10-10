@@ -1,4 +1,5 @@
 import { CircleAlert, Star } from "lucide-react";
+import { useEffect } from "react";
 import { ApiError } from "../api/client";
 import { formatScore } from "../lib/format";
 import { cn } from "../lib/utils";
@@ -30,3 +31,15 @@ export function Rating({ value, count, className }: { value: number | null; coun
   );
 }
 
+
+/**
+ * Sekme başlığı: geçmiş, yer imleri ve sekmeler sayfayı adıyla gösterir. React 19'un <title>
+ * taşıma özelliği yerine document.title: index.html'de duran <title> önce geldiği için tarayıcı
+ * onu okurdu ve sayfa başlığı hiç değişmezdi.
+ */
+export function PageTitle({ title }: { title?: string }) {
+  useEffect(() => {
+    document.title = title ? `${title} — BookHub` : "BookHub";
+  }, [title]);
+  return null;
+}

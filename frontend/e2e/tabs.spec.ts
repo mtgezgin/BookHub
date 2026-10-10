@@ -9,7 +9,7 @@
 import { expect, test } from "@playwright/test";
 
 import { READER_EMAIL, READER_NAME, readerPassword } from "./env";
-import { expectLoggedIn, expectLoggedOut, topbar, uiLogin } from "./helpers";
+import { expectLoggedIn, expectLoggedOut, openAccountMenu, topbar, uiLogin } from "./helpers";
 
 test("üç sekme aynı çerezle yenilenir, oturum ayakta kalır; bir sekmedeki çıkış hepsini düşürür", async ({
   context,
@@ -37,6 +37,7 @@ test("üç sekme aynı çerezle yenilenir, oturum ayakta kalır; bir sekmedeki �
   // Bir sekmedeki çıkış diğerlerine "storage" olayıyla duyurulur: YENİLEME YOK.
   // (Duyurulmasaydı diğer sekmeler bellekteki access token'la 15 dk daha "girişli"
   // görünürdü — sunucudaki oturum çoktan ölmüşken.)
+  await openAccountMenu(page);
   await topbar(page).getByRole("button", { name: "Çıkış" }).click();
   await expectLoggedOut(page);
   await expectLoggedOut(second);

@@ -69,6 +69,14 @@ describe("Suggest", () => {
     expect(inputs.map((i) => i.value)).toEqual(["", "", "", ""]);
   });
 
+  it("gönderilirken düğme kilitli ve \"Gönderiliyor…\" yazar", async () => {
+    result = () => new Promise(() => {});
+    const { el } = await fillAndSubmit({ title: "T", author: "A", year: "", description: "" });
+    const btn = el.querySelector<HTMLButtonElement>("button[type=submit]")!;
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toBe("Gönderiliyor…");
+  });
+
   it("hata gösterilir", async () => {
     result = () => Promise.reject(new ApiError(409, "slug_conflict", "bu slug zaten kullanılıyor"));
     const { el } = await fillAndSubmit({ title: "T", author: "A", year: "", description: "" });

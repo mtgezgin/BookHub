@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { ApiError } from "../api/client";
-import { ErrorBox, formatDate, Rating } from "./common";
+import { ErrorBox, formatDate, PageTitle, Rating } from "./common";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -52,5 +52,17 @@ describe("formatDate", () => {
   // Öğle saati: hangi saat diliminde çalışırsa çalışsın gün değişmesin.
   it("ISO tarihi tr-TR uzun biçimde yazar", () => {
     expect(formatDate("2026-09-01T12:00:00Z")).toBe("1 Eylül 2026");
+  });
+});
+
+describe("PageTitle", () => {
+  it("sekme başlığını \"<sayfa> — BookHub\" yapar", () => {
+    render(<PageTitle title="Huzur" />);
+    expect(document.title).toBe("Huzur — BookHub");
+  });
+
+  it("başlık verilmezse yalnız \"BookHub\"", () => {
+    render(<PageTitle />);
+    expect(document.title).toBe("BookHub");
   });
 });

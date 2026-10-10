@@ -1,6 +1,6 @@
 # Faz 14 — Arayüz yeniden tasarımı (Tailwind + shadcn/ui)
 
-> Durum: 🚧 Faz A ve B bitti, kullanıcı incelemesinde (2026-10-10); C–D sırada · İlgili: [frontend/src](../../frontend/src),
+> Durum: 🚧 Faz A, B ve C bitti (2026-10-11); D (backend isteyenler) sırada · İlgili: [frontend/src](../../frontend/src),
 > [styles.css](../../frontend/src/styles.css)
 
 ## 🎯 Amaç
@@ -52,7 +52,7 @@ Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
 |---|---|---|
 | **A — Temel** | Token'lar, tipografi, bileşen kiti, üretilmiş kapak + yeni kitap kartı, yükleme / boş / 404 durumları, marka (logo, favicon); bütün sayfalar yeni kitle, yerleşim aynı | ✅ (inceleme bekliyor) |
 | **B — Ana sayfa + detay** | Karşılama alanı, tür çipleri, kapaklı "en sevilenler" şeridi, yazarken arama; detayda iki sütun (kapak + puan kartı), yıldızlı puan verme, yorum deneyimi, "aynı türden" şeridi | ✅ (inceleme bekliyor) |
-| **C — Formlar, gezinme, admin, erişilebilirlik** | Parola göster/gizle, girişten sonra geldiği sayfaya dönüş, kullanıcı menüsü + mobil menü, moderasyonda `window.prompt` yerine Dialog, toast'lar, sayfa başlıkları, tema düğmesi, erişilebilirlik turu | ⏭️ |
+| **C — Formlar, gezinme, admin, erişilebilirlik** | Parola göster/gizle, girişten sonra geldiği sayfaya dönüş, kullanıcı menüsü + mobil menü, moderasyonda `window.prompt` yerine Dialog, toast'lar, sayfa başlıkları, tema düğmesi, erişilebilirlik turu | ✅ |
 | **D — Backend isteyenler** | Katalog sıralaması (bugün yalnız en yeni: `books.sql:47`), gerçek kapaklar (ISBN + Open Library; CSP `img-src https:` izin veriyor) | ⏭️ |
 
 ## 🪜 Faz A — adımlar
@@ -103,6 +103,28 @@ Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
 4. **"Aynı türden" şeridi:** ilk türden en fazla 6 kitap (mevcut kitap hariç). Bu istek
    başarısız olursa sayfa hata göstermez; şerit çizilmez (yardımcı içerik).
 
+## 🪜 Faz C — adımlar (formlar, gezinme, admin, erişilebilirlik)
+
+1. **Bildirimler (toast):** küçük bir sağlayıcı + `useToast()`; puan, yorum ve moderasyon
+   işlemlerinden sonra kısa onay. Bölge `aria-live="polite"` ama `role="status"` DEĞİL: e2e'nin
+   `getByRole("status")` sorgusu (başarı mesajları) iki öğe bulup patlamasın. Sağlayıcı yoksa
+   `useToast()` hiçbir şey yapmaz → sayfa testleri sağlayıcı kurmak zorunda kalmaz.
+2. **Sayfa başlıkları:** "Huzur — BookHub". `document.title` ile; React 19'un `<title>` taşıması
+   işe yaramaz, çünkü index.html'deki `<title>` önce gelir ve tarayıcı ilkini okur.
+3. **Formlar:** parola göster/gizle (`aria-pressed`; düğme etiketin İÇİNDE değil, çünkü `<label>`
+   ikinci bir etiketlenebilir öğe içeremez), gönderilirken düğme kilidi ve "…yapılıyor" metni.
+4. **Girişten sonra geldiği sayfaya dönüş:** korumalı sayfa ve "giriş yap" bağlantısı geldiği
+   adresi router `state`'iyle taşır; giriş sonrası oraya gidilir (yalnız uygulama içi yol).
+5. **Gezinme:** kullanıcı menüsü (açılır panel, "disclosure" kalıbı: site gezintisi için ARIA
+   `menu` rolünden daha doğru) — Hesabım, Çıkış; dar ekranda Kitap öner ve Moderasyon da menüde.
+   Esc ve dışarı tıklama kapatır.
+6. **Tema düğmesi:** açık/koyu. Seçim `localStorage`'da; ilk boyamadan ÖNCE `public/theme-init.js`
+   uygular (CSP satır içi betiğe izin vermiyor → harici, eşzamanlı küçük dosya). Seçim yoksa
+   sistem tercihi. Koyu token'lar tek blokta: `:root[data-theme="dark"]`.
+7. **Moderasyon:** `window.prompt` yerine erişilebilir Dialog (Radix): odak hapsi, Esc, başlık.
+8. **Erişilebilirlik turu:** "İçeriğe atla" bağlantısı; `prefers-reduced-motion`'da kart
+   hareketleri kapalı.
+
 ## ⚠️ Önemli noktalar
 
 - **CSP** ([security-headers.conf](../../frontend/nginx/security-headers.conf)):
@@ -123,6 +145,11 @@ Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
 - **Gecikmeli arama ve URL:** 300 ms sonra çalışan güncelleme `setParams(prev => …)` ile
   kurulur; render anındaki parametrelerle kurulsaydı arada seçilen türü ezerdi (testte kilitli).
   `replace: true`: her duraklama tarayıcı geçmişine ayrı kayıt eklemesin.
+- **Parola alanındaki düğme ve e2e:** "Parolayı göster" düğmesinin adı da "Parola" ile başlıyor;
+  Playwright'in `getByLabel("Parola")` sorgusu (alt dize eşleşmesi) iki öğe bulup patlıyordu →
+  e2e'de `exact: true`.
+- **Moderasyon ayrı parça (lazy):** Radix Dialog ana paketi ~13 kB (gzip) büyütüyordu; yalnız
+  admin sayfası kullandığı için `React.lazy` ile ayrıldı → ziyaretçi o kodu indirmez.
 - **Fontlar ilk ziyarette ~200 kB:** iki ailenin latin + latin-ext alt kümeleri (Türkçe harfler
   latin-ext'te). Kiril/Yunan dosyaları imajda durur ama `unicode-range` yüzünden indirilmez.
   Sonrasında `/assets/` bir yıl önbellekte (immutable).
@@ -166,6 +193,16 @@ Ekran görüntüleri sürüm kontrolünde değil (masaüstü/mobil, açık/koyu,
 Girişli detay sayfası (yıldızlar, yorum formu) Lighthouse'la ölçülmedi (giriş ister); birim ve
 e2e testleriyle doğrulandı.
 
+### Faz C (2026-10-11)
+
+| Ölçüm | Sonuç |
+|---|---|
+| Lighthouse erişilebilirlik — ana sayfa / detay / giriş / kayıt | **100** / **100** / **100** / **100** |
+| Birim testleri (vitest) | **245** yeşil (Faz B sonunda 221) |
+| E2E (`make e2e`) | **11** yeşil (çıkış ve "Hesabım" artık kullanıcı menüsünden, red diyalogdan) |
+| JS paketi (gzip) | 107,4 kB ana + 14,1 kB moderasyon parçası (lazy olmasaydı 120,4 kB) |
+| Tema | Seçim yeniden yüklemede korunuyor (`data-theme`), CSP ihlali yok (tarayıcı konsolu) |
+
 ## ✅ Tamamlanma (Faz A)
 
 - [x] Eski CSS kaldırıldı; bütün sayfalar kitle çiziliyor.
@@ -182,3 +219,11 @@ e2e testleriyle doğrulandı.
 - [x] "Aynı türden" şeridi (başarısız olursa sessiz).
 - [x] vitest + e2e yeşil; Lighthouse 100.
 - [ ] Kullanıcı incelemesi ve commit.
+
+## ✅ Tamamlanma (Faz C)
+
+- [x] Bildirimler, sayfa başlıkları, parola göster/gizle, gönderim kilitleri.
+- [x] Girişten sonra geldiği sayfaya dönüş (yalnız uygulama içi yol).
+- [x] Kullanıcı menüsü (mobilde gezinme de içinde), tema düğmesi, "İçeriğe atla", azaltılmış hareket.
+- [x] Moderasyonda red diyaloğu; moderasyon sayfası ayrı parça.
+- [x] vitest + e2e yeşil; Lighthouse 100.

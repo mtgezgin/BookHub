@@ -1,13 +1,14 @@
 import { Star } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Book, RatingSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
-import { ErrorBox, Rating } from "../components/common";
+import { ErrorBox, PageTitle, Rating } from "../components/common";
 import { NotFound } from "../components/NotFound";
+import { useToast } from "../components/toast";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -65,6 +66,8 @@ function DetailSkeleton() {
 export function BookDetail() {
   const id = Number(useParams().id);
   const { user } = useAuth();
+  const location = useLocation();
+  const toast = useToast();
   const [book, setBook] = useState<Book | null>(null);
   const [summary, setSummary] = useState<RatingSummary | null>(null);
   const [mine, setMine] = useState<number | null>(null);
@@ -113,6 +116,7 @@ export function BookDetail() {
     try {
       await api.rate(id, score);
       setMine(score);
+      toast(`Puanın kaydedildi: ${score}/10`);
       loadBook();
     } catch (e) {
       setError(e);
@@ -124,6 +128,7 @@ export function BookDetail() {
     try {
       await api.removeRating(id);
       setMine(null);
+      toast("Puanın kaldırıldı");
       loadBook();
     } catch (e) {
       setError(e);
@@ -138,6 +143,7 @@ export function BookDetail() {
     try {
       await api.addComment(id, text);
       setText("");
+      toast("Yorumun eklendi");
       if (comments.offset === 0) comments.reload();
       else comments.setOffset(0); // en yeni yorum ilk sayfada
     } catch (err) {
@@ -148,7 +154,12 @@ export function BookDetail() {
   };
 
   const remove = async (commentId: number) => {
-    await api.deleteComment(commentId).catch(setError);
+    try {
+      await api.deleteComment(commentId);
+      toast("Yorum silindi");
+    } catch (e) {
+      setError(e);
+    }
     comments.reload();
   };
 
@@ -168,6 +179,7 @@ export function BookDetail() {
 
   return (
     <>
+      <PageTitle title={book.title} />
       {/* Izgara alanları: mobilde küçük kapak + başlık yan yana, altında puan kartı ve gövde;
           md+'da solda kapak ve onun altında puan kartı, sağda başlık ve gövde. */}
       <article
@@ -217,7 +229,7 @@ export function BookDetail() {
               </div>
             ) : (
               <p className="mt-4 border-t pt-4 text-sm text-muted-foreground">
-                Puan vermek için <Link to="/login" className="font-medium text-primary underline-offset-4 hover:underline">giriş yap</Link>.
+                Puan vermek için <Link to="/login" state={{ from: location }} className="font-medium text-primary underline-offset-4 hover:underline">giriş yap</Link>.
               </p>
             )}
           </Card>

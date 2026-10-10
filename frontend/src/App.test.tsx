@@ -14,7 +14,14 @@ vi.mock("./auth/AuthContext", () => ({ useAuth: () => h.auth }));
 vi.mock("./pages/Home", () => ({ Home: () => <p>home-page</p> }));
 vi.mock("./pages/BookDetail", () => ({ BookDetail: () => <p>detail-page</p> }));
 vi.mock("./pages/Suggest", () => ({ Suggest: () => <p>suggest-page</p> }));
-vi.mock("./pages/Auth", () => ({ Login: () => <p>login-page</p>, Register: () => <p>register-page</p> }));
+// Login, geldiği adresi (router state.from) data-from'da gösterir: yönlendirme testleri onu okur.
+vi.mock("./pages/Auth", async () => {
+  const { useLocation } = await import("react-router-dom");
+  return {
+    Login: () => <p data-from={(useLocation().state as { from?: { pathname: string } } | null)?.from?.pathname}>login-page</p>,
+    Register: () => <p>register-page</p>,
+  };
+});
 vi.mock("./pages/admin/Moderation", () => ({ Moderation: () => <p>moderation-page</p> }));
 vi.mock("./pages/Account", () => ({ Account: () => <p>account-page</p> }));
 
@@ -40,6 +47,8 @@ function render(path: string, user: User | null, ready = true) {
 }
 const main = (el: HTMLElement) => el.querySelector("main")!.textContent;
 const navLinks = (el: HTMLElement) => Array.from(el.querySelectorAll("nav a")).map((a) => a.textContent);
+const menuButton = (el: HTMLElement) => el.querySelector<HTMLButtonElement>('nav button[aria-label^="Hesap menüsü"]');
+const openMenu = (el: HTMLElement) => act(() => menuButton(el)!.click());
 
 describe("RequireRole", () => {
   it("hazır değilken \"Yükleniyor…\" gösterir", () => {
@@ -50,12 +59,20 @@ describe("RequireRole", () => {
     expect(main(render("/suggest", null))).toBe("login-page");
   });
 
+  it("yönlendirirken geldiği adresi taşır (girişten sonra oraya dönülsün)", () => {
+    const el = render("/suggest", null);
+    expect(el.querySelector("main p")!.getAttribute("data-from")).toBe("/suggest");
+  });
+
   it("USER /admin'de yetki mesajı görür", () => {
     expect(main(render("/admin", USER))).toBe("Bu sayfa için yetkin yok.");
   });
 
-  it("ADMIN /admin'de içeriği görür", () => {
-    expect(main(render("/admin", ADMIN))).toBe("moderation-page");
+  // Moderasyon sayfası ayrı bir parça olarak (lazy) yüklenir: içerik bir tur sonra gelir.
+  it("ADMIN /admin'de içeriği görür", async () => {
+    const el = render("/admin", ADMIN);
+    await act(async () => {});
+    expect(main(el)).toBe("moderation-page");
   });
 
   // /account ROL İSTEMEZ ama GİRİŞ ister: sayfa parola değiştirmeyi ve (ileride) oturum
@@ -81,6 +98,7 @@ describe("Bilinmeyen adres", () => {
     expect(el.querySelector("main h1")!.textContent).toBe("Sayfa bulunamadı");
     const back = Array.from(el.querySelectorAll("main a")).find((a) => a.textContent === "Kataloğa dön")!;
     expect(back.getAttribute("href")).toBe("/");
+    expect(document.title).toBe("Sayfa bulunamadı — BookHub");
   });
 });
 
@@ -107,12 +125,61 @@ describe("App nav", () => {
     expect(navLinks(render("/", null))).not.toContain("Hesabım");
   });
 
-  it("USER: \"Hesabım\" var", () => {
-    expect(navLinks(render("/", USER))).toContain("Hesabım");
+  it("USER: \"Hesabım\" kullanıcı menüsünde", () => {
+    const el = render("/", USER);
+    expect(navLinks(el)).not.toContain("Hesabım"); // menü kapalıyken yok
+    openMenu(el);
+    expect(navLinks(el)).toContain("Hesabım");
   });
 
-  it("ADMIN: \"Hesabım\" var", () => {
-    expect(navLinks(render("/", ADMIN))).toContain("Hesabım");
+  it("ADMIN: \"Hesabım\" kullanıcı menüsünde", () => {
+    const el = render("/", ADMIN);
+    openMenu(el);
+    expect(navLinks(el)).toContain("Hesabım");
+  });
+
+  it("menü düğmesi açık/kapalı durumunu aria-expanded ile söyler; Esc kapatır", () => {
+    const el = render("/", USER);
+    expect(menuButton(el)!.getAttribute("aria-expanded")).toBe("false");
+    openMenu(el);
+    expect(menuButton(el)!.getAttribute("aria-expanded")).toBe("true");
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(menuButton(el)!.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("menüden bir sayfaya gidince menü kapanır", () => {
+    const el = render("/", USER);
+    openMenu(el);
+    const account = Array.from(el.querySelectorAll("nav a")).find((a) => a.textContent === "Hesabım")!;
+    act(() => account.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })));
+    expect(main(el)).toBe("account-page");
+    expect(menuButton(el)!.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("menü düğmesinin adında kullanıcının adı geçer (görünen metin = erişilebilir ad)", () => {
+    expect(menuButton(render("/", USER))!.getAttribute("aria-label")).toBe("Hesap menüsü: Ali");
+  });
+
+  it("tema düğmesi koyu temayı açar, seçimi hatırlar; ikinci tık açığa döner", () => {
+    localStorage.removeItem("bookhub.theme");
+    document.documentElement.removeAttribute("data-theme");
+    const el = render("/", null);
+    const toggle = el.querySelector<HTMLButtonElement>('button[aria-label="Koyu tema"]')!;
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    act(() => toggle.click());
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("bookhub.theme")).toBe("dark");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    act(() => toggle.click());
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("bookhub.theme")).toBe("light");
+  });
+
+  it("klavye kullanıcısı için \"İçeriğe atla\" bağlantısı ana içeriğe gider", () => {
+    const el = render("/", null);
+    const skip = Array.from(el.querySelectorAll("a")).find((a) => a.textContent === "İçeriğe atla")!;
+    expect(skip.getAttribute("href")).toBe("#main");
+    expect(el.querySelector("main")!.id).toBe("main");
   });
 
   it("ana menü adıyla bulunur (ekran okuyucu ve e2e aynı adı kullanır)", () => {
@@ -120,16 +187,17 @@ describe("App nav", () => {
   });
 
   it("bulunulan sayfanın bağlantısı aria-current=page taşır, diğerleri taşımaz", () => {
-    const el = render("/suggest", USER);
+    const el = render("/suggest", ADMIN);
     const link = (text: string) => Array.from(el.querySelectorAll("nav a")).find((a) => a.textContent === text)!;
     expect(link("Kitap öner").getAttribute("aria-current")).toBe("page");
-    expect(link("Hesabım").getAttribute("aria-current")).toBeNull();
+    expect(link("Moderasyon").getAttribute("aria-current")).toBeNull();
   });
 
   it("\"Çıkış\" logout'u çağırır", () => {
     let calls = 0;
     h.auth = { ...h.auth, logout: async () => void calls++ };
     const el = render("/", USER);
+    openMenu(el);
     const out = Array.from(el.querySelectorAll("nav button")).find((b) => b.textContent === "Çıkış") as HTMLButtonElement;
     act(() => out.click());
     expect(calls).toBe(1);
