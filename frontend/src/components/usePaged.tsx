@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Page } from "../api/types";
+import { Button } from "./ui/button";
 
 /**
  * usePaged: offset'li bir listeyi yükler. İki sayfada (admin kuyruğu, yorumlar) AYNI hatayı
@@ -61,10 +62,10 @@ export function Pager<T>({ page, offset, onChange, prev = "← Önceki", next = 
 }) {
   const last = Math.min(offset + page.limit, page.total);
   return (
-    <div className="pager">
-      <button disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - page.limit))}>{prev}</button>
-      <span className="muted small">{page.total ? `${offset + 1}–${last} / ${page.total}` : ""}</span>
-      <button disabled={offset + page.limit >= page.total} onClick={() => onChange(offset + page.limit)}>{next}</button>
-    </div>
+    <nav aria-label="Sayfalar" className="mt-8 flex items-center justify-between gap-4">
+      <Button variant="outline" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - page.limit))}>{prev}</Button>
+      <span className="text-sm text-muted-foreground tabular-nums">{page.total ? `${offset + 1}–${last} / ${page.total}` : ""}</span>
+      <Button variant="outline" disabled={offset + page.limit >= page.total} onClick={() => onChange(offset + page.limit)}>{next}</Button>
+    </nav>
   );
 }

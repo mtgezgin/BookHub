@@ -189,7 +189,7 @@ describe("BookDetail — puan verme/kaldırma", () => {
     await act(async () => button(el, "7")!.click());
     await flush();
     expect(calls.rate).toEqual([[1, 7]]);
-    expect(button(el, "7")!.className).toBe("active");
+    expect(button(el, "7")!.getAttribute("aria-pressed")).toBe("true");
     expect(calls.ratingSummary.length).toBe(before + 1);
   });
 
@@ -199,7 +199,7 @@ describe("BookDetail — puan verme/kaldırma", () => {
     await act(async () => button(el, "7")!.click());
     await flush();
     expect(alertText(el)).toBe("kitap bulunamadı");
-    expect(button(el, "7")!.className).toBe("");
+    expect(button(el, "7")!.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("unrate 'kaldır'ı gizler ve özeti yeniden yükler", async () => {
@@ -227,18 +227,37 @@ describe("BookDetail — puan verme/kaldırma", () => {
 });
 
 describe("BookDetail — yükleme ve şablon", () => {
-  it("404 kitap yalnız API mesajlı ErrorBox çizer", async () => {
+  it("404 kitap \"Kitap bulunamadı\" sayfasını ve kataloğa dönüş bağlantısını çizer", async () => {
     stub({ book: () => Promise.reject(new ApiError(404, "not_found", "kitap bulunamadı")) });
     const { el } = await render();
-    expect(el.childElementCount).toBe(1);
-    expect(el.firstElementChild!.getAttribute("role")).toBe("alert");
-    expect(el.textContent).toBe("kitap bulunamadı");
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap bulunamadı");
+    const back = Array.from(el.querySelectorAll("a")).find((a) => a.textContent === "Kataloğa dön")!;
+    expect(back.getAttribute("href")).toBe("/");
+    expect(el.querySelector("textarea")).toBeNull();
+  });
+
+  it("404 dışındaki yükleme hatası ErrorBox'ta API mesajıyla gösterilir", async () => {
+    stub({ book: () => Promise.reject(new ApiError(500, "internal", "kitap yüklenemedi")) });
+    const { el } = await render();
+    expect(alertText(el)).toBe("kitap yüklenemedi");
+  });
+
+  it("kitap yüklenirken iskelet gösterir", async () => {
+    stub({ book: () => new Promise<Book>(() => {}) });
+    const { el } = await render();
+    expect(el.querySelector('[role=status][aria-label="Kitap yükleniyor"]')).not.toBeNull();
+  });
+
+  it("dil kodu Türkçe dil adıyla gösterilir", async () => {
+    stub({ book: async (id: number) => ({ ...bookOf(id), language: "en" }) });
+    const { el } = await render();
+    expect(el.querySelector("header")!.textContent).toContain("İngilizce");
   });
 
   it("yeniden yükleme (başka kitap) eski hatayı temizler", async () => {
-    stub({ book: (id: number) => (id === 1 ? Promise.reject(new ApiError(404, "not_found", "kitap bulunamadı")) : Promise.resolve(bookOf(id))) });
+    stub({ book: (id: number) => (id === 1 ? Promise.reject(new ApiError(500, "internal", "kitap yüklenemedi")) : Promise.resolve(bookOf(id))) });
     const { el, nav } = await render();
-    expect(alertText(el)).toBe("kitap bulunamadı");
+    expect(alertText(el)).toBe("kitap yüklenemedi");
     await act(async () => nav.go!("/books/2"));
     await flush();
     expect(alertText(el)).toBeNull();
@@ -247,11 +266,11 @@ describe("BookDetail — yükleme ve şablon", () => {
 
   it("rating_count 0 iken histogram gizli, oy varken görünür", async () => {
     const { el } = await render();
-    expect(el.querySelector(".histogram")).toBeNull();
+    expect(el.querySelector('[aria-label="Puan dağılımı"]')).toBeNull();
     cleanup.splice(0).forEach((f) => f());
     stub({ ratingSummary: async () => summaryOf(3) });
     const second = await render();
-    expect(second.el.querySelector(".histogram")).not.toBeNull();
+    expect(second.el.querySelector('[aria-label="Puan dağılımı"]')).not.toBeNull();
   });
 
   it("puan özeti hatası sayfayı düşürmez: kitap çizilir, hata ErrorBox'ta", async () => {
@@ -261,9 +280,15 @@ describe("BookDetail — yükleme ve şablon", () => {
     expect(alertText(el)).toBe("özet yüklenemedi");
   });
 
+  it("yorum yoksa bunu söyler; giriş yapmış kullanıcıyı ilk yorumu yazmaya çağırır", async () => {
+    stub({ comments: async () => ({ items: [], total: 0, limit: 10, offset: 0 }) });
+    const { el } = await render();
+    expect(el.textContent).toContain("Henüz yorum yok. İlk yorumu sen yaz.");
+  });
+
   it("yazarı olmayan yorum \"silinmiş kullanıcı\" gösterir", async () => {
     stub({ comments: async () => ({ items: [comment(5, null)], total: 1, limit: 10, offset: 0 }) });
     const { el } = await render();
-    expect(el.querySelector(".comments strong")!.textContent).toBe("silinmiş kullanıcı");
+    expect(el.querySelector('[aria-label="Yorumlar"] strong')!.textContent).toBe("silinmiş kullanıcı");
   });
 });

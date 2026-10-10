@@ -72,6 +72,10 @@ async function render(path: string) {
   await flush();
   return { el, params: () => new URLSearchParams(loc.search) };
 }
+// Rol/etiket seçicileri: görünüm (sınıflar) değişince testler kırılmasın (Faz 14).
+const LIST = '[aria-label="Kitaplar"]';
+const PAGER = 'nav[aria-label="Sayfalar"]';
+const COUNT = "[aria-live=polite]";
 const button = (el: ParentNode, text: string) =>
   Array.from(el.querySelectorAll("button")).find((b) => b.textContent === text)!;
 const setValue = (input: HTMLInputElement | HTMLSelectElement, value: string) =>
@@ -88,7 +92,7 @@ describe("Home", () => {
 
   it("arama değişince offset URL'den düşer", async () => {
     const { el, params } = await render("/?q=eski&offset=24");
-    setValue(el.querySelector<HTMLInputElement>("form.search input")!, "yeni");
+    setValue(el.querySelector<HTMLInputElement>("input[type=search]")!, "yeni");
     await act(async () => {
       el.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     });
@@ -140,10 +144,10 @@ describe("Home", () => {
     });
     const { el } = await render("/");
     const aside = el.querySelector("aside")!;
-    expect(aside.textContent).toContain("(C = 6.90, m = 10)");
-    const li = aside.querySelector("ol.top li")!;
+    expect(aside.textContent).toContain("(C = 6,90, m = 10)");
+    const li = aside.querySelector("ol li")!;
     expect(li.querySelector("a")!.getAttribute("href")).toBe("/books/4");
-    expect(li.textContent).toBe("Kitap 4 — 7.46 (2 oy, ort. 9.50)");
+    expect(li.textContent).toBe("Kitap 4 — 7,46 (2 oy, ort. 9,5)");
   });
 
   it.each([
@@ -159,19 +163,46 @@ describe("Home", () => {
     stub({ books: () => Promise.reject(new ApiError(500, "internal", "arama başarısız")) });
     const { el } = await render("/?q=tolstoy");
     expect(el.querySelector("[role=alert]")!.textContent).toBe("arama başarısız");
-    expect(el.querySelector(".grid")).toBeNull();
-    expect(el.querySelector(".pager")).toBeNull();
+    expect(el.querySelector(LIST)).toBeNull();
+    expect(el.querySelector(PAGER)).toBeNull();
   });
 
-  it("boş sonuç \"Sonuç yok.\" ve \"0 kitap\" gösterir", async () => {
+  it("boş sonuç sayıyı \"0 kitap\" yazar ve ne olduğunu söyleyen boş durumu gösterir", async () => {
     stub({ books: async (p: { offset: number }) => ({ items: [], total: 0, limit: 12, offset: p.offset }) });
     const { el } = await render("/?q=yok");
-    expect(el.querySelector("section p.muted")!.textContent).toBe("0 kitap");
-    expect(el.querySelector("section")!.textContent).toContain("Sonuç yok.");
+    expect(el.querySelector(COUNT)!.textContent).toBe("0 kitap");
+    expect(el.querySelector("h2")!.textContent).toBe("Sonuç bulunamadı");
+    expect(el.querySelector(PAGER)).toBeNull();
+  });
+
+  it("boş sonuçta \"Filtreleri temizle\" aramayı ve türü siler", async () => {
+    stub({ books: async (p: { offset: number }) => ({ items: [], total: 0, limit: 12, offset: p.offset }) });
+    const { el, params } = await render("/?q=yok&genre=roman&offset=12");
+    await act(async () => button(el, "Filtreleri temizle").click());
+    await flush();
+    expect([...params().keys()]).toEqual([]);
+    expect(el.querySelector<HTMLInputElement>("input[type=search]")!.value).toBe("");
+  });
+
+  it("liste yüklenirken iskelet gösterir; cevap gelince kaldırır", async () => {
+    const { pending } = deferredBooks();
+    const { el } = await render("/");
+    expect(el.querySelector('[role=status][aria-label="Kitaplar yükleniyor"]')).not.toBeNull();
+    await act(async () => pending[0]({ items: [bookOf(1)], total: 1, limit: 12, offset: 0 }));
+    await flush();
+    expect(el.querySelector("[role=status]")).toBeNull();
+    expect(el.querySelector(LIST)!.textContent).toContain("Kitap 1");
+  });
+
+  it("tek sayfalık sonuçta sayfalayıcı yok", async () => {
+    total = 5;
+    const { el } = await render("/");
+    expect(el.querySelector(LIST)).not.toBeNull();
+    expect(el.querySelector(PAGER)).toBeNull();
   });
 
   async function submitSearch(el: HTMLElement, value: string) {
-    setValue(el.querySelector<HTMLInputElement>("form.search input")!, value);
+    setValue(el.querySelector<HTMLInputElement>("input[type=search]")!, value);
     await act(async () => {
       el.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     });
@@ -220,9 +251,9 @@ describe("Home", () => {
     await act(async () => pending[0]({ items: [bookOf(1), bookOf(2)], total: 30, limit: 12, offset: 0 }));
     await flush();
 
-    expect(el.querySelector("section p.muted")!.textContent).toBe("1 kitap");
-    expect(el.querySelector(".grid")!.textContent).toContain("Kitap 7");
-    expect(el.querySelector(".grid")!.textContent).not.toContain("Kitap 1");
+    expect(el.querySelector(COUNT)!.textContent).toBe("1 kitap");
+    expect(el.querySelector(LIST)!.textContent).toContain("Kitap 7");
+    expect(el.querySelector(LIST)!.textContent).not.toContain("Kitap 1");
   });
 
   it("geç gelen ESKİ isteğin HATASI da yutulur", async () => {
@@ -235,6 +266,6 @@ describe("Home", () => {
     await flush();
 
     expect(el.querySelector("[role=alert]")).toBeNull();
-    expect(el.querySelector(".grid")!.textContent).toContain("Kitap 7");
+    expect(el.querySelector(LIST)!.textContent).toContain("Kitap 7");
   });
 });

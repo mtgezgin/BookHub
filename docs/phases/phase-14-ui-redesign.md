@@ -1,0 +1,132 @@
+# Faz 14 — Arayüz yeniden tasarımı (Tailwind + shadcn/ui)
+
+> Durum: 🚧 Faz A bitti, kullanıcı incelemesinde (2026-10-10); B–D sırada · İlgili: [frontend/src](../../frontend/src),
+> [styles.css](../../frontend/src/styles.css)
+
+## 🎯 Amaç
+
+Arayüzü "çalışan bir ödev" görünümünden, birine gösterildiğinde gerçek bir ürün gibi duran bir
+hâle getirmek. **İşlev aynı kalır:** yeni özellik yok, API değişmez (Faz D hariç).
+
+## 🔍 Başlangıç durumu (neden)
+
+Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
+
+- Görsel kimlik yok: 53 kitabın hepsinde aynı 📖 yer tutucusu (demo veride `cover_url` boş).
+- Hiyerarşi yok: başlık, bağlantı ve düğme aynı mor; tek font; bütün stil 61 satırlık tek CSS.
+- Ara durumlar yok: yüklenirken boş ekran, "Sonuç yok." + iki pasif düğme, tek satırlık 404.
+- Geliştirici dili kullanıcıya sızıyor ("C = 8.12, m = 10", "durum: PENDING", `window.prompt`).
+- Bitmemişlik: favicon yok (`/favicon.ico` index.html dönüyor), ondalık nokta ("9.13"), dil
+  kodu ham ("en").
+
+## 🧠 Yeni kavram(lar)
+
+- **Utility-first CSS (Tailwind):** stil, bileşenin yanında küçük sınıflarla yazılır; ayrı bir
+  CSS dosyasında sınıf adı uydurmak gerekmez. Kullanılmayan sınıf pakete girmez.
+- **Tasarım token'ları:** renk, boşluk, köşe yuvarlaklığı gibi kararlar tek yerde CSS
+  değişkeni olarak durur; bileşenler `bg-primary` gibi **anlamlı** adlar kullanır, ham renk
+  değil. Tema (açık/koyu) yalnız token değerlerini değiştirir.
+- **shadcn/ui yaklaşımı:** bir paket değil, repoya **kopyalanan** bileşen kodu. Erişilebilirlik
+  gerektiren parçalar (dialog, menü) Radix'in davranış katmanının üstünde; görünüm bizim.
+- **Varyant (cva):** bir bileşenin görünüş seçenekleri (birincil / ikincil / tehlike) tek bir
+  tabloda tanımlanır; sayfalar `variant="destructive"` der, sınıf listesi tekrarlanmaz.
+
+## 🎨 Kararlar
+
+| Konu | Karar | Neden |
+|---|---|---|
+| Stil yaklaşımı | Tailwind CSS v4 (`@tailwindcss/vite`) + shadcn/ui yaklaşımı (Radix) + `lucide-react` ikonları | Kullanıcı seçimi (2026-10-10). Hızlı ve tutarlı görünüm, erişilebilir hazır davranışlar, endüstride yaygın yığın. `@tailwindcss/vite` Vite 8'i destekliyor (peer: `^5.2 \|\| … \|\| ^8`). |
+| Görsel yön | **"Sıcak kütüphane":** kâğıt tonunda arka plan, mürekkep rengi metin, başlıklarda serif, vurgu rengi koyu "kütüphane yeşili", puan yıldızları kehribar | Kitap sitesine kişilik verir; mevcut krem arka planla süreklilik. Token'lar tek dosyada → beğenilmezse değiştirmek ucuz. Faz A sonunda ekran görüntüleriyle gözden geçirilir. |
+| Fontlar | Başlık: **Fraunces** (serif), metin: **Inter** — `@fontsource-variable/*` ile pakete girer, kendi sunucumuzdan | CSP'de `font-src` yok → `default-src 'self'` geçerli, Google Fonts CDN engellenir. Türkçe harfler (ğ, ş, ı, İ) `latin-ext` alt kümesinde; `unicode-range` sayesinde tarayıcı yalnız gerekeni indirir. |
+| Tema | Açık + koyu, **sistem tercihine göre** (`prefers-color-scheme`) | Elle seçim düğmesi Faz C'de. |
+| Kontrast | WCAG AA: metin ≥ 4.5:1, büyük metin ve arayüz öğeleri ≥ 3:1 | Token çiftleri bir betikle ölçülür (aşağıda). |
+| Kapak | `cover_url` varsa resim (yüklenemezse üretilmiş kapağa düşer); yoksa **üretilmiş kapak**: başlık + yazardan türetilen sabit renk, çerçeve, serif başlık; 2:3 oran | Backend'e dokunmadan görsel kimlik. Gerçek kapaklar Faz D. Kapak dekoratiftir (`aria-hidden`); başlık metni kartta zaten var. |
+| Bileşen yeri | Kit: `src/components/ui/` (shadcn geleneği) · `cn()`: `src/lib/utils.ts` · mevcut `components/ui.tsx` → `components/common.tsx` | `ui.tsx` dosyası ile `ui/` klasörü yan yana olunca hangisinin içe aktarıldığı belirsizleşir. |
+| İçe aktarma | `@/` takma adı eklenmiyor; göreli import | Repo göreli import kullanıyor. shadcn CLI ve `components.json` Faz C'de, Dialog/Menu/Toast gerektiğinde. |
+| Geçiş | Eski CSS **tamamen** kaldırılır; bütün sayfalar Faz A'da kite taşınır (yerleşimleri aynı kalır) | Eski ve yeni CSS bir arada yaşarsa eski `button {…}` kuralları yeni düğmelere sızar. Sayfalar küçük (~800 satır TSX). |
+| Testler | Sınıf seçicileri (`.grid`, `.success`, `nav.topbar`, `.score-picker` …) yerine rol ve etiket | Görünüm değişince kırılmazlar; erişilebilirliği de zorlarlar. |
+
+## 🗺️ Faz 14'ün bölümleri
+
+| Bölüm | Kapsam | Durum |
+|---|---|---|
+| **A — Temel** | Token'lar, tipografi, bileşen kiti, üretilmiş kapak + yeni kitap kartı, yükleme / boş / 404 durumları, marka (logo, favicon); bütün sayfalar yeni kitle, yerleşim aynı | ✅ (inceleme bekliyor) |
+| **B — Ana sayfa + detay** | Karşılama alanı, tür çipleri, kapaklı "en sevilenler" şeridi, yazarken arama; detayda iki sütun (kapak + puan kartı), yıldızlı puan verme, yorum deneyimi, "aynı türden" şeridi | ⏭️ |
+| **C — Formlar, gezinme, admin, erişilebilirlik** | Parola göster/gizle, girişten sonra geldiği sayfaya dönüş, kullanıcı menüsü + mobil menü, moderasyonda `window.prompt` yerine Dialog, toast'lar, sayfa başlıkları, tema düğmesi, erişilebilirlik turu | ⏭️ |
+| **D — Backend isteyenler** | Katalog sıralaması (bugün yalnız en yeni: `books.sql:47`), gerçek kapaklar (ISBN + Open Library; CSP `img-src https:` izin veriyor) | ⏭️ |
+
+## 🪜 Faz A — adımlar
+
+1. **Kurulum:** bağımlılıklar (`tailwindcss`, `@tailwindcss/vite`, `class-variance-authority`,
+   `clsx`, `tailwind-merge`, `radix-ui`, `lucide-react`, iki font paketi); Vite eklentisi;
+   `styles.css` → Tailwind + token'lar (açık/koyu); `cn()`.
+2. **Kit:** Button, Input, Textarea, Label, Badge, Card, Skeleton, Alert (+ yerel `<select>`
+   için aynı görünüm).
+3. **Kapak + kart + puan:** `BookCover` (renk paleti, resim yüklenemezse üretilmiş kapak),
+   `BookCard` (dikey; bütün kart tıklanır, tür rozetleri ayrı bağlantı), `Rating` (kehribar
+   yıldız, Türkçe biçim: "8,1").
+4. **Kabuk:** başlık çubuğu (marka işareti, aktif sayfa vurgusu), SVG favicon, meta açıklama,
+   `theme-color`.
+5. **Durumlar:** iskelet kart ızgarası, `EmptyState`, `NotFound` (bilinmeyen rota + bulunamayan
+   kitap), detay sayfası yükleme iskeleti.
+6. **Sayfalar kite taşınır:** Home, BookDetail, Auth, Suggest, Account, Moderation — davranış ve
+   yerleşim aynı. Dil kodu görünen ada çevrilir (`Intl.DisplayNames`: "en" → "İngilizce").
+7. **Testler:** birim testleri yeni yapıya (rol/etiket); yeni testler (kapak rengi sabit mi,
+   Türkçe puan biçimi, boş ve 404 durumları); e2e seçicileri.
+8. **Doğrulama:** aşağıdaki liste.
+
+## ⚠️ Önemli noktalar
+
+- **CSP** ([security-headers.conf](../../frontend/nginx/security-headers.conf)):
+  `style-src 'unsafe-inline'` olduğu için Radix'in satır içi stilleri çalışır; font CDN'i yasak;
+  üretilmiş kapak resim değil CSS olduğu için `img-src`'ye takılmaz.
+- **Bütün kartı tıklanır yapmak:** başlık bağlantısı kartı kaplayan görünmez bir katman
+  ("stretched link") açar; içerideki tür bağlantıları bu katmanın **üstüne** (`relative z-10`)
+  alınmazsa tıklanamaz.
+- **Türkçe büyük harf:** `uppercase` CSS'i `<html lang="tr">` sayesinde "i" → "İ" yapar; `lang`
+  kaldırılırsa "Iletişim" gibi hatalar başlar.
+- **jsdom CSS işlemez:** birim testleri görünümü doğrulamaz; görünüm ekran görüntüsüyle
+  doğrulanır.
+- **Ondalık:** sayılar `Intl.NumberFormat("tr-TR")` ile; `toFixed` nokta kullanır.
+- **Türkçe heceleme yok:** `hyphens: auto` Chrome'da Türkçe için çalışmadı; kapakta uzun bir
+  kelime ("Otostopçunun") çerçeveden taşıp kırpılıyordu. Çözüm: `overflow-wrap: anywhere` +
+  en uzun kelimesi 10 harften uzun başlığa küçük punto (BookCover.tsx).
+- **Fontlar ilk ziyarette ~200 kB:** iki ailenin latin + latin-ext alt kümeleri (Türkçe harfler
+  latin-ext'te). Kiril/Yunan dosyaları imajda durur ama `unicode-range` yüzünden indirilmez.
+  Sonrasında `/assets/` bir yıl önbellekte (immutable).
+
+## 🧪 Doğrulama (başarı ölçütleri)
+
+- `npm run typecheck`, `npm test`, `npm run build` temiz; paket boyutu önce/sonra yazılı.
+- `make e2e` yeşil (gerçek tarayıcı, gerçek NGINX + API).
+- Ekran görüntüleri: ana sayfa, detay, giriş, 404 — masaüstü ve mobil, açık ve koyu tema; önce
+  (canlı, 2026-10-10) / sonra.
+- Token kontrast betiği: bütün metin çiftleri AA'yı geçiyor.
+- Lighthouse erişilebilirlik puanı ≥ 95 (ana sayfa, detay, giriş).
+
+## 📏 Ölçümler (Faz A, 2026-10-10)
+
+| Ölçüm | Önce | Sonra |
+|---|---|---|
+| Lighthouse erişilebilirlik — ana sayfa | 87 (yetersiz kontrast, etiketsiz `<select>`) | **100** |
+| Lighthouse erişilebilirlik — giriş | 92 (yalnız renkle ayırt edilen bağlantı) | **100** |
+| Lighthouse erişilebilirlik — detay / 404 | — | **100** / **100** |
+| Token kontrastı (`node scripts/check-contrast.mjs`) | — | 44/44 çift AA (açık + koyu tema + 8 kapak rengi) |
+| Birim testleri (vitest) | 176 | **202** yeşil |
+| E2E (`make e2e`, gerçek chromium + NGINX + API) | 11 | **11** yeşil (seçiciler role taşındı) |
+| JS paketi (gzip) | 88,6 kB | 104,5 kB |
+| CSS (gzip) | 1,4 kB | 6,8 kB |
+
+"Önce" değerleri canlı siteden (aynı arayüz), "sonra" değerleri lokal yığından (`make app-up`).
+JS'teki +16 kB'ın çoğu büyük ihtimalle `tailwind-merge`'ten (çıkarım; paket ayrıntılı ölçülmedi).
+Ekran görüntüleri sürüm kontrolünde değil (masaüstü/mobil, açık/koyu, girişli/girişsiz
+çekildi).
+
+## ✅ Tamamlanma (Faz A)
+
+- [x] Eski CSS kaldırıldı; bütün sayfalar kitle çiziliyor.
+- [x] Üretilmiş kapak + yeni kart; Türkçe sayı ve dil adları.
+- [x] Yükleme, boş ve 404 durumları; favicon.
+- [x] Testler rol/etiket tabanlı; vitest + e2e yeşil.
+- [x] Doğrulama listesindeki ölçümler yazıldı (yukarıda).
+- [ ] Kullanıcı incelemesi ve commit (dal + PR, [PROCESS.md](../PROCESS.md)).

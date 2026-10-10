@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- BrandMark.tsx ile aynı çizim; renkler token'ların sRGB karşılığı (favicon CSS değişkeni okuyamaz). -->
+  <rect width="32" height="32" rx="8" fill="#215c43"/>
+  <path d="M16 10.5c-2.2-1.6-5-2.2-8-1.8v13c3-.4 5.8.2 8 1.8 2.2-1.6 5-2.2 8-1.8v-13c-3-.4-5.8.2-8 1.8Zm0 0v13" fill="none" stroke="#f5fcf8" stroke-width="1.8" stroke-linejoin="round"/>
+</svg>

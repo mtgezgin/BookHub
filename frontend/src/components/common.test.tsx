@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { ApiError } from "../api/client";
-import { ErrorBox, formatDate, Rating } from "./ui";
+import { ErrorBox, formatDate, Rating } from "./common";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -38,8 +38,13 @@ describe("Rating", () => {
     expect(render(<Rating value={null} count={0} />).textContent).toBe("Henüz puan yok");
   });
 
-  it("sayı ★ x.xx (n oy) biçiminde çizilir", () => {
-    expect(render(<Rating value={7.5} count={12} />).textContent).toBe("★ 7.50 (12 oy)");
+  it("puanı Türkçe ondalıkla ve oy sayısıyla yazar; ekran okuyucu \"Puan\" diye duyar", () => {
+    expect(render(<Rating value={7.46} count={12} />).textContent).toBe("Puan 7,5 (12 oy)");
+  });
+
+  it("yıldız simgesi dekoratiftir", () => {
+    const svg = render(<Rating value={7.5} count={12} />).querySelector("svg")!;
+    expect(svg.getAttribute("aria-hidden")).toBe("true");
   });
 });
 

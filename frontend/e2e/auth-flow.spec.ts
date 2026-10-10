@@ -46,7 +46,7 @@ test("kayıt → yenile → ikinci cihaz → parola değişimi → yalnız bu ci
   const changed = page.waitForResponse((res) => new URL(res.url()).pathname === "/api/auth/password");
   await page.getByRole("button", { name: "Parolayı değiştir" }).click();
   expect((await changed).status(), "parola değişimi 200 dönmeliydi").toBe(200);
-  await expect(page.locator(".success")).toContainText("Diğer tüm cihazlardaki oturumlar kapatıldı");
+  await expect(page.getByRole("status")).toContainText("Diğer tüm cihazlardaki oturumlar kapatıldı");
 
   // --- Cihaz B düşmeli: parola değişimi kullanıcının TÜM ailelerini iptal etti ---
   await reloadAndExpectSessionRejected(pageB);

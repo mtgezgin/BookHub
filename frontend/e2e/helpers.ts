@@ -84,7 +84,8 @@ async function expectStatus(res: Response, expected: number, what: string): Prom
 
 /** Üst çubuk: hem giriş durumunun hem de gezinti linklerinin tek kaynağı. */
 export function topbar(page: Page) {
-  return page.locator("nav.topbar");
+  // Rol + ad: görünüm (sınıflar) değişince kırılmaz; ekran okuyucunun gördüğü adla aynı (Faz 14).
+  return page.getByRole("navigation", { name: "Ana menü" });
 }
 
 /**

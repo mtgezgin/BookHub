@@ -57,6 +57,7 @@ async function render() {
 }
 const button = (el: ParentNode, text: string) =>
   Array.from(el.querySelectorAll("button")).find((b) => b.textContent === text);
+const QUEUE = 'ul[aria-label="Moderasyon kuyruğu"] > li';
 const alertText = (el: HTMLElement) => el.querySelector("[role=alert]")?.textContent ?? null;
 
 describe("Moderation", () => {
@@ -91,10 +92,16 @@ describe("Moderation", () => {
   it("düğmeler statüye göre: PENDING onay/red, APPROVED arşiv, ARCHIVED geri yayın", async () => {
     stub({ adminBooks: async () => pageOf([book(1, "PENDING"), book(2, "APPROVED"), book(3, "ARCHIVED"), book(4, "REJECTED")]) });
     const el = await render();
-    const labels = Array.from(el.querySelectorAll("ul.queue > li")).map((li) =>
+    const labels = Array.from(el.querySelectorAll(QUEUE)).map((li) =>
       Array.from(li.querySelectorAll("button")).map((b) => b.textContent),
     );
     expect(labels).toEqual([["Onayla", "Reddet"], ["Arşivle"], ["Geri yayınla"], []]);
+  });
+
+  it("seçili sekme aria-pressed=true, diğerleri false", async () => {
+    const el = await render();
+    expect(button(el, "Bekleyen")!.getAttribute("aria-pressed")).toBe("true");
+    expect(button(el, "Yayında")!.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("sekme değiştirmek görünen hatayı temizler", async () => {
@@ -144,7 +151,7 @@ describe("Moderation", () => {
   it("red gerekçesi olan kitapta \"Red gerekçesi: …\" satırı çizilir", async () => {
     stub({ adminBooks: async () => pageOf([{ ...book(4, "REJECTED"), rejection_reason: "kopya içerik" }, book(5, "REJECTED")]) });
     const el = await render();
-    const items = Array.from(el.querySelectorAll("ul.queue > li"));
+    const items = Array.from(el.querySelectorAll(QUEUE));
     expect(items[0].querySelector("p")!.textContent).toBe("Red gerekçesi: kopya içerik");
     expect(items[1].querySelector("p")).toBeNull();
   });
@@ -153,11 +160,11 @@ describe("Moderation", () => {
     stub({ adminBooks: async () => pageOf([]) });
     const el = await render();
     expect(el.textContent).toContain("Bu listede kitap yok.");
-    expect(el.querySelectorAll("ul.queue > li")).toHaveLength(0);
+    expect(el.querySelectorAll(QUEUE)).toHaveLength(0);
   });
 
   async function submitGenre(el: HTMLElement, name: string) {
-    const input = el.querySelector<HTMLInputElement>("form.search input")!;
+    const input = el.querySelector<HTMLInputElement>('form[aria-label="Yeni tür"] input')!;
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, name);
       input.dispatchEvent(new Event("input", { bubbles: true }));

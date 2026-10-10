@@ -29,6 +29,7 @@ altta). Girdi formatı:
 | [database.md](database.md) | Postgres, SQL, sqlc, migration, transaction, index | aktif |
 | [security-and-auth.md](security-and-auth.md) | auth, JWT, parola hash, IDOR, rate limit, sır yönetimi | aktif |
 | [infra-and-devops.md](infra-and-devops.md) | Docker, Redis hosting, deploy, CI/CD, K8s | aktif |
+| [frontend-and-ui.md](frontend-and-ui.md) | Ön yüz: CSS ve tasarım sistemi, React bileşen kalıpları, erişilebilirlik, arayüz testleri | aktif |
 
 > "Sırası gelince" kategoriler **boş oluşturulmaz** — ilgili ilk girdi gelince dosyası açılır
 > (boş scaffold yok). Yeni bir konu mevcut hiçbir kategoriye uymuyorsa yeni bir dosya açıp bu

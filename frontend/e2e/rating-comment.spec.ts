@@ -27,7 +27,7 @@ test("puan özeti anında güncellenir, yorum listenin başında görünür", as
   // Beklenti sabit "before + 1" olsaydı yeniden deneme aritmetik olarak İMKÂNSIZ bir iddiada
   // kesin olarak düşer, ilk denemedeki gerçek hatanın yerini alakasız bir mesaj alırdı.
   //
-  // Bunu ".score-picker button.active" sayarak anlamak YANLIŞ olurdu: `mine` sayfaya
+  // Bunu basılı puan düğmesine (aria-pressed) bakarak anlamak YANLIŞ olurdu: `mine` sayfaya
   // asenkron düşüyor (BookDetail.tsx useEffect → GET /api/books/{id}/rating), yani cevap
   // gelmeden sayım 0 okunur ve puanı OLAN okur "puanı yok" sanılırdı. Cevabın kendisi
   // kesin: 200 = puan var, 404 not_rated = yok (backend/cmd/api/community.go).
@@ -39,7 +39,7 @@ test("puan özeti anında güncellenir, yorum listenin başında görünür", as
       /^\/api\/books\/\d+\/rating$/.test(new URL(res.url()).pathname) &&
       res.status() !== 401,
   );
-  await page.locator(".grid").getByRole("link", { name: BOOK, exact: true }).click();
+  await page.getByRole("list", { name: "Kitaplar" }).getByRole("link", { name: BOOK, exact: true }).click();
   await expect(page.getByRole("heading", { name: BOOK, level: 1 })).toBeVisible();
   const ratingRes = await myRating;
   const alreadyRated = ratingRes.ok();
@@ -53,26 +53,27 @@ test("puan özeti anında güncellenir, yorum listenin başında görünür", as
 
   // Oy sayısını ÖNCEDEN oku: demo veri (ve önceki koşular) değiştikçe sabit bir sayı
   // tutmazdı; iddia bu denemenin KENDİ başlangıç durumuna göre kurulmalı.
-  const summary = page.locator("span.rating");
+  // "Puan" bölümünde "(n oy)" yalnız özette geçer; dağılımın ekran okuyucu metni "8 puan: 3 oy" biçiminde.
+  const summary = page.getByRole("region", { name: "Puan" });
   const before = voteCount(await summary.innerText());
   const expected = before + (alreadyRated ? 0 : 1); // UPSERT: zaten puanlıysa sayı artmaz
 
-  const picker = page.locator(".score-picker");
+  const picker = page.getByRole("group", { name: "Senin puanın" });
   await picker.getByRole("button", { name: String(score), exact: true }).click();
   // Puan yazıldıktan sonra kitap + özet kaynaktan yeniden çekilir (ortalama türetilmiş veri).
   // Bu iddia artık yeniden denemede de AYIRT EDİCİ: tıklama/POST hiçbir şey yapmazsa
   // "active" eski puanda (8) kalır, beklenen ise 9'dur.
-  await expect(picker.locator("button.active")).toHaveText(String(score));
+  await expect(picker.locator("button[aria-pressed=true]")).toHaveText(String(score));
   await expect(summary).toContainText(`(${expected} oy)`);
 
   // Yorum: içerik REACT'te metin olarak basılır — köşeli parantezli bir şey yazsak bile
   // çalışmaz, görünür (XSS'e karşı asıl duvar).
   const comment = `E2E yorumu ${RUN_ID}: puan verdim, yorumu da bırakıyorum.`;
   await page.getByPlaceholder("Düşüncelerini yaz…").fill(comment);
-  await page.locator("form.comment-form").getByRole("button", { name: "Gönder" }).click();
+  await page.getByRole("form", { name: "Yorum yaz" }).getByRole("button", { name: "Gönder" }).click();
 
   // Yorumlar en yeniden eskiye sıralı → yeni yorum ilk sayfanın başında.
-  await expect(page.locator("ul.comments li").first()).toContainText(comment);
+  await expect(page.getByRole("list", { name: "Yorumlar" }).getByRole("listitem").first()).toContainText(comment);
   await expect(page.getByPlaceholder("Düşüncelerini yaz…")).toHaveValue("");
 });
 

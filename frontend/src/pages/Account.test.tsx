@@ -66,7 +66,7 @@ const alerts = (el: HTMLElement) => Array.from(el.querySelectorAll("[role=alert]
 const status = (el: HTMLElement) => el.querySelector("[role=status]")?.textContent ?? null;
 
 /** identity: sayfanın üstündeki "ad · e-posta" satırı (yoksa null). */
-const identity = (el: HTMLElement) => el.querySelector("p.muted.small")?.textContent ?? null;
+const identity = (el: HTMLElement) => el.querySelector("header p")?.textContent ?? null;
 
 describe("Account — kimlik satırı", () => {
   it("useAuth kullanıcısının adını ve e-postasını gösterir", () => {

@@ -26,27 +26,34 @@ function render(b: Book) {
 }
 
 describe("BookCard", () => {
-  it("cover_url yoksa yer tutucu gösterir, img çizmez", () => {
+  it("cover_url yoksa başlığı ve yazarı yazan üretilmiş kapak çizer, img çizmez", () => {
     const el = render(book());
-    expect(el.querySelector(".cover.placeholder")).not.toBeNull();
     expect(el.querySelector("img")).toBeNull();
+    expect(el.querySelector("[aria-hidden=true]")!.textContent).toContain("Tutunamayanlar");
   });
 
-  it("cover_url varsa <img src> çizer, yer tutucu yok", () => {
+  it("cover_url varsa <img src> çizer", () => {
     const el = render(book({ cover_url: "https://example.com/kapak.jpg" }));
     expect(el.querySelector("img")!.getAttribute("src")).toBe("https://example.com/kapak.jpg");
-    expect(el.querySelector(".cover.placeholder")).toBeNull();
   });
 
-  it("başlık /books/{id} adresine bağlanır; yıl varsa yazarın yanında görünür", () => {
-    const el = render(book());
-    expect(el.querySelector("h3 a")!.getAttribute("href")).toBe("/books/3");
-    expect(el.querySelector("p.muted")!.textContent).toBe("Oğuz Atay · 1972");
-    expect(render(book({ publication_year: null })).querySelector("p.muted")!.textContent).toBe("Oğuz Atay");
+  it("başlık /books/{id} adresine bağlanır; bağlantının adı başlığın kendisi", () => {
+    const link = render(book()).querySelector("h2 a")!;
+    expect(link.getAttribute("href")).toBe("/books/3");
+    expect(link.textContent).toBe("Tutunamayanlar");
   });
 
-  it("tür etiketleri /?genre=<slug> adresine bağlanır", () => {
-    const hrefs = Array.from(render(book()).querySelectorAll("a.tag")).map((a) => a.getAttribute("href"));
+  it("yıl varsa yazarın yanında görünür, yoksa ayraç da yok", () => {
+    expect(render(book()).textContent).toContain("Oğuz Atay · 1972");
+    expect(render(book({ publication_year: null })).textContent).not.toContain("·");
+  });
+
+  it("tür rozetleri /?genre=<slug> adresine bağlanır", () => {
+    const hrefs = Array.from(render(book()).querySelectorAll('a[href^="/?genre="]')).map((a) => a.getAttribute("href"));
     expect(hrefs).toEqual(["/?genre=roman", "/?genre=klasik"]);
+  });
+
+  it("puanı Türkçe biçimde gösterir", () => {
+    expect(render(book({ average_rating: 8.09, rating_count: 11 })).textContent).toContain("8,1 (11 oy)");
   });
 });

@@ -75,6 +75,15 @@ describe("RequireRole", () => {
   });
 });
 
+describe("Bilinmeyen adres", () => {
+  it("\"Sayfa bulunamadı\" başlığını ve ana sayfaya dönüş bağlantısını gösterir", () => {
+    const el = render("/yok-boyle-sayfa", null);
+    expect(el.querySelector("main h1")!.textContent).toBe("Sayfa bulunamadı");
+    const back = Array.from(el.querySelectorAll("main a")).find((a) => a.textContent === "Kataloğa dön")!;
+    expect(back.getAttribute("href")).toBe("/");
+  });
+});
+
 describe("App nav", () => {
   it("girişsiz: \"Kitap öner\" ve \"Moderasyon\" yok", () => {
     const links = navLinks(render("/", null));
@@ -104,6 +113,17 @@ describe("App nav", () => {
 
   it("ADMIN: \"Hesabım\" var", () => {
     expect(navLinks(render("/", ADMIN))).toContain("Hesabım");
+  });
+
+  it("ana menü adıyla bulunur (ekran okuyucu ve e2e aynı adı kullanır)", () => {
+    expect(render("/", null).querySelector('nav[aria-label="Ana menü"]')).not.toBeNull();
+  });
+
+  it("bulunulan sayfanın bağlantısı aria-current=page taşır, diğerleri taşımaz", () => {
+    const el = render("/suggest", USER);
+    const link = (text: string) => Array.from(el.querySelectorAll("nav a")).find((a) => a.textContent === text)!;
+    expect(link("Kitap öner").getAttribute("aria-current")).toBe("page");
+    expect(link("Hesabım").getAttribute("aria-current")).toBeNull();
   });
 
   it("\"Çıkış\" logout'u çağırır", () => {
