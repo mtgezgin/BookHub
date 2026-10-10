@@ -15,6 +15,11 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 - **Açık maddeler:** canlı izleme ve alarm (henüz yok),
   [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular, 14 Dependabot PR'ı.
 
+> **Faz 14 — arayüz yeniden tasarımı (2026-10-10/11):** `feat/ui-redesign` dalında dört commit —
+> A tasarım temeli · B ana sayfa + detay · C formlar, gezinme, tema, moderasyon diyaloğu ·
+> D katalog sıralaması (`?sort=rating`). Push edilmedi; gerçek kapaklar karar bekliyor ·
+> [phase-14](phases/phase-14-ui-redesign.md).
+
 > **Ortam notu:** Kabukta `go` bulunamazsa `export PATH="/opt/homebrew/bin:$HOME/go/bin:$PATH"`
 > — git hook'ları da `go: command not found` ile bu yüzden patlıyor.
 
@@ -41,10 +46,11 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 | 11 | NGINX (tek origin, CSP, güvenilen proxy) | ✅ |
 | 12 | Kubernetes (kind'da doğrulandı) | ✅ |
 | 13 | Oturum sertleştirme (httpOnly çerez, token ailesi + reuse, CSRF, parola değişimi, Playwright) | ✅ |
+| 14 | Arayüz yeniden tasarımı (tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik, katalog sıralaması) | ✅ A–C · 🟡 D (kapaklar) |
 
 ## Faz 2'de ne oldu (özet)
 
-- **Uçlar:** `GET /api/books` (sayfalı: `?genre=&q=&limit=&offset=` → `{items,total,limit,offset}`),
+- **Uçlar:** `GET /api/books` (sayfalı: `?genre=&q=&sort=rating&limit=&offset=` → `{items,total,limit,offset}`),
   `GET /api/books/{id}` (türleriyle), `GET /api/genres`; admin: `POST /api/admin/books`,
   `PUT /api/admin/books/{id}/genres`, `POST/PATCH/DELETE /api/admin/genres`.
 - **Güvenlik dersleri (canlı):** BOLA/IDOR (görünürlük sınırı SQL'de: `GetApprovedBook`),

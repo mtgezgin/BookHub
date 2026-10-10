@@ -19,8 +19,8 @@ gerçek bir problem doğunca eklendi; kodun içi Türkçe "neden böyle" yorumla
   Docker · Kubernetes · GitHub Actions · Playwright. **ORM yok.**
 - **Kapsam:** MVP (Faz 1–7) + altyapı rayı (Faz 8–12) + oturum sertleştirme (Faz 13) tamam.
   Canlıda (2026-10-04): Northflank + Supabase + Upstash — [DEPLOYMENT.md](DEPLOYMENT.md).
-- **Boyut:** ~7.7k satır Go (+ ~9.3k satır test, 226 test fonksiyonu), ~1.2k satır TypeScript
-  (+ ~2.4k vitest, ~0.9k Playwright), 8 migration, 58 öğrenme notu.
+- **Boyut:** ~7.7k satır Go (+ ~9.3k satır test, 226 test fonksiyonu), ~2.4k satır TypeScript
+  (+ ~3.1k vitest, ~0.9k Playwright), 8 migration, 62 öğrenme notu.
 
 ---
 
