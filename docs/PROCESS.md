@@ -98,7 +98,10 @@ commit'e ilerletiyor. Sırla çalışan migration işi salt-okunur, dalı ilerle
   ilerlemez.
 - **Canlıya çıkmış migration dosyası değişmez.** goose sürümü numarasıyla takip eder; uygulanmış
   bir dosyanın yeni hâli canlıya hiç gitmez. Deploy, değişen/silinen bir migration dosyası
-  görürse durur. Düzeltme her zaman yeni bir migration'dır.
+  görürse durur. Düzeltme her zaman yeni bir migration'dır. Deploy'un **uygulamaya çalıştığı**
+  her migration canlıya çıkmış sayılır, release adımı düşmüş olsa bile: goose onu (ya da bir
+  kısmını) uygulamış olabilir, ama `release` ilerlemediği için Deploy'un koruması o dosyayı
+  hâlâ "yeni" görür.
 - **`release`'e elle push edilmez.** Özel repoda branch koruması ücretli (GitHub Pro ya da public
   repo); şimdilik bu bir kural.
 - Bekleyen yayınlar iptal edilmez, sırayla koşar. Release'in zaten kapsadığı bir commit'in

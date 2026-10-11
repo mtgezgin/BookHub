@@ -732,7 +732,7 @@ tek istekleri görmek için loglara bakılır.
 site birkaç dakikada güncelleniyordu ve bu bana yeterli görünüyordu. Çevirdikten sonra da
 "otomasyon `release`'e commit'i nasıl çıkarıyor, kod canlıya nasıl gidiyor?" diye sordum.
 
-**⚡ Kısa cevap:** `main`'e push edersin; GitHub testleri koşar (CI). Testler yeşilse Deploy iş
+**⚡ Kısa cevap:** `main`'e bir commit girer (PR birleştirme); GitHub testleri koşar (CI). Testler yeşilse Deploy iş
 akışı gerekiyorsa önce canlı veritabanına migration uygular, sonra `release` dalını o commit'e
 taşır. Northflank yalnız `release`'i izler; yeni commit'i görünce derler ve yayınlar. Kırmızı
 test ya da başarısız migration `release`'i hiç ilerletmez, yani canlıya hiçbir şey çıkmaz.
@@ -751,7 +751,7 @@ yayınlıyordu; CI aynı anda, ondan bağımsız koşuyordu. İki somut risk var
 **Yeni zincir:**
 
 ```
-git push main ──▶ ① CI: Backend · Frontend · Trivy · E2E
+PR → main ──────▶ ① CI: Backend · Frontend · Trivy · E2E
                      │ kırmızı ──▶ dur (canlı aynen kalır)
                      ▼ yeşil
                   ② Deploy (workflow_run: "CI bitti" haberiyle)
@@ -763,8 +763,8 @@ git push main ──▶ ① CI: Backend · Frontend · Trivy · E2E
 
 - **① CI** yalnız kod, iş akışı ya da betik değişince koşar (`paths` filtresi). Yalnız doküman
   değiştiren push CI'ı tetiklemez; o değişiklik bir sonraki yayına biner.
-- **② Deploy dört şart birlikte doğruysa başlar:** CI başarılı, tetikleyen bir push (PR değil),
-  dal `main`, biten iş akışı gerçekten `ci.yml` (adı "CI" olan sahte bir dosya kapıyı açamasın).
+- **② Deploy dört şart birlikte doğruysa başlar:** CI başarılı, tetikleyen bir push (PR'ın kendi
+  CI'ı değil; PR'ı birleştirmek `main`'e bir push'tur), dal `main`, biten iş akışı gerçekten `ci.yml` (adı "CI" olan sahte bir dosya kapıyı açamasın).
   Yayınlanan commit "main'in son hâli" değil, **CI'ın test ettiği commit** (`head_sha`).
 - **a) plan + migrate karar tablosu:**
 
@@ -772,7 +772,8 @@ git push main ──▶ ① CI: Backend · Frontend · Trivy · E2E
   |---|---|
   | `release` bu commit'i zaten içeriyor (CI'lar sırasız bitebilir) | atla |
   | `release` bu commit'in atası değil | dur, elle bakılmalı |
-  | Canlıya çıkmış bir migration değişmiş ya da silinmiş | dur: goose numarayla takip eder, yeni hâli sessizce atlardı |
+  | Aralık iş akışı dosyalarına dokunuyor, `main`'in ucu ise farklı iş akışı taşıyor | atla: Actions token'ı bu push'u reddederdi; `main` ucunun yayını bu commit'i de kapsar |
+  | Canlıya çıkmış bir migration değişmiş, silinmiş ya da yeniden adlandırılmış | dur: goose numarayla takip eder, yeni hâli sessizce atlardı |
   | Commit mesajında `[skip ci]` benzeri bir bayrak | uyarı: Northflank bütün yayını atlayabilir |
   | Yeni migration dosyası var | `manage migrate` → **koddan önce** uygulanır |
 
@@ -788,15 +789,20 @@ git push main ──▶ ① CI: Backend · Frontend · Trivy · E2E
 
 | İş | Yetki | Sır | Repo kodu çalıştırır mı? |
 |---|---|---|---|
-| plan + migrate | yalnız okuma | veritabanı | evet (Go modülleri) |
+| plan + migrate | yalnız okuma | veritabanı (yalnız migrate adımında) | yalnız yeni migration varsa (`setup-go` + `manage migrate`, Go modülleriyle) |
 | release | dal ilerletme (yazma) | yok | hayır, yalnız `git push` |
 
 Üçüncü taraf bir Go modülü ele geçirilse bile yazma yetkisine ulaşıp `release`'e kendi kodunu
 itemez; yazma yetkisi yabancı kod çalışmayan işte durur (tedarik zinciri savunması).
 
-**Gündelik akışta ne değişti?** Hiçbir şey: yine `main`'e push edilir. Tek fark, site anında
-değil testler bittikten sonra (5–10 dk) güncellenir. Ayar geri alınabilir: Northflank'ta dal
-yeniden `main` yapılırsa eski sisteme dönülür.
+**Gündelik akış:** dal → PR → CI yeşil → `main`'e birleştir (PROCESS §5). Yayını başlatan,
+`main`'e düşen birleştirme commit'i; site anında değil testler bittikten sonra (5–10 dk)
+güncellenir.
+
+**Geri dönmek:** Northflank'ta dal yeniden `main` yapılırsa kod yine push anında yayına çıkar ama
+Deploy migration'ları hâlâ CI'dan SONRA uygular, yani yeni kod kendi migration'ından önce canlıya
+çıkar. Geri dönülürse Deploy iş akışı da kapatılmalı ve migration push'tan önce elle
+(`manage migrate`) uygulanmalı.
 
 **Dürüst not:** JS dünyasındaki Vercel/Netlify varsayılanı da "her push yayına çıkar"; orada
 da kapı, CI'ı zorunlu kılan bir "korumalı dal" ya da "testler geçince üretime al" ayarıyla
