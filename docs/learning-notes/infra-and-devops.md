@@ -16,6 +16,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 9. [proxy_pass ve tek origin: NGINX isteği API'ye nasıl iletir?](#9-proxy_pass-ve-tek-origin-nginx-isteği-apiye-nasıl-iletir)
 10. [Docker ağında sabit IP ve güvenilen proxy: 172.28.0.10 nereden geliyor?](#10-docker-ağında-sabit-ip-ve-güvenilen-proxy-17228010-nereden-geliyor)
 11. [NGINX'i canlıda gözlemlemek: access log, API logu ve istek kimliği](#11-nginxi-canlıda-gözlemlemek-access-log-api-logu-ve-istek-kimliği)
+12. [CI'a bağlı yayın: push'tan canlıya otomasyon nasıl ilerliyor?](#12-cia-bağlı-yayın-pushtan-canlıya-otomasyon-nasıl-ilerliyor)
 
 ---
 
@@ -721,3 +722,93 @@ tek istekleri görmek için loglara bakılır.
 - [backend/cmd/api/middleware.go](../../backend/cmd/api/middleware.go) (`requestLogger`) ·
   [backend/cmd/api/router.go](../../backend/cmd/api/router.go) (`middleware.RequestID`)
 - [frontend/nginx/default.conf](../../frontend/nginx/default.conf) (`access_log off`)
+
+---
+
+## 12. CI'a bağlı yayın: push'tan canlıya otomasyon nasıl ilerliyor?
+
+**🗓️ Bağlam:** 2026-10-11'de Northflank'ı `main`'den `release` dalına çevirmem istendi. Önce
+"neden var olan sisteme göre devam etmiyoruz?" diye sordum: o zamana kadar `main`'e push edince
+site birkaç dakikada güncelleniyordu ve bu bana yeterli görünüyordu. Çevirdikten sonra da
+"otomasyon `release`'e commit'i nasıl çıkarıyor, kod canlıya nasıl gidiyor?" diye sordum.
+
+**⚡ Kısa cevap:** `main`'e push edersin; GitHub testleri koşar (CI). Testler yeşilse Deploy iş
+akışı gerekiyorsa önce canlı veritabanına migration uygular, sonra `release` dalını o commit'e
+taşır. Northflank yalnız `release`'i izler; yeni commit'i görünce derler ve yayınlar. Kırmızı
+test ya da başarısız migration `release`'i hiç ilerletmez, yani canlıya hiçbir şey çıkmaz.
+
+**📖 Açıklama:**
+
+**Eski sistem: "main'e push = canlı".** Northflank `main`'i izlerken push anında derleyip
+yayınlıyordu; CI aynı anda, ondan bağımsız koşuyordu. İki somut risk vardı:
+
+1. **Kırmızı test canlıya çıkar.** Örnek: 5 Ekim'de Trivy, nginx imajında HIGH bir açık buldu.
+   Eski sistemde o imaj yine de yayına çıkardı; kırmızı CI yalnız sonradan gelen bir uyarı olurdu.
+2. **Migration koddan SONRA koşar.** Yeni kod yeni bir kolonu okurken kolon henüz yoksa canlı API
+   hata verir. Bunu, push'tan önce Mac'ten elle `manage migrate` çalıştırarak önlüyordum;
+   unutulduğu gün canlı bozulurdu.
+
+**Yeni zincir:**
+
+```
+git push main ──▶ ① CI: Backend · Frontend · Trivy · E2E
+                     │ kırmızı ──▶ dur (canlı aynen kalır)
+                     ▼ yeşil
+                  ② Deploy (workflow_run: "CI bitti" haberiyle)
+                     a) plan + migrate ── yeni migration varsa canlı DB'ye uygula
+                     b) release ── git push <commit>:release (yalnız ileri)
+                                         │
+                  ③ Northflank release'i izler ──▶ derle ──▶ ④ CANLI
+```
+
+- **① CI** yalnız kod, iş akışı ya da betik değişince koşar (`paths` filtresi). Yalnız doküman
+  değiştiren push CI'ı tetiklemez; o değişiklik bir sonraki yayına biner.
+- **② Deploy dört şart birlikte doğruysa başlar:** CI başarılı, tetikleyen bir push (PR değil),
+  dal `main`, biten iş akışı gerçekten `ci.yml` (adı "CI" olan sahte bir dosya kapıyı açamasın).
+  Yayınlanan commit "main'in son hâli" değil, **CI'ın test ettiği commit** (`head_sha`).
+- **a) plan + migrate karar tablosu:**
+
+  | Kontrol | Sonuç |
+  |---|---|
+  | `release` bu commit'i zaten içeriyor (CI'lar sırasız bitebilir) | atla |
+  | `release` bu commit'in atası değil | dur, elle bakılmalı |
+  | Canlıya çıkmış bir migration değişmiş ya da silinmiş | dur: goose numarayla takip eder, yeni hâli sessizce atlardı |
+  | Commit mesajında `[skip ci]` benzeri bir bayrak | uyarı: Northflank bütün yayını atlayabilir |
+  | Yeni migration dosyası var | `manage migrate` → **koddan önce** uygulanır |
+
+  Migration başarısız olursa `release` ilerlemez. Koddan önce gittiği için her migration o an
+  canlıdaki ESKİ kodla da uyumlu olmalı: önce genişlet → yayınla → sonra daralt.
+- **b) release:** `git push origin <commit>:refs/heads/release`, `--force` yok. Yalnız ileri
+  sarma (fast-forward) mümkün; `release` geri gidemez, `main`'den sapamaz. Arka arkaya push'lar
+  sıraya girer (`queue: max`), birbirini iptal etmez.
+- **③ Northflank** panelindeki "CI ve CD açık" ayarı: commit gelince derle, derleme bitince
+  yayınla. Derleme başarısız olursa yeni imaj oluşmaz, eski sürüm çalışır.
+
+**Neden iki ayrı iş?** Yetkiyi bölmek için:
+
+| İş | Yetki | Sır | Repo kodu çalıştırır mı? |
+|---|---|---|---|
+| plan + migrate | yalnız okuma | veritabanı | evet (Go modülleri) |
+| release | dal ilerletme (yazma) | yok | hayır, yalnız `git push` |
+
+Üçüncü taraf bir Go modülü ele geçirilse bile yazma yetkisine ulaşıp `release`'e kendi kodunu
+itemez; yazma yetkisi yabancı kod çalışmayan işte durur (tedarik zinciri savunması).
+
+**Gündelik akışta ne değişti?** Hiçbir şey: yine `main`'e push edilir. Tek fark, site anında
+değil testler bittikten sonra (5–10 dk) güncellenir. Ayar geri alınabilir: Northflank'ta dal
+yeniden `main` yapılırsa eski sisteme dönülür.
+
+**Dürüst not:** JS dünyasındaki Vercel/Netlify varsayılanı da "her push yayına çıkar"; orada
+da kapı, CI'ı zorunlu kılan bir "korumalı dal" ya da "testler geçince üretime al" ayarıyla
+kurulur. GitHub'ın standart yolu "Environments" + onay kuralı; ücretsiz özel repoda bu yok, o
+yüzden kapıyı `release` dalı ve iş akışı kuruyor. Bedeli de var: GitHub'ın Actions token'ı iş
+akışı dosyası değiştiren bir commit'i, `main`'in ucu farklıysa `release`'e taşıyamıyor. Deploy bu
+durumda o commit'i atlar ve `main` ucunun yayını onu da kapsar (PROCESS §5).
+
+**🔗 İlgili:**
+- [.github/workflows/deploy.yml](../../.github/workflows/deploy.yml) ·
+  [.github/workflows/ci.yml](../../.github/workflows/ci.yml)
+- [docs/PROCESS.md](../PROCESS.md) §5 (yayın akışı, geri dönüş) · §9 (bir kerelik kurulum) ·
+  [docs/DEPLOYMENT.md](../DEPLOYMENT.md) §3
+- [#2 CI'da gerçek veritabanı](#2-cida-gerçek-veritabanı-servis-konteynerleri-ve-uçtan-uca-iş) ·
+  [#5 Trivy](#5-i̇maj-güvenlik-açığı-taraması-trivy-nedir-docker-scouttan-neden-farklı-sayar)
