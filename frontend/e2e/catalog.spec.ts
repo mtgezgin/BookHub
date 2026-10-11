@@ -15,10 +15,10 @@ const results = ".grid";
  *  2) FİLTRESİZ ilk sayfada VARDIR — yoksa iddia hiçbir şey kanıtlamadan yeşil kalırdı,
  *  3) demo katalog büyüdükçe orada kalır: liste `created_at DESC, id DESC` sıralı ve bu,
  *     demo_seed'in EN SON eklediği kitap — yani filtresiz ilk sayfanın en başındaki demo
- *     kaydı. (Kontrol: demo veride sıra Tek Oyla Zirve → Devlet → … → Kürk Mantolu Madonna;
+ *     kaydı. (Kontrol: demo veride sıra Aylak Adam → Fahrenheit 451 → … → Küçük Prens;
  *     "Tutunamayanlar" ilk EKLENEN kitap olduğu için 12'lik ilk sayfaya hiç girmez.)
  */
-const ABSENT = "Tek Oyla Zirve";
+const ABSENT = "Aylak Adam";
 
 test("arama başlığa göre süzer", async ({ page }) => {
   await page.goto("/");
