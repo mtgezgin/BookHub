@@ -4,7 +4,8 @@
 > hangi araç niye var. Uzun aradan sonra dönünce burayı oku.
 > **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
 >
-> Son güncelleme: 13 fazın tamamı bitti (2026-09-20 — Faz 13: oturum sertleştirme).
+> Son güncelleme: 2026-10-05 — canlıya çıkış (2026-10-04) ve yayın süreci. 13 fazın tamamı
+> 2026-09-20'de bitti (Faz 13: oturum sertleştirme).
 
 ---
 
@@ -17,9 +18,9 @@ gerçek bir problem doğunca eklendi; kodun içi Türkçe "neden böyle" yorumla
 - **Yığın:** Go (chi, pgx, sqlc, goose, slog) · PostgreSQL · Redis · React + Vite · NGINX ·
   Docker · Kubernetes · GitHub Actions · Playwright. **ORM yok.**
 - **Kapsam:** MVP (Faz 1–7) + altyapı rayı (Faz 8–12) + oturum sertleştirme (Faz 13) tamam.
-  Buluta deploy rehberi hazır, deploy edilmedi (hesap gerektirir).
+  Canlıda (2026-10-04): Northflank + Supabase + Upstash — [DEPLOYMENT.md](DEPLOYMENT.md).
 - **Boyut:** ~7.7k satır Go (+ ~9.3k satır test, 226 test fonksiyonu), ~1.2k satır TypeScript
-  (+ ~2.4k vitest, ~0.9k Playwright), 8 migration, 51 öğrenme notu.
+  (+ ~2.4k vitest, ~0.9k Playwright), 8 migration, 57 öğrenme notu.
 
 ---
 
@@ -85,7 +86,10 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `docker-compose.yml` | Postgres + Redis (her zaman) · api + web (`app` profili) · sabit alt ağ |
 | `.env.example` | env şablonu (dev değerleri, açıklamalı); gerçek `.env` git dışı |
 | `.githooks/` | pre-commit (gofmt + vet), pre-push (golangci-lint + test -race) |
-| `.github/workflows/` | `ci.yml` (backend / frontend / **images** = Trivy taraması / e2e = compose + smoke + Playwright), `release.yml` (yalnız tag/elle imaj yayını) |
+| `.github/workflows/` | `ci.yml` (backend / frontend / **images** = Trivy taraması / e2e = compose + smoke + Playwright), `deploy.yml` (main'de CI yeşil → yeni migration varsa uygula → `release` dalını ilerlet; Northflank yalnız `release`'i yayınlar), `release.yml` (yalnız tag/elle ghcr imaj yayını; yayın yolunun parçası değil) |
+| `.github/ISSUE_TEMPLATE/`, `pull_request_template.md` | özellik / bug / olay şablonları ve PR şablonu — [PROCESS.md](PROCESS.md) §2–§4 |
+| `CLAUDE.md` | proje kuralları: her Claude oturumu ve AI review kapısı okur (önleme kuralları burada) |
+| `scripts/setup-github.sh` | bir kerelik: etiketler + `release` dalı ([PROCESS.md](PROCESS.md) §9) |
 | `.github/dependabot.yml` | haftalık bağımlılık PR'ları: docker digest'leri, Go modülleri, npm, actions — digest pinlemenin diğer yarısı (Faz 13) |
 | `scripts/e2e.sh` | `make e2e`: yığını kaldırır, NGINX auth kovasını sıfırlar (web restart), demo veriyi basar, koşuya özel rastgele parolalı admin açar, Playwright'i koşar, çıkarken bu koşunun kullanıcılarını siler |
 | `deploy/k8s/` | Kubernetes manifestleri (kustomize) |
@@ -233,9 +237,10 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
 - Access token'lar stateless: çıkış / reuse iptali / parola değişimi / rol değişikliği **refresh**
   tarafını anında keser ama verilmiş access token'lar ≤ `JWT_ACCESS_TTL` (15 dk) yaşar
   ([REVIEW_FEEDBACK F06](REVIEW_FEEDBACK.md)).
-- [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki açık bulgular: F03–F09, F11–F15, F17 + F10'un
-  BookDetail yarısı, F16'nın release-gating yarısı.
+- [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki açık bulgular: F03, F04, F06–F09, F11–F15, F17 +
+  F10'un BookDetail yarısı, F16'nın kalan yarısı (`release.yml` ve `deploy/k8s/**` path filtresi).
+  F05 risk kabul edildi.
 - Kullanıcı silme ucu yok (hesap yalnızca veritabanından silinebiliyor).
-- Buluta deploy yapılmadı — [DEPLOYMENT.md](DEPLOYMENT.md).
+- Canlıda izleme ve alarm yok (sağlık kontrolü, uptime, hata izleme) — [DEPLOYMENT.md](DEPLOYMENT.md) §5.
 - Küme içi Postgres yalnız demo içindir; prod'da yönetilen veritabanı.
 - Ürün tarafındaki istekler ayrı bir listede: [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md).

@@ -109,30 +109,29 @@ Bu başlıkla birlikte işlenecek "neden böyle" soruları (hepsi bu repoda kar�
 
 ## 5. Açık işler (öğrenmeden bağımsız, sırada duruyor)
 
-1. **Deploy kararları** — [DEPLOYMENT.md](DEPLOYMENT.md) hazır. Kullanıcının vermesi gereken
-   üç karar: tek adres mi (önerilen: evet, `SameSite=Strict` çerez yüzünden), hangi platform
-   (öneri: Fly.io), Redis şart mı (iki API kopyası çalıştıracaksa evet). Hesaplar: Supabase +
-   platform (+ Upstash). **Sır asistana verilmez**, platformun secret alanına kullanıcı girer.
+1. ~~**Deploy kararları**~~ ✅ Yapıldı (2026-10-04): tek adres (NGINX), Northflank (Fly.io'nun
+   yeni hesaplara ücretsiz katmanı yok), Supabase + Upstash. Ayrıntı: [DEPLOYMENT.md](DEPLOYMENT.md);
+   süreç: [PROCESS.md](PROCESS.md). **Sır asistana verilmez**, platformun secret alanına kullanıcı girer.
 2. **Code review panelinin 4 tavsiyesi** (engelleyici değil, hepsi gerçek):
    harcanmış token'ların geri kazanılmaması · localStorage yazamayan tarayıcıda oturumun
    kullanılamaz hâle gelmesi · çıkış yeniden deneme zamanlayıcısının sızması · parola
    değişiminin kilit sırası değişmezini kırması (`LockUserLiveRefreshFamilies`'teki
    `revoked_at IS NULL`).
-3. **11 açık Dependabot PR'ı.** Dikkat isteyenler: TypeScript 5.9 → 7.0 (ana sürüm),
-   node 24-alpine → 25-alpine (Scout'ta 25 daha fazla açık gösteriyordu, birleştirmeden önce
-   `make scan`), @types/node 26 (çalışma zamanından ileri gitmemeli).
-4. **İki backlog:** [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) (15 açık bulgu) ve
+3. **Açık Dependabot PR'ları** (2026-10-05'te 14; güncel sayı: `gh pr list`). Dikkat isteyenler:
+   TypeScript 5.9 → 7.0 (ana sürüm), node 24-alpine → 26-alpine (birleştirmeden önce
+   `make scan`), @types/node 26 (çalışma zamanından ileri gitmemeli). Canlı yayın artık CI'a
+   bağlı: merge edilen her PR CI → Deploy yoluyla canlıya çıkar.
+4. **İki backlog:** [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) (12 açık + 2 yarım bulgu; F05 risk kabul edildi) ve
    [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) (ürün backlog'u; asistanın değerlendirmesi
    sohbette verildi — özeti: ACC-04 oturum listesi ve MOD-01 "Önerilerim" öne çekilmeli;
    REV-03, NOTIF-01, SOC-03, MOD-03/04, LIB-03, ACC-01 kesilmeli; CAT-02 tek sayfalık bir
    karar kaydına indirilmeli).
-5. **Bu dosya henüz push edilmedi** (push üç kapıdan geçiyor; bir sonraki iş partisiyle gider).
 
 ## 6. Sonraki oturumun ilk 5 dakikası
 
 1. Bu dosyayı oku.
-2. Kullanıcıya sor: bugün **öğrenme oturumu** mu (§3'ten sıradaki konu), **deploy** mu (§5.1),
-   yoksa **düzeltme** mi (§5.2)?
+2. Kullanıcıya sor: bugün **öğrenme oturumu** mu (§3'ten sıradaki konu), **canlıyı izleme**
+   mi ([PROCESS.md](PROCESS.md) §7), yoksa **düzeltme** mi (§5.2)?
 3. Öğrenme oturumuysa: kavramı anlat → repodaki satırı birlikte oku → deneyi **kullanıcı**
    yazsın (asistan yazmaz) → yoklama sorusunu sor → `/not` ile kaydet.
 4. Asistan uygulama kodunu yazmaya başlarsa kullanıcı "dur" desin; bu dosyanın §2'si o yüzden var.

@@ -18,8 +18,8 @@ type Config struct {
 	Port        string // HTTP sunucusunun dinleyeceği port (ör. "8080")
 	DatabaseURL string // Veritabanı bağlantı dizesi (ör. "postgres://...")
 	// AutoMigrate: açılışta gömülü migration'ları uygula. Dev/compose'da kolaylık;
-	// prod'da (Supabase pooler arkası) KAPALI kalmalı — migration doğrudan bağlantıyla
-	// ve bilinçli bir adım olarak koşar. Bu yüzden varsayılan false.
+	// prod'da KAPALI kalmalı — migration'ı yeni kod çıkmadan önce, bilinçli bir adım olarak
+	// Deploy iş akışı uygular (.github/workflows/deploy.yml). Bu yüzden varsayılan false.
 	AutoMigrate bool
 
 	// JWTSecret: access token'ların HMAC anahtarı. Zorunlu ve en az 32 bayt — koda ya da

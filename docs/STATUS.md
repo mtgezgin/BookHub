@@ -3,16 +3,17 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-09-20):** **13 fazın tamamı ✅** — MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-10-05):** **13 fazın tamamı ✅** — MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React frontend, CI/CD, NGINX,
 Kubernetes) + **Faz 13 oturum sertleştirme** (httpOnly refresh çerezi, token aileleri + reuse
-tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright). Açık maddeler: gerçek bulut
-deploy'u (senin hesapların gerekiyor — [DEPLOYMENT.md](DEPLOYMENT.md)) ve
-[REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular.
+tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 
-> **Faz 13 push edilmedi.** Bu satırlar yazılırken Faz 13'ün commit'leri (`ec2da77`…`5192b19` +
-> bu doküman commit'i) yereldeydi; push faz sonunda tek seferde yapılır (aşağıdaki "Git kapıları"
-> notu). Uzaktaki dal geride görünüyorsa önce `git log --oneline origin/main..HEAD` ile bak.
+- **Canlıda (2026-10-04):** Northflank (`web` public, `api` private) + Supabase + Upstash —
+  https://p01--web--4x2qb6s8vg5j.code.run · [DEPLOYMENT.md](DEPLOYMENT.md).
+- **Süreç (2026-10-05):** issue/PR şablonları, testlere bağlı yayın (`release` dalı + Deploy iş
+  akışı), [CLAUDE.md](../CLAUDE.md) kuralları · [PROCESS.md](PROCESS.md).
+- **Açık maddeler:** canlı izleme ve alarm (henüz yok),
+  [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular, 14 Dependabot PR'ı.
 
 > **Ortam notu:** Kabukta `go` bulunamazsa `export PATH="/opt/homebrew/bin:$HOME/go/bin:$PATH"`
 > — git hook'ları da `go: command not found` ile bu yüzden patlıyor.
@@ -36,7 +37,7 @@ deploy'u (senin hesapların gerekiyor — [DEPLOYMENT.md](DEPLOYMENT.md)) ve
 | 7 | Redis cache + rate limit + yük testi — **MVP sonu** | ✅ |
 | 8 | Docker imajı + compose (`app` profili) | ✅ |
 | 9 | Frontend (React + Vite) | ✅ |
-| 10 | CI/CD (servis konteynerleri, E2E, release) | ✅ (deploy hesap ister) |
+| 10 | CI/CD (servis konteynerleri, E2E, release) | ✅ (canlı: Northflank, 2026-10-04) |
 | 11 | NGINX (tek origin, CSP, güvenilen proxy) | ✅ |
 | 12 | Kubernetes (kind'da doğrulandı) | ✅ |
 | 13 | Oturum sertleştirme (httpOnly çerez, token ailesi + reuse, CSRF, parola değişimi, Playwright) | ✅ |
@@ -135,9 +136,9 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 ## Sıradaki (opsiyonel)
 
 1. **Canlı backlog'lar:** [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) (inceleme bulguları; açık olanlar
-   F03–F09, F11–F15, F17 + F10/F16'nın kalan yarıları) ve [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)
+   F03, F04, F06–F09, F11–F15, F17 + F10/F16'nın kalan yarıları; F05 risk kabul edildi) ve [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)
    (ürün fikirleri — senin sahipliğinde).
-2. Bulut deploy'u: [DEPLOYMENT.md](DEPLOYMENT.md) (Supabase + Upstash + konteyner platformu).
+2. Canlı izleme: Northflank sağlık kontrolleri, uptime izleyici, hata izleme — [PROCESS.md](PROCESS.md) §7.
 3. Bilinen borçlar: [PROJECT_MAP.md](PROJECT_MAP.md) §7.
 4. Brief §12 ekstraları (okuma listeleri, raporlar, öneri sistemi…).
 
@@ -147,6 +148,7 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 - CLI'lar `~/go/bin`: goose v3.27.2, sqlc v1.31.1, golangci-lint v2.13 (CI v2.12.2 pinli).
 - Docker Desktop + `docker compose up -d` → Postgres 16 (`127.0.0.1:5432`) + Redis 7 (`127.0.0.1:6380` — 6379 başka projenin). Veri named volume'da.
 - Tüm uygulama: `make app-up` → http://localhost:3000 · Kubernetes: `make k8s-up` / `make k8s-down` (kind).
+- Canlı: Northflank, `release` dalından yayınlanıyor; `release`'i yalnız Deploy iş akışı ilerletir — [PROCESS.md](PROCESS.md) §5.
 - `.env` = `.env.example` kopyası (dotenv YOK: `set -a; source .env; set +a` ile yükle).
 - Testler: `go test -race ./...` (DB'siz, CI gibi) · `TEST_DATABASE_URL="$DATABASE_URL" go test -race ./...` (DB'li).
 - Commit kimliği: repo-yerel `user.email=mehmetturgutgezgin@gmail.com`.
