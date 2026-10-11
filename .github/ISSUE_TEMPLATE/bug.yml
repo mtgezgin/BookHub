@@ -1,0 +1,87 @@
+name: Hata (bug)
+description: Beklenmeyen bir davranış. Tekrar üretme adımları ve kanıtla birlikte; öncelik kullanıcıya etkisine göre belirlenir.
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Triage'da bu kayda **tek bir karar** yorumu yazılır: *Doğrulandı · Tekrar üretilemedi · Tasarım gereği · Yapılandırma · Aslında özellik isteği · Tekrar / zaten düzeltildi*.
+        Her kararın yanında kanıt olur; kanıtsız "bug değil" deyip kapatılmaz. Ayrıntı: [docs/PROCESS.md](https://github.com/mtgezgin/BookHub/blob/main/docs/PROCESS.md)
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Ne oluyor?
+      description: Bir-iki cümle.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Ortam
+      options:
+        - Canlı (Northflank)
+        - Lokal, tam yığın (make app-up)
+        - Lokal, geliştirme (make run / make web)
+        - CI
+    validations:
+      required: true
+
+  - type: input
+    id: build
+    attributes:
+      label: Commit / sürüm
+      description: Canlı için `release` dalındaki commit; lokal için `git rev-parse --short HEAD` çıktısı.
+      placeholder: 470d7a1
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Tekrar üretme adımları
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Beklenen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Gerçekleşen
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Kanıt
+      description: >-
+        Ekran görüntüsü, log satırı ya da API cevabındaki `X-Request-Id` (API loglarında aynı kimlikle aranır).
+        Parola, token ya da çerez YAPIŞTIRMA.
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Etki
+      options:
+        - Herkes etkileniyor (site ya da giriş çalışmıyor)
+        - Bazı kullanıcılar / bazı akışlar
+        - Yalnız admin akışları
+        - Kozmetik
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Geçici çözüm
+      description: Kalıcı düzeltmeye kadar işi gören bir yol var mı? Varsa, düzeltme yayınlandıktan sonra kaldırılması ayrıca takip edilir.

@@ -1,0 +1,96 @@
+name: Özellik / iyileştirme
+description: Yeni bir davranış ya da mevcut bir davranışın iyileştirilmesi. Problemden başla, numaralı kabul kriterleriyle bitir.
+title: "[Özellik] "
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bir fikir **Backlog**'a yalnız problemle açılabilir. **Ready**'ye alınmadan önce kapsam ve kabul kriterleri doldurulur
+        ve en alttaki "Hazır mı?" kutuları işaretlenir (issue'yu düzenleyerek). Öncelik etiketini (`P0` / `P1` / `P2`)
+        sağdaki **Labels**'tan seç; görünmüyorsa issue açıldıktan sonra ekle.
+        Süreç: [docs/PROCESS.md](https://github.com/mtgezgin/BookHub/blob/main/docs/PROCESS.md)
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Bağlam / problem
+      description: Kim etkileniyor, bugün ne oluyor, neden önemli? Çözümü değil problemi anlat.
+      placeholder: |
+        Kim: ...
+        Bugün ne oluyor: ...
+        Neden önemli: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope_in
+    attributes:
+      label: Kapsam içi
+      description: Bu işte yapılacaklar, madde madde. Ready'den önce doldurulur.
+
+  - type: textarea
+    id: scope_out
+    attributes:
+      label: Kapsam dışı
+      description: Bilerek YAPILMAYACAKLAR. Kapsamın kaymasını en iyi bu bölüm önler. Ready'den önce doldurulur.
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Kabul kriterleri
+      description: >-
+        Numaralı ve test edilebilir cümleler ("X yapılınca Y olur"). Her kriter PR'da bir teste
+        (birim, entegrasyon, Playwright) ya da yazılı bir manuel adıma eşlenecek. Ready'den önce doldurulur.
+      placeholder: |
+        1. Giriş yapmamış kullanıcı /suggest adresine girince /login sayfasına yönlenir.
+        2. ...
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Doğrulama planı
+      description: Hangi kriter hangi testle ya da manuel adımla doğrulanacak? Yayından sonra canlıda neye bakılacak?
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Riskler ve geri dönüş
+      description: Migration var mı, canlıdaki kodla geriye uyumlu mu? Yanlış giderse nasıl geri alınır?
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Bağımlılıklar
+      description: Önce bitmesi gereken işler (#numara) ya da dış koşullar.
+
+  - type: textarea
+    id: open_questions
+    attributes:
+      label: Açık sorular
+      description: Cevabı bilinmeyenleri "[?]" ile işaretle. İş başlamadan cevaplanmalı ya da kapsam dışına alınmalı.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Alan
+      multiple: true
+      options:
+        - Backend (Go API)
+        - Frontend (React)
+        - Veritabanı / migration
+        - Altyapı (NGINX, Docker, CI, Northflank)
+        - Dokümantasyon
+
+  - type: checkboxes
+    id: ready
+    attributes:
+      label: Hazır mı?
+      description: Ready'ye alırken işaretle (issue'yu düzenleyerek). Biri bile eksikse iş Backlog'da kalır.
+      options:
+        - label: Problem, çözümden bağımsız anlatıldı
+        - label: Kapsam içi ve kapsam dışı yazıldı
+        - label: Her kabul kriteri test edilebilir bir cümle
+        - label: Açık sorular cevaplandı ya da kapsam dışına alındı
+        - label: Öncelik etiketi var
+        - label: Migration gerekiyorsa geriye uyumluluk planı yazıldı (genişlet → yayınla → daralt)
