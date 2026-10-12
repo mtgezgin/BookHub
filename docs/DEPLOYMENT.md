@@ -122,7 +122,10 @@ Eski `release.yml` (etiketle ghcr'ye imaj yayını) hiç çalışmadığı için
   ziyaretçiler arasında paylaşılıyor ([REVIEW_FEEDBACK](REVIEW_FEEDBACK.md) F04 ile ilgili).
 - **Supabase ücretsiz projesi** bir hafta hareketsiz kalınca duruyor ve kendiliğinden uyanmıyor;
   panelden *Restore*.
-- **Küçük makine** (0.1 vCPU): bcrypt yüzünden giriş ve kayıt 1–3 sn sürebilir.
+- **Küçük makine** (`nf-compute-10`, 0.1 vCPU): giriş ve kayıt 3–4 sn sürüyor (2026-10-12 ölçümü:
+  ağ ~0,45 sn + bcrypt cost 12 ~3,3 sn). Kodla düzelmez: cost 12'nin altına inilmez (CLAUDE.md).
+  Tek çare `api` servisinin planı: yerel ölçümle `nf-compute-20` (0.2 vCPU) ≈ 2 sn, `nf-compute-50`
+  (0.5 vCPU) ≈ 1 sn. Şimdilik plan değişmiyor (kullanıcı kararı, #32).
 - **API veritabanına sahip (owner) kullanıcıyla bağlanıyor** — kabul edilmiş risk
   ([REVIEW_FEEDBACK](REVIEW_FEEDBACK.md) F05).
 - **Veritabanı TLS bağlantısı sunucu kimliğini doğrulamıyor.** `sslmode=require` şifreler ama
