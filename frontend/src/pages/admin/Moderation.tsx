@@ -37,10 +37,13 @@ export function Moderation() {
   useEffect(() => {
     reloadRef.current = reload;
   });
-  // Bu sekmede başarıyla işlenmiş satırlar pasif kalır: işlenen kitabın durumu değiştiği için bu
-  // sekmede bir daha işlem göremez. Liste geç ya da eski bir sayfayla yenilense de ikinci işlem gitmez.
-  const [settled, setSettled] = useState<ReadonlySet<number>>(new Set());
+  // Başarıyla işlenmiş satırlar, işlemin BAŞLADIĞI sekmede pasif kalır: kitabın durumu değiştiği için
+  // o sekmede bir daha işlem göremez. Anahtar "sekme:kitap": işlem sürerken sekme değişirse geç gelen
+  // işaret yeni sekmeyi etkilemez. Sekme değişince temizlenir: arşivlenip geri yayınlanan kitap
+  // Yayında'da yeniden işlem görebilir.
+  const [settled, setSettled] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => setSettled(new Set()), [status]);
+  const settledKey = (id: number) => `${status}:${id}`;
 
   const toast = useToast();
   // Uçuştaki istek koruması: çift tıklama ikinci isteği göndermesin. Ref ikinci tıklamayı yeniden
@@ -49,14 +52,14 @@ export function Moderation() {
   // birlikte bırakır.
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
-  const act = async (fn: () => Promise<unknown>, done: string, id?: number) => {
+  const act = async (fn: () => Promise<unknown>, done: string, key?: string) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
       await fn();
-      if (id !== undefined) setSettled((s) => new Set(s).add(id));
+      if (key !== undefined) setSettled((s) => new Set(s).add(key));
       toast(done);
       await reloadRef.current();
     } catch (e) {
@@ -102,12 +105,12 @@ export function Moderation() {
                 <div className="flex shrink-0 gap-2">
                   {b.status === "PENDING" && (
                     <>
-                      <Button size="sm" disabled={busy || settled.has(b.id)} onClick={() => void act(() => api.approve(b.id), `“${b.title}” yayına alındı`, b.id)}>Onayla</Button>
-                      <Button size="sm" variant="destructive" disabled={busy || settled.has(b.id)} onClick={() => { setReason(""); setRejecting(b); }}>Reddet</Button>
+                      <Button size="sm" disabled={busy || settled.has(settledKey(b.id))} onClick={() => void act(() => api.approve(b.id), `“${b.title}” yayına alındı`, settledKey(b.id))}>Onayla</Button>
+                      <Button size="sm" variant="destructive" disabled={busy || settled.has(settledKey(b.id))} onClick={() => { setReason(""); setRejecting(b); }}>Reddet</Button>
                     </>
                   )}
-                  {b.status === "APPROVED" && <Button size="sm" variant="outline" disabled={busy || settled.has(b.id)} onClick={() => void act(() => api.archive(b.id), `“${b.title}” arşivlendi`, b.id)}>Arşivle</Button>}
-                  {b.status === "ARCHIVED" && <Button size="sm" variant="outline" disabled={busy || settled.has(b.id)} onClick={() => void act(() => api.restoreBook(b.id), `“${b.title}” yeniden yayında`, b.id)}>Geri yayınla</Button>}
+                  {b.status === "APPROVED" && <Button size="sm" variant="outline" disabled={busy || settled.has(settledKey(b.id))} onClick={() => void act(() => api.archive(b.id), `“${b.title}” arşivlendi`, settledKey(b.id))}>Arşivle</Button>}
+                  {b.status === "ARCHIVED" && <Button size="sm" variant="outline" disabled={busy || settled.has(settledKey(b.id))} onClick={() => void act(() => api.restoreBook(b.id), `“${b.title}” yeniden yayında`, settledKey(b.id))}>Geri yayınla</Button>}
                 </div>
               </Card>
             </li>
@@ -126,7 +129,7 @@ export function Moderation() {
               if (!rejecting) return;
               const target = rejecting;
               setRejecting(null);
-              void act(() => api.reject(target.id, reason), `“${target.title}” reddedildi`, target.id);
+              void act(() => api.reject(target.id, reason), `“${target.title}” reddedildi`, settledKey(target.id));
             }}
           >
             <DialogTitle>“{rejecting?.title}” reddedilsin mi?</DialogTitle>
