@@ -9,10 +9,10 @@
 #   scripts/e2e.sh --headed              # tarayıcıyı gör (TAM chromium ister — aşağıya bak)
 #   scripts/e2e.sh e2e/reuse.spec.ts     # tek dosya
 #
-# Gerekenler: docker, make, node/npx, openssl. Tarayıcı bir kereliğine:
-#   cd frontend && npx playwright install --only-shell chromium   # headless koşu (CI de bunu kurar)
+# Gerekenler: docker, make, node/npm, openssl. Tarayıcı bir kereliğine:
+#   cd frontend && npm run e2e:browsers                           # headless koşu (CI de bunu kurar)
 # --headed YALNIZ tam derlemeyle çalışır (headless-shell'de "Executable doesn't exist" verir):
-#   cd frontend && npx playwright install chromium                # ~100 MB fazladan, sadece hata ayıklamak için
+#   cd frontend && npm exec -- playwright install chromium                # ~100 MB fazladan, sadece hata ayıklamak için
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -82,10 +82,10 @@ echo "▶ e2e admin: $E2E_ADMIN_EMAIL"
 printf '%s\n' "$E2E_ADMIN_PASSWORD" |
 	docker exec -i bookhub-api /app/manage create-admin -email "$E2E_ADMIN_EMAIL" -name "E2E Admin"
 
-# "exec npx ..." DEĞİL: exec bu kabuğu değiştirirdi ve trap hiç çalışmaz, e2e kullanıcıları
+# "exec npm ..." DEĞİL: exec bu kabuğu değiştirirdi ve trap hiç çalışmaz, e2e kullanıcıları
 # veritabanında kalırdı.
 echo "▶ playwright"
-(cd frontend && npx playwright test "$@")
+(cd frontend && npm run -s e2e -- "$@")
 
 # NOT: dev yığını bir sonraki düz "make app-up" (AUTH_RATE_LIMIT_PER_MIN tanımsız) ile
 # varsayılan 10'a döner; o zamana kadar yükseltilmiş sınırla çalışır. Bu betik artık her

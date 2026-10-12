@@ -66,7 +66,7 @@ make help        # tüm hedefler
 ```
 
 `make e2e` yığını kendisi kaldırır, demo veriyi basar ve bu koşuya özel bir admin açar.
-Tarayıcıyı bir kereliğine indir: `cd frontend && npx playwright install --only-shell chromium`.
+Tarayıcıyı bir kereliğine indir: `cd frontend && npm run e2e:browsers`.
 
 Git kancaları (commit ve push öncesi repo kuralları, bir kez):
 `git config core.hooksPath .githooks` ve `brew install gitleaks shellcheck actionlint sqlc golangci-lint`.

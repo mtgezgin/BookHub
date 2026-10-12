@@ -94,7 +94,7 @@ web-test: ## Frontend tip kontrolü + testler
 # Uçtan uca: GERÇEK tarayıcı (chromium), gerçek NGINX + API + Postgres + Redis. Betik
 # yığını kendisi kaldırır, demo veriyi basar, bu koşuya özel bir admin açar ve çıkarken
 # açtığı kullanıcıları siler. Tarayıcı bir kereliğine:
-#   cd frontend && npx playwright install --only-shell chromium
+#   cd frontend && npm run e2e:browsers
 e2e: ## Playwright uçtan uca testleri (yığını kendisi kaldırır)
 	scripts/e2e.sh
 

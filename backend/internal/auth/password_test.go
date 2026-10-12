@@ -69,3 +69,16 @@ func TestHashPasswordWrapsBcryptError(t *testing.T) {
 		t.Errorf("hata bağlam mesajıyla sarılmalı, gelen %q", err)
 	}
 }
+
+// TestDummyHash: "kullanıcı yok" yolunun sahte hash'i gerçek bir parolanınkiyle aynı maliyette
+// (iki giriş yolu aynı sürer) ve girdisi rastgele: kaynakta sır gibi duran bir sabit yok, eski
+// sabit metin de onunla eşleşmez.
+func TestDummyHash(t *testing.T) {
+	h := dummyHash()
+	if cost, err := bcrypt.Cost(h); err != nil || cost != bcryptCost {
+		t.Errorf("cost: istenen %d, gelen %d (err %v)", bcryptCost, cost, err)
+	}
+	if bcrypt.CompareHashAndPassword(h, []byte("bookhub-timing-equaliser")) == nil {
+		t.Error("sahte hash sabit bir metinden üretilmiş")
+	}
+}
