@@ -119,7 +119,7 @@ jobs:
 
       - name: Set up Go
         if: steps.plan.outputs.skip == 'false' && steps.plan.outputs.migrate == 'true'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: backend/go.mod
           cache: false # sırla koşan iş, CI koşularının yazdığı önbelleği geri yüklemesin
