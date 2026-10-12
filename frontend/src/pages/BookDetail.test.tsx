@@ -268,6 +268,13 @@ describe("BookDetail — yükleme ve şablon", () => {
     expect(alertText(el)).toBe("kitap yüklenemedi");
   });
 
+  it("404 dışındaki yükleme hatasında sekme başlığı \"Kitap yüklenemedi\" olur, önceki sayfanınki kalmaz", async () => {
+    document.title = "Önceki kitap — BookHub";
+    stub({ book: () => Promise.reject(new ApiError(500, "internal", "kitap yüklenemedi")) });
+    await render();
+    expect(document.title).toBe("Kitap yüklenemedi — BookHub");
+  });
+
   it("kitap yüklenirken iskelet gösterir", async () => {
     stub({ book: () => new Promise<Book>(() => {}) });
     const { el } = await render();

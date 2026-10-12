@@ -299,3 +299,27 @@ func TestRepositoryListCountErrorWrapping(t *testing.T) {
 		t.Errorf("hata yolunda nil liste ve 0 toplam bekleniyordu, gelen %+v, %d", got, total)
 	}
 }
+
+// TestRepositoryListRatingAverageError: puana göre sıralamada önce genel ortalama okunur;
+// o sorgu (QueryRow) patlarsa List liste sorgusuna hiç geçmeden, "genel ortalama sorgusu"
+// bağlamıyla sarılı hatayı döner. Query ayrı bir hata döndürecek şekilde kurulu: liste
+// sorgusu atılsaydı gelen hata errConn değil o olurdu.
+func TestRepositoryListRatingAverageError(t *testing.T) {
+	errConn := errors.New("bağlantı koptu")
+	errList := errors.New("liste sorgusu atılmamalıydı")
+	repo := NewRepository(fakeDBTX{row: fakeRow{err: errConn}, queryErr: errList})
+
+	got, total, err := repo.List(context.Background(), ListFilter{Sort: SortRating, MinVotes: 5, ColdStart: 3, Limit: 20})
+	if !errors.Is(err, errConn) {
+		t.Fatalf("genel ortalama sorgusunun sarılı hatası bekleniyordu, gelen %v", err)
+	}
+	if errors.Is(err, errList) {
+		t.Errorf("ortalama hatasından sonra liste sorgusu atılmamalıydı, gelen %v", err)
+	}
+	if !strings.Contains(err.Error(), "genel ortalama sorgusu") {
+		t.Errorf("hata metni \"genel ortalama sorgusu\" bağlamını içermeli, gelen %q", err.Error())
+	}
+	if got != nil || total != 0 {
+		t.Errorf("hata yolunda nil liste ve 0 toplam bekleniyordu, gelen %+v, %d", got, total)
+	}
+}
