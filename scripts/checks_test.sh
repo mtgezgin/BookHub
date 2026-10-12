@@ -97,6 +97,22 @@ printf -- '-- +goose Up\nCREATE TABLE e (id int);\n' >backend/migrations/001_e.s
 git add backend/migrations/001_e.sql
 expect fail:"numarası canlıda kullanılmış" "baştaki sıfırlar numarayı değiştirmez (001 = 0001)" staged
 
+echo "▶ main'den birleştirme"
+new_repo mergemain
+git checkout -q -b feature
+printf 'özellik\n' >feature.txt && git add feature.txt && git commit -qm "özellik"
+git checkout -q main
+printf -- '-- +goose Up\nCREATE TABLE f (id int);\n' >backend/migrations/0002_f.sql
+git add backend/migrations/0002_f.sql && git commit -qm "0002"
+git update-ref refs/remotes/origin/release HEAD
+git checkout -q feature
+git merge -q --no-commit --no-ff main >/dev/null 2>&1
+expect pass "main'den gelen, canlıdaki migration birleştirmeyi durdurmaz" staged
+printf 'ALTER TABLE f ADD b int;\n' >>backend/migrations/0002_f.sql
+git add backend/migrations/0002_f.sql
+expect fail:"canlıya çıkmış migration" "birleştirmede canlıdaki migration değiştirilemez" staged
+git merge --abort
+
 echo "▶ commit mesajı atlama bayrakları"
 new_repo commitmsg
 msg="$WORK/msg"

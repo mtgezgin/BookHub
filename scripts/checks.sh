@@ -49,6 +49,14 @@ changes() {
 	esac
 }
 
+# blob_at <yol>: denetlenen hâlin blob kimliği (staged'de index, range'de HEAD).
+blob_at() {
+	case "$MODE" in
+	staged) git rev-parse -q --verify ":$1" || true ;;
+	range) git rev-parse -q --verify "$HEAD:$1" || true ;;
+	esac
+}
+
 # file_at <yol>: denetlenen hâl — staged'de index, range'de HEAD, ikisi de yoksa boş.
 file_at() {
 	case "$MODE" in
@@ -90,7 +98,17 @@ check_migrations() {
 	while IFS=$'\t' read -r status path new; do
 		[[ "$path" == backend/migrations/*.sql ]] || continue
 		case "$status" in
-		A*) check_migration_number "$path" "$released" ;;
+		A*)
+			# Canlıdaki bir dosya da "eklenmiş" görünebilir: main'i dala birleştirirken. O zaman
+			# numara zaten onun; yalnız içerik canlıdakiyle aynı kalmalı.
+			if git cat-file -e "origin/release:$path" 2>/dev/null; then
+				if [[ "$(blob_at "$path")" != "$(git rev-parse "origin/release:$path")" ]]; then
+					fail "canlıya çıkmış migration değişmez: $path (A) — düzeltme yeni bir migration'dır"
+				fi
+			else
+				check_migration_number "$path" "$released"
+			fi
+			;;
 		M* | D* | R*)
 			if git cat-file -e "origin/release:$path" 2>/dev/null; then
 				fail "canlıya çıkmış migration değişmez: $path (${status:0:1}) — düzeltme yeni bir migration'dır"
