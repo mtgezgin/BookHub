@@ -104,6 +104,8 @@ Geri dönüş ve yeniden deneme: [PROCESS.md](PROCESS.md) §5.
   go -C backend run ./cmd/manage migrate
   go -C backend run ./cmd/manage create-admin -email <e-posta>     # parola gizli sorulur
   docker run --rm -i postgres:16 psql "$DATABASE_URL" < backend/scripts/demo_seed.sql
+  # Kapaklar: migration 0009 seed'den ÖNCE boş tabloya uygulandı; seed'den sonra aynı dosyayı yeniden çalıştır.
+  docker run --rm -i postgres:16 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 < backend/migrations/0009_demo_book_covers.sql
   unset DATABASE_URL
   ```
   Bugün elle migration gerekirse (yalnız acil durumda, [CLAUDE.md](../CLAUDE.md)): önce

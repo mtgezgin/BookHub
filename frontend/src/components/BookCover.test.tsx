@@ -46,6 +46,8 @@ describe("BookCover", () => {
   it("resim varsa onu çizer", () => {
     const el = render(<BookCover title="Huzur" author="Tanpınar" src="https://example.com/k.jpg" />);
     expect(el.querySelector("img")!.getAttribute("src")).toBe("https://example.com/k.jpg");
+    // Kapaklar başka bir sunucudan (Open Library) geliyor: hangi sayfada olduğumuz ona gitmesin.
+    expect(el.querySelector("img")!.getAttribute("referrerpolicy")).toBe("no-referrer");
   });
 
   it("resim yüklenemezse üretilmiş kapağa düşer", () => {

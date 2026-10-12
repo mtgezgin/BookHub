@@ -152,16 +152,23 @@ zaten hazırdı (`cover_url` doluysa resim, yüklenemezse üretilmiş kapak). Ka
 
 1. **Kaynak: Open Library'ye bağlantı**, kopya tutmuyoruz. Kapak telifli bir eser; bağlantıyla
    gösterirken kopyalayıp yeniden dağıtmış olmayız. Kapak *kimliğiyle* adresler
-   (`covers.openlibrary.org/b/id/<id>-L.jpg`) hız sınırına girmez. Open Library'nin arşiv sunucusu
-   ara sıra yavaş; o zaman üretilmiş kapak görünür.
-2. **Baskı: Türkçe baskı varsa onun kapağı, yoksa özgün baskı.** 52 kitap gözle doğrulandı: arşiv
-   taramasından gelen bazı "kapaklar" iç sayfaydı (künye, önsöz) ya da serinin başka kitabıydı; beşi
-   elle değiştirildi. *Tehlikeli Oyunlar*'ın Open Library'de kapağı yok, üretilmiş kapak kalıyor.
+   (`covers.openlibrary.org/b/id/<id>-L.jpg?default=false`) hız sınırına girmez; `default=false`
+   sayesinde kalkmış bir kapak boş yer tutucu yerine 404 döner ve üretilmiş kapak görünür. Open
+   Library'nin arşiv sunucusu ara sıra yavaş: o sırada kart bir süre boş zeminle bekler, hata dönerse
+   üretilmiş kapağa düşer. Resim isteği ziyaretçinin tarayıcısından Open Library'ye gider (IP'si
+   onlara görünür); hangi sayfada olunduğu gitmez (`referrerPolicy="no-referrer"`).
+2. **Baskı: Türkçe baskı varsa onun kapağı, yoksa özgün baskı.** Demo seed'in 54 kitabından 53'ü
+   (moderasyonda bekleyen *Simyacı* dahil) gözle doğrulandı: arşiv taramasından gelen bazı "kapaklar"
+   iç sayfaydı (künye, önsöz) ya da serinin başka kitabıydı; beşi elle değiştirildi. *Tehlikeli
+   Oyunlar*'ın Open Library'de kapağı yok, üretilmiş kapak kalıyor.
 
-Veri `0009_demo_book_covers.sql` ile gelir: yalnız boş `cover_url`'leri doldurur (admin'in koyduğu
-kapak ezilmez), canlıya Deploy uygular; yerelde `make demo-seed` aynı dosyayı seed'den sonra
-yeniden çalıştırır. Bu yüzden dosyada Down bölümü yok. `migrations_test.go` her slug'ın seed'de
-olduğunu ve adreslerin biçimini denetler. Sıradaki adım: eser/baskı ayrımı ve baskı başına kapak
+Veri `0009_demo_book_covers.sql` ile gelir: slug + yazar eşleşen kitapta yalnız boş `cover_url`'i
+doldurur (admin'in koyduğu kapak ezilmez), canlıya Deploy uygular; yerelde `make demo-seed`, ilk
+kurulumda [DEPLOYMENT.md](../DEPLOYMENT.md) aynı dosyayı seed'den sonra yeniden çalıştırır. Bu yüzden
+dosyada Down bölümü yok. `migrations_test.go` her satırın seed'deki bir kitaba (slug + yazar)
+denk geldiğini, seed'deki her kitabın ya kapağı ya da gerekçeli bir istisnası olduğunu ve adreslerin
+biçimini denetler. Yayından sonra "en sevilenler" önbelleği (~60 sn) dolana kadar o şeritte eski
+(kapaksız) kayıtlar görünebilir. Sıradaki adım: eser/baskı ayrımı ve baskı başına kapak
 ([#36](https://github.com/mtgezgin/BookHub/issues/36)).
 
 ## ⚠️ Önemli noktalar
@@ -280,4 +287,4 @@ e2e testleriyle doğrulandı.
 ## ✅ Tamamlanma (Faz D)
 
 - [x] Katalog sıralaması: en yeni / en yüksek puan (ağırlıklı), backend + arayüz + testler.
-- [x] Gerçek kapaklar — Open Library bağlantısı, Türkçe baskı varsa o; 52/53 kitap, gözle doğrulandı (#34).
+- [x] Gerçek kapaklar — Open Library bağlantısı, Türkçe baskı varsa o; demo seed'in 54 kitabından 53'ü, gözle doğrulandı (#34).
