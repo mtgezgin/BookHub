@@ -201,6 +201,12 @@ describe("Home", () => {
     expect(calls.books.at(-1)).toEqual([{ q: "", genre: "", limit: 12, offset: 0 }]);
   });
 
+  it("bilinmeyen sort (?sort=title) varsayılan sıraya düşer: API'ye sort gitmez, \"En yeni\" basılı", async () => {
+    const { el } = await render("/?sort=title");
+    expect(calls.books).toEqual([[{ q: "", genre: "", limit: 12, offset: 0 }]]);
+    expect(button(el, "En yeni").getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("puan sırasındayken \"en sevilenler\" şeridi çizilmez (listenin başıyla aynı şey olurdu)", async () => {
     const { el } = await render("/?sort=rating");
     expect(el.querySelector(TOP)).toBeNull();

@@ -59,8 +59,7 @@ async function render(path: Entry) {
   return { el, loc };
 }
 
-async function submit(path: Entry, values: string[]) {
-  const { el, loc } = await render(path);
+async function fillAndSubmit(el: HTMLElement, values: string[]) {
   Array.from(el.querySelectorAll("input")).forEach((input, i) =>
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, values[i]);
@@ -71,7 +70,18 @@ async function submit(path: Entry, values: string[]) {
     el.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
   await act(async () => {});
+}
+
+async function submit(path: Entry, values: string[]) {
+  const { el, loc } = await render(path);
+  await fillAndSubmit(el, values);
   return { el, loc };
+}
+
+const submitButton = (el: HTMLElement) => Array.from(el.querySelectorAll("button")).find((b) => b.type === "submit")!;
+
+async function followLink(el: HTMLElement, text: string) {
+  await act(async () => Array.from(el.querySelectorAll("a")).find((a) => a.textContent === text)!.click());
 }
 
 const fromBook = { pathname: "/login", state: { from: { pathname: "/books/5", search: "?yorum=1" } } };
@@ -85,6 +95,26 @@ describe("Login", () => {
   it("uygulama dışı bir adrese (//site) asla yönlendirmez", async () => {
     const { loc } = await submit({ pathname: "/login", state: { from: { pathname: "//kotu.example", search: "" } } }, ["a@b.co", "parola123"]);
     expect(loc.pathname).toBe("/");
+  });
+
+  it("ters bölü ile başlayan yola (/\\site) da yönlendirmez", async () => {
+    const { loc } = await submit({ pathname: "/login", state: { from: { pathname: "/\\kotu.example", search: "" } } }, ["a@b.co", "parola123"]);
+    expect(loc.pathname).toBe("/");
+  });
+
+  it("\"Kayıt ol\" bağlantısı dönüş adresini taşır: kayıttan sonra geldiği sayfaya döner", async () => {
+    const { el, loc } = await render(fromBook);
+    await followLink(el, "Kayıt ol");
+    expect(loc.pathname).toBe("/register");
+    await fillAndSubmit(el, ["ali@example.com", "Ali", "parola123"]);
+    expect(loc.pathname).toBe("/books/5");
+  });
+
+  it("başarısız girişten sonra düğme yeniden kullanılabilir ve \"Giriş\" yazar", async () => {
+    h.login = () => Promise.reject(new ApiError(401, "invalid_credentials", "e-posta ya da parola hatalı"));
+    const { el } = await submit("/login", ["ali@example.com", "yanlis"]);
+    expect(submitButton(el).disabled).toBe(false);
+    expect(submitButton(el).textContent).toBe("Giriş");
   });
 
   it("gönderilirken düğme kilitli: ikinci tıklama ikinci isteği atmaz", async () => {
@@ -144,5 +174,28 @@ describe("Register", () => {
     expect(order).toEqual([]);
     expect(el.querySelector("[role=alert]")!.textContent).toBe("bu e-posta zaten kayıtlı");
     expect(loc.pathname).toBe("/register");
+    expect(submitButton(el).disabled).toBe(false);
+    expect(submitButton(el).textContent).toBe("Kayıt ol");
+  });
+
+  it("\"Giriş yap\" bağlantısı dönüş adresini taşır: girişten sonra geldiği sayfaya döner", async () => {
+    const { el, loc } = await render({ pathname: "/register", state: fromBook.state });
+    await followLink(el, "Giriş yap");
+    expect(loc.pathname).toBe("/login");
+    await fillAndSubmit(el, ["ali@example.com", "parola123"]);
+    expect(loc.pathname).toBe("/books/5");
+  });
+
+  it("kayıt sürerken düğme kilitli: ikinci tıklama register'ı yeniden çağırmaz", async () => {
+    let calls = 0;
+    (api as unknown as Record<string, unknown>).register = () => {
+      calls++;
+      return new Promise(() => {});
+    };
+    const { el } = await submit("/register", ["ali@example.com", "Ali", "parola123"]);
+    expect(submitButton(el).disabled).toBe(true);
+    expect(submitButton(el).textContent).toBe("Kaydediliyor…");
+    await act(async () => submitButton(el).click());
+    expect(calls).toBe(1);
   });
 });

@@ -65,6 +65,7 @@ test("puan özeti anında güncellenir, yorum listenin başında görünür", as
   // "active" eski puanda (8) kalır, beklenen ise 9'dur.
   await expect(picker.locator("button[aria-pressed=true]")).toHaveText(String(score));
   await expect(summary).toContainText(`(${expected} oy)`);
+  await expect(page.getByRole("region", { name: "Bildirimler" })).toContainText(`Puanın kaydedildi: ${score}/10`);
 
   // Yorum: içerik REACT'te metin olarak basılır — köşeli parantezli bir şey yazsak bile
   // çalışmaz, görünür (XSS'e karşı asıl duvar).

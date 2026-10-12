@@ -64,4 +64,14 @@ describe("toast", () => {
     const el = render(<Trigger message="sessiz" />);
     expect(() => click(el, "tetikle")).not.toThrow();
   });
+  it("en çok üç bildirim durur: dördüncüsü gelince en eskisi düşer", () => {
+    function Many() {
+      const toast = useToast();
+      return <button onClick={() => ["bir", "iki", "üç", "dört"].forEach((m) => toast(m))}>dört kez</button>;
+    }
+    const el = render(<ToastProvider><Many /></ToastProvider>);
+    click(el, "dört kez");
+    const messages = Array.from(region(el).querySelectorAll("span")).map((s) => s.textContent);
+    expect(messages).toEqual(["iki", "üç", "dört"]);
+  });
 });

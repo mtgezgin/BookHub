@@ -357,3 +357,27 @@ func TestHandleListBooksGenresError(t *testing.T) {
 		t.Errorf("500 internal bekleniyordu: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// TestListBooksRatingMinVotesFromDeps, router'a verilen ratingMinVotes'un (RATING_MIN_VOTES)
+// yalnız ?sort=rating filtresine m olarak taşındığını doğrular; newest sırası m'yi taşımaz.
+func TestListBooksRatingMinVotesFromDeps(t *testing.T) {
+	tests := []struct {
+		url  string
+		want float64
+	}{
+		{"/api/books?sort=rating", 25},
+		{"/api/books?sort=newest", 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.url, func(t *testing.T) {
+			var got books.ListFilter
+			rec := do(t, newRouter(deps{books: fakeBooks{filter: &got}, ratingMinVotes: 25}), http.MethodGet, tc.url, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("durum kodu: istenen 200, gelen %d (%s)", rec.Code, rec.Body)
+			}
+			if got.MinVotes != tc.want {
+				t.Errorf("MinVotes: istenen %v, gelen %v", tc.want, got.MinVotes)
+			}
+		})
+	}
+}
