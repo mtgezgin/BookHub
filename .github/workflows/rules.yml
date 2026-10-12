@@ -29,9 +29,12 @@ jobs:
       PUSH_BEFORE: ${{ github.event.before }}
       PUSH_AFTER: ${{ github.sha }}
     steps:
+      # PR'da varsayılan, GitHub'ın deneme birleştirmesidir; kurallar ise PR'ın kendi commit'ine bakar.
+      # Araç kontrolleri (sqlc, tidy, lint) de aynı ağaçta koşsun diye PR head'i çekilir.
       - name: Checkout (tüm geçmiş ve dallar; aralık ve origin/release gerekiyor)
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 

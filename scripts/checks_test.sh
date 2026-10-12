@@ -91,11 +91,28 @@ expect pass "henüz release'te olmayan migration düzeltilebilir" staged
 git reset -q --hard HEAD
 printf -- '-- +goose Up\nCREATE TABLE e (id int);\n' >backend/migrations/0001_e.sql
 git add backend/migrations/0001_e.sql
-expect fail:"numarası canlıda kullanılmış" "canlıdaki bir migration numarası yeniden kullanılamaz" staged
+expect fail:"numarası kullanılmış" "canlıdaki bir migration numarası yeniden kullanılamaz" staged
 git rm -q --cached backend/migrations/0001_e.sql && rm backend/migrations/0001_e.sql
 printf -- '-- +goose Up\nCREATE TABLE e (id int);\n' >backend/migrations/001_e.sql
 git add backend/migrations/001_e.sql
-expect fail:"numarası canlıda kullanılmış" "baştaki sıfırlar numarayı değiştirmez (001 = 0001)" staged
+expect fail:"numarası kullanılmış" "baştaki sıfırlar numarayı değiştirmez (001 = 0001)" staged
+git rm -q --cached backend/migrations/001_e.sql && rm backend/migrations/001_e.sql
+mkdir -p backend/draft
+printf -- '-- +goose Up\nCREATE TABLE g (id int);\n' >backend/draft/0001_g.sql
+git add backend/draft/0001_g.sql && git commit -qm "taslak"
+git mv backend/draft/0001_g.sql backend/migrations/0001_g.sql
+expect fail:"numarası kullanılmış" "migrations/ klasörüne taşınan dosyanın numarası da denetlenir" staged
+
+new_repo unreleased
+git checkout -q -b feature
+git checkout -q main
+printf -- '-- +goose Up\nCREATE TABLE x (id int);\n' >backend/migrations/0002_x.sql
+git add backend/migrations/0002_x.sql && git commit -qm "0002 main'de, henüz yayında değil"
+git update-ref refs/remotes/origin/main HEAD
+git checkout -q feature
+printf -- '-- +goose Up\nCREATE TABLE y (id int);\n' >backend/migrations/0002_y.sql
+git add backend/migrations/0002_y.sql
+expect fail:"numarası kullanılmış" "main'de olup henüz yayınlanmamış numara da kullanılamaz" staged
 
 echo "▶ main'den birleştirme"
 new_repo mergemain
@@ -111,6 +128,20 @@ expect pass "main'den gelen, canlıdaki migration birleştirmeyi durdurmaz" stag
 printf 'ALTER TABLE f ADD b int;\n' >>backend/migrations/0002_f.sql
 git add backend/migrations/0002_f.sql
 expect fail:"canlıya çıkmış migration" "birleştirmede canlıdaki migration değiştirilemez" staged
+git merge --abort
+
+new_repo mergeconflict
+git checkout -q -b feature
+printf -- '-- +goose Up\nCREATE TABLE f (id int, v2 int);\n' >backend/migrations/0002_f.sql
+git add backend/migrations/0002_f.sql && git commit -qm "0002 v2 (dalda kalan)"
+git checkout -q main
+printf -- '-- +goose Up\nCREATE TABLE f (id int);\n' >backend/migrations/0002_f.sql
+git add backend/migrations/0002_f.sql && git commit -qm "0002 v1 (yayında)"
+git update-ref refs/remotes/origin/release HEAD
+git checkout -q feature
+git merge -q --no-commit --no-ff main >/dev/null 2>&1 || true
+git checkout -q --theirs backend/migrations/0002_f.sql && git add backend/migrations/0002_f.sql
+expect pass "çakışma canlıdaki hâle çözülünce commit geçer" staged
 git merge --abort
 
 echo "▶ commit mesajı atlama bayrakları"
@@ -188,6 +219,24 @@ base="$(git rev-parse HEAD)"
 printf -- '-- +goose Up\nCREATE TABLE d (id int);\n' >backend/migrations/0002_d.sql
 git add -A && git commit -qm "feat: yeni tablo"
 expect pass "temiz bir aralık geçer" "$CHECKS" range "$base" HEAD
+new_repo range4
+base="$(git rev-parse HEAD)"
+git checkout -q -b feature
+git checkout -q main
+printf -- '-- +goose Up\nCREATE TABLE h (id int);\n' >backend/migrations/0002_h.sql
+git add backend/migrations/0002_h.sql && git commit -qm "0002 yayında"
+git update-ref refs/remotes/origin/release HEAD
+git checkout -q feature
+printf -- '-- +goose Up\nCREATE TABLE h (id int);\n' >backend/migrations/0002_h.sql
+git add backend/migrations/0002_h.sql && git commit -qm "aynı dosya dalda da var"
+expect pass "aralıkta canlıdakiyle aynı migration geçer" "$CHECKS" range main feature
+printf 'ALTER TABLE h ADD b int;\n' >>backend/migrations/0002_h.sql
+git add backend/migrations/0002_h.sql && git commit -qm "dalda değişti"
+expect fail:"canlıya çıkmış migration" "aralıkta canlıdakinden farklı migration durur" "$CHECKS" range main feature
+new_repo range5
+base="$(git rev-parse HEAD)"
+printf 'b\n' >b.txt && git add b.txt && git commit -q --cleanup=verbatim -m "feat: b" -m "#24 [skip ci]"
+expect fail:"atlama bayrağı" "aralıkta # ile başlayan commit satırı da taranır" "$CHECKS" range "$base" HEAD
 
 echo
 echo "$PASS geçti, $FAIL kaldı"

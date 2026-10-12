@@ -93,55 +93,87 @@ check_migrations() {
 		fi
 		return
 	fi
-	local released status path new
-	released="$(git ls-tree --name-only origin/release backend/migrations/ | sed -nE 's|^backend/migrations/([0-9]+)_[^/]*\.sql$|\1|p')"
+	# Kullanılmış numaralar ("numara yol"): canlıdakiler ve main'e girmiş ama henüz yayınlanmamışlar.
+	local taken status path new
+	taken="$(for ref in origin/release origin/main; do
+		if git rev-parse --verify -q "$ref" >/dev/null; then git ls-tree --name-only "$ref" backend/migrations/; fi
+	done | sed -nE 's|^(backend/migrations/([0-9]+)_[^/]*\.sql)$|\2 \1|p' | sort -u)"
 	while IFS=$'\t' read -r status path new; do
-		[[ "$path" == backend/migrations/*.sql ]] || continue
 		case "$status" in
-		A*)
-			# Canlıdaki bir dosya da "eklenmiş" görünebilir: main'i dala birleştirirken. O zaman
-			# numara zaten onun; yalnız içerik canlıdakiyle aynı kalmalı.
-			if git cat-file -e "origin/release:$path" 2>/dev/null; then
-				if [[ "$(blob_at "$path")" != "$(git rev-parse "origin/release:$path")" ]]; then
-					fail "canlıya çıkmış migration değişmez: $path (A) — düzeltme yeni bir migration'dır"
-				fi
-			else
-				check_migration_number "$path" "$released"
+		R*)
+			if [[ "$path" == backend/migrations/*.sql ]] && released "$path"; then
+				fail "canlıya çıkmış migration değişmez: $path (R) — düzeltme yeni bir migration'dır"
+			fi
+			if [[ "$new" == backend/migrations/*.sql ]]; then check_added_migration "$new" "$taken"; fi
+			;;
+		D*)
+			if [[ "$path" == backend/migrations/*.sql ]] && released "$path"; then
+				fail "canlıya çıkmış migration değişmez: $path (D) — düzeltme yeni bir migration'dır"
 			fi
 			;;
-		M* | D* | R*)
-			if git cat-file -e "origin/release:$path" 2>/dev/null; then
+		A*)
+			if [[ "$path" == backend/migrations/*.sql ]]; then check_added_migration "$path" "$taken"; fi
+			;;
+		*)
+			# Değişen dosya canlıdakiyle birebir aynıysa sorun yok: main'i birleştirirken çakışma canlıdaki
+			# hâle çözülmüş olabilir.
+			if [[ "$path" == backend/migrations/*.sql ]] && released "$path" && ! same_as_release "$path"; then
 				fail "canlıya çıkmış migration değişmez: $path (${status:0:1}) — düzeltme yeni bir migration'dır"
-			elif [[ "$status" == R* ]]; then
-				check_migration_number "$new" "$released"
 			fi
 			;;
 		esac
 	done < <(changes)
 }
 
-# check_migration_number <yol> <canlıdaki numaralar>: yeni dosyanın numarası canlıda kullanılmış mı.
+# released <yol>: dosya canlıda (origin/release'te) var mı.
+released() { git cat-file -e "origin/release:$1" 2>/dev/null; }
+
+# same_as_release <yol>: denetlenen hâl canlıdakiyle birebir aynı mı.
+same_as_release() { [[ "$(blob_at "$1")" == "$(git rev-parse "origin/release:$1")" ]]; }
+
+# check_added_migration <yol> <kullanılmış numaralar>: dala yeni gelen (eklenen ya da taşınan) dosya.
+check_added_migration() {
+	if released "$1"; then
+		# main'i dala birleştirirken canlıdaki dosya da "eklenmiş" görünür: numara zaten onun; yalnız
+		# içerik canlıdakiyle aynı kalmalı.
+		if ! same_as_release "$1"; then
+			fail "canlıya çıkmış migration değişmez: $1 — düzeltme yeni bir migration'dır"
+		fi
+	else
+		check_migration_number "$1" "$2"
+	fi
+}
+
+# check_migration_number <yol> <"numara yol" satırları>: numara başka bir dosyada kullanılmış mı (aynı
+# yoldaki dosya kendisidir; main'i birleştirirken gelir).
 check_migration_number() {
-	local name="${1##*/}" num n
+	local name="${1##*/}" num n p
 	num="${name%%_*}"
 	[[ "$num" =~ ^[0-9]+$ ]] || return 0
-	for n in $2; do
-		if ((10#$n == 10#$num)); then
-			fail "migration numarası canlıda kullanılmış: $1 ($num) — yeni bir numara al"
+	while read -r n p; do
+		if [[ -n "$n" && "$p" != "$1" ]] && ((10#$n == 10#$num)); then
+			fail "migration numarası kullanılmış: $1 ($num, $p) — yeni bir numara al"
 			return
 		fi
-	done
+	done <<<"$2"
 }
 
 # Kural: commit mesajında atlama bayrağı olmaz; Northflank aynı push'taki tek bir bayrak yüzünden
-# bütün yayını atlar. GitHub ayrıca "skip-checks: true" satırıyla kontrolleri atlar. Git'in yorum
-# satırları (#) ve `git commit -v`'nin makas çizgisinden sonraki diff'i mesaja girmez (git onları
-# kancadan SONRA atar).
+# bütün yayını atlar. GitHub ayrıca "skip-checks: true" satırıyla kontrolleri atlar.
+#
+# check_commit_message <dosya> [raw]: commit-msg kancasında git'in yorum satırları (#) ve
+# `git commit -v`'nin makas çizgisinden sonraki diff'i mesaja girmez (git onları kancadan SONRA atar).
+# raw (range modu): mesajlar commit'lenmiş hâliyle gelir; '#' ile başlayan satır da mesajın parçası
+# (GitHub arayüzü, --cleanup=verbatim).
 SKIP_FLAGS='\[(skip ci|ci skip|no ci|skip actions|actions skip|skip nf|nf skip|northflank skip|skip northflank)\]|^skip-checks: ?true'
 check_commit_message() {
 	local hit
 	# grep -q DEĞİL: ilk eşleşmede çıkınca öndeki komut SIGPIPE alır, pipefail eşleşmeyi yok sayar.
-	hit="$(sed '/^# -\{24\} >8 -\{24\}$/,$d' "$1" | grep -v '^#' | grep -oiE "$SKIP_FLAGS" | sed -n 1p || true)"
+	if [[ "${2:-}" == raw ]]; then
+		hit="$(grep -oiE "$SKIP_FLAGS" "$1" | sed -n 1p || true)"
+	else
+		hit="$(sed '/^# -\{24\} >8 -\{24\}$/,$d' "$1" | grep -v '^#' | grep -oiE "$SKIP_FLAGS" | sed -n 1p || true)"
+	fi
 	if [[ -n "$hit" ]]; then
 		fail "commit mesajında atlama bayrağı var ($hit) — Northflank yayını atlar"
 	fi
@@ -241,7 +273,7 @@ range)
 	HEAD="${3:?head gerekli}"
 	msgs="$(mktemp)"
 	git log --format=%B "$BASE..$HEAD" >"$msgs"
-	check_commit_message "$msgs"
+	check_commit_message "$msgs" raw
 	rm -f "$msgs"
 	check_forbidden_paths
 	check_migrations
