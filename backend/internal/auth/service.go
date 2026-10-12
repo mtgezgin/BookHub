@@ -148,9 +148,10 @@ func NewService(s store, tokens *TokenManager, refreshTTL, sessionMaxAge time.Du
 // bcrypt ~250 ms sürer. Saldırgan yalnızca SÜREYE bakarak hangi e-postaların kayıtlı
 // olduğunu çıkarabilir (timing-based user enumeration) — mesajı generic yapmak yetmez.
 // Kullanıcı yoksa da aynı maliyette bir karşılaştırma yapınca iki yol aynı sürede biter.
-// sync.OnceValue: süreç başına BİR kez üretilir.
+// sync.OnceValue: süreç başına BİR kez üretilir. Girdi rastgele: hiçbir parola bu hash'le
+// eşleşmez ve kaynakta sır gibi duran bir sabit kalmaz.
 var dummyHash = sync.OnceValue(func() []byte {
-	h, err := bcrypt.GenerateFromPassword([]byte("bookhub-timing-equaliser"), bcryptCost)
+	h, err := bcrypt.GenerateFromPassword([]byte(rand.Text()), bcryptCost)
 	if err != nil {
 		panic(fmt.Sprintf("dummy hash üretilemedi: %v", err)) // yalnızca bellek/RNG arızası
 	}

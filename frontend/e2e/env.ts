@@ -76,7 +76,7 @@ export function e2eTitlePrefix(): string {
 }
 
 function randomSlug(): string {
-  return Math.random().toString(36).slice(2, 10);
+  return crypto.randomUUID().replaceAll("-", "").slice(0, 8);
 }
 
 /**

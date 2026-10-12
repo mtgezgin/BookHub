@@ -17,9 +17,11 @@ FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b533
 WORKDIR /src
 # Önce yalnız paket dosyaları: bağımlılık katmanı kod değişiminde cache'ten gelir.
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# --ignore-scripts: bağımlılıkların kurulum betikleri çalışmaz. Paketleme projenin betiğiyle (npx değil);
+# yalnız vite: tip kontrolü CI'ın işi, test koduna ait bir tip hatası yayın imajını durdurmasın.
+RUN npm ci --no-audit --no-fund --ignore-scripts
 COPY . .
-RUN npx vite build
+RUN npm run bundle
 
 # ---------- Aşama 2: sunum ----------
 # nginx-UNPRIVILEGED: süreç root DEĞİL (uid 101) çalışır. Bedeli: 1024 altı portlara bağlanamaz

@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "bundle": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
+    "e2e:browsers": "playwright install --only-shell chromium",
     "preview": "vite preview"
   },
   "dependencies": {

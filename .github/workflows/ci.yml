@@ -42,13 +42,14 @@ jobs:
 
     # SERVİS KONTEYNERLERİ: iş boyunca yanımızda çalışan gerçek Postgres ve Redis.
     # Entegrasyon testleri TEST_DATABASE_URL / TEST_REDIS_URL görünce atlanmaz, gerçekten koşar.
-    # Kimlik bilgileri bu atılabilir runner'a özgü; hiçbir yere erişim vermez.
+    # Parola yok (trust): konteyner yalnız bu iş boyunca, yalnız bu runner'da yaşar; kaynakta parola
+    # gibi duran bir değer de kalmaz.
     services:
       postgres:
         image: postgres:16
         env:
           POSTGRES_USER: bookhub
-          POSTGRES_PASSWORD: bookhub_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: bookhub_test
         ports: ["5432:5432"]
         options: >-
@@ -62,7 +63,7 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 10
 
     env:
-      TEST_DATABASE_URL: postgres://bookhub:bookhub_ci@localhost:5432/bookhub_test?sslmode=disable
+      TEST_DATABASE_URL: postgres://bookhub@localhost:5432/bookhub_test?sslmode=disable
       TEST_REDIS_URL: redis://localhost:6379/0
 
     steps:
@@ -98,7 +99,7 @@ jobs:
       # golangci-lint (kalite/bug linter — ESLint'in Go karşılığı) — otoriter backstop.
       # Sürüm reproducibility için pinlendi (lokal sürüm ufak farklı olabilir; otorite CI'dır).
       - name: Lint (golangci-lint)
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.14.0
           working-directory: backend
@@ -116,10 +117,13 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci # lock dosyasına BİREBİR sadık kurulum (npm install'ın aksine)
+      # Lock dosyasına BİREBİR sadık kurulum; --ignore-scripts: bağımlılıkların kurulum betikleri
+      # çalışmaz (ele geçirilmiş bir paketin en kolay kod çalıştırma yolu). Araçlar npx değil
+      # projenin betikleriyle koşar: sürüm lock'tan gelir, hiçbir şey indirilmez.
+      - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
-      - run: npx vite build
+      - run: npm run bundle
 
   # Yayınlanan İKİ imajı derleyip bilinen açıklara (CVE) karşı tara. Derleme aşamalarındaki
   # paketler (node, npm, golang) son imaja girmez; taranan şey gerçekten dağıtılan içeriktir.
@@ -208,14 +212,14 @@ jobs:
 
       - name: npm ci
         working-directory: ./frontend
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       # --only-shell: yalnız chromium-headless-shell (tam chromium değil; playwright.config.ts
       # bu yüzden `devices['Desktop Chrome']` kullanmıyor). --with-deps: runner'a eksik
       # sistem kütüphanelerini kurar.
       - name: Install chromium (headless shell)
         working-directory: ./frontend
-        run: npx playwright install --with-deps --only-shell chromium
+        run: npm run e2e:browsers -- --with-deps
 
       # Admin parolası rastgele ve TEK STEP içinde kalır: $GITHUB_ENV'e yazılsaydı işin geri
       # kalan tüm adımlarına sızardı. ::add-mask:: ile de log'da yıldızlanıyor.
@@ -230,7 +234,7 @@ jobs:
           export E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD
           printf '%s\n' "$E2E_ADMIN_PASSWORD" \
             | docker exec -i bookhub-api /app/manage create-admin -email "$E2E_ADMIN_EMAIL" -name "E2E Admin"
-          npx playwright test
+          npm run e2e
 
       # YALNIZ hata durumunda: rapor ve trace'ler çerez/parola içerir, her yeşil koşuda
       # saklamanın anlamı yok. Kısa saklama süresi aynı gerekçenin devamı.
