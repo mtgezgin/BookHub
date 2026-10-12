@@ -13,9 +13,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-label() { # ad renk açıklama
-	gh label create "$1" --color "$2" --description "$3" --force >/dev/null
-	echo "  ✓ etiket: $1"
+label() {
+	local name="$1" color="$2" description="$3"
+	gh label create "$name" --color "$color" --description "$description" --force >/dev/null
+	echo "  ✓ etiket: $name"
 }
 
 echo "▶ etiketler"
@@ -34,7 +35,7 @@ echo "▶ release dalı"
 # Doğrudan GitHub'a sor (yereldeki origin/release kaydı silinmiş bir dalı hâlâ gösterebilir).
 # Tam ref adı: kısa ad "release", "hotfix/release" gibi başka dallarla da eşleşirdi.
 remote_sha="$(git ls-remote origin refs/heads/release | cut -f1)"
-if [ -n "$remote_sha" ]; then
+if [[ -n "$remote_sha" ]]; then
 	echo "  ✓ zaten var: release → ${remote_sha:0:7}"
 else
 	git fetch --quiet origin
