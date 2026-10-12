@@ -763,8 +763,9 @@ PR → main ──────▶ ① CI: Backend · Frontend · Trivy · E2E
 
 - **① CI** yalnız kod, iş akışı ya da betik değişince koşar (`paths` filtresi). Yalnız doküman
   değiştiren push CI'ı tetiklemez; o değişiklik bir sonraki yayına biner.
-- **② Deploy dört şart birlikte doğruysa başlar:** CI başarılı, tetikleyen bir push (PR'ın kendi
-  CI'ı değil; PR'ı birleştirmek `main`'e bir push'tur), dal `main`, biten iş akışı gerçekten `ci.yml` (adı "CI" olan sahte bir dosya kapıyı açamasın).
+- **② Deploy beş şart birlikte doğruysa başlar:** CI başarılı, tetikleyen bir push (PR'ın kendi
+  CI'ı değil; PR'ı birleştirmek `main`'e bir push'tur), dal `main`, biten iş akışı gerçekten `ci.yml` (adı "CI" olan sahte bir dosya kapıyı açamasın),
+  koşu bu depodan (bir fork'un kodu sırla birlikte çalışmasın).
   Yayınlanan commit "main'in son hâli" değil, **CI'ın test ettiği commit** (`head_sha`).
 - **a) plan + migrate karar tablosu:**
 

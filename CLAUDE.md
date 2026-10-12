@@ -57,8 +57,8 @@ yazılır — kuralın "neden"i silinmesin.
   sahipliği servis ya da SQL katmanında kontrol edilir (IDOR yok).
 - bcrypt cost ≥ 12; JWT algoritması sabit (HS256), `iss`/`aud`/`exp` doğrulanır.
 - CI/CD: `secrets.PROD_DATABASE_URL` yalnız deploy.yml'in migration adımında kullanılır; başka
-  bir iş akışına ya da işe eklenmez. deploy.yml'in `if:` koşulu (başarılı + push + main + ci.yml)
-  ve `permissions`'ı gevşetilmez; `pull_request_target` eklenmez; olay verisi `run:` içine
+  bir iş akışına ya da işe eklenmez. deploy.yml'in `if:` koşulu (başarılı + push + main + ci.yml +
+  aynı depo) ve `permissions`'ı gevşetilmez; `pull_request_target` eklenmez; olay verisi `run:` içine
   `${{ }}` ile yazılmaz. CI işlerini atlatan bir değişiklik (`if: false`, `continue-on-error`)
   engelleyicidir.
 
