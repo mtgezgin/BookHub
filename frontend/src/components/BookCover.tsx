@@ -44,7 +44,15 @@ export function BookCover({ title, author, src, className }: {
   if (src && broken !== src) {
     return (
       <div aria-hidden="true" className={cn(frame, "bg-muted", className)}>
-        <img src={src} alt="" loading="lazy" className="size-full object-cover" onError={() => setBroken(src)} />
+        {/* no-referrer: kapak başka bir sunucudan (Open Library) gelebilir; hangi sayfada olunduğu ona gitmez. */}
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="size-full object-cover"
+          onError={() => setBroken(src)}
+        />
       </div>
     );
   }

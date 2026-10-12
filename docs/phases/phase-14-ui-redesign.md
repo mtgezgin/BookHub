@@ -1,7 +1,7 @@
 # Faz 14 — Arayüz yeniden tasarımı (Tailwind + shadcn/ui)
 
-> Durum: ✅ A–C ve D'nin sıralama yarısı canlıda (PR #21, takipler #25; 2026-10-12); gerçek kapaklar
-> [#34](https://github.com/mtgezgin/BookHub/issues/34)'te · İlgili: [frontend/src](../../frontend/src),
+> Durum: ✅ Faz 14 tamam — A–C ve sıralama canlıda (PR #21, takipler #25), gerçek kapaklar
+> [#34](https://github.com/mtgezgin/BookHub/issues/34) ile (2026-10-12) · İlgili: [frontend/src](../../frontend/src),
 > [styles.css](../../frontend/src/styles.css)
 
 ## 🎯 Amaç
@@ -54,7 +54,7 @@ Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
 | **A — Temel** | Token'lar, tipografi, bileşen kiti, üretilmiş kapak + yeni kitap kartı, yükleme / boş / 404 durumları, marka (logo, favicon); bütün sayfalar yeni kitle, yerleşim aynı | ✅ canlıda (PR #21) |
 | **B — Ana sayfa + detay** | Karşılama alanı, tür çipleri, kapaklı "en sevilenler" şeridi, yazarken arama; detayda iki sütun (kapak + puan kartı), yıldızlı puan verme, yorum deneyimi, "aynı türden" şeridi | ✅ canlıda (PR #21) |
 | **C — Formlar, gezinme, admin, erişilebilirlik** | Parola göster/gizle, girişten sonra geldiği sayfaya dönüş, kullanıcı menüsü + mobil menü, moderasyonda `window.prompt` yerine Dialog, toast'lar, sayfa başlıkları, tema düğmesi, erişilebilirlik turu | ✅ canlıda (PR #21; moderasyon koruması #25) |
-| **D — Backend isteyenler** | Katalog sıralaması (bugün yalnız en yeni: `books.sql:47`), gerçek kapaklar (ISBN + Open Library; CSP `img-src https:` izin veriyor) | 🟡 sıralama ✅ canlıda · kapaklar [#34](https://github.com/mtgezgin/BookHub/issues/34) |
+| **D — Backend isteyenler** | Katalog sıralaması (bugün yalnız en yeni: `books.sql:47`), gerçek kapaklar (ISBN + Open Library; CSP `img-src https:` izin veriyor) | ✅ sıralama ve gerçek kapaklar ([#34](https://github.com/mtgezgin/BookHub/issues/34)) |
 
 ## 🪜 Faz A — adımlar
 
@@ -146,13 +146,30 @@ geçerdi; Faz 6'nın çözdüğü sorun kataloğa geri gelirdi.
 - Arayüz: sonuç başlığında "En yeni / En yüksek puan" anahtarı (`aria-pressed`); puan
   sırasında "en sevilenler" şeridi gizli (listenin başıyla aynı olurdu).
 
-**Gerçek kapaklar (karar bekliyor):** kod tarafı hazır (`cover_url` doluysa resim, yüklenemezse
-üretilmiş kapak). Eksik olan veri ve iki karar:
+**Gerçek kapaklar (yapıldı, [#34](https://github.com/mtgezgin/BookHub/issues/34)):** kod tarafı
+zaten hazırdı (`cover_url` doluysa resim, yüklenemezse üretilmiş kapak). Kararlar (kullanıcı,
+2026-10-12):
 
-1. Kaynak: Open Library Covers (ücretsiz; yüksek hacimde sıcak bağlantı istemiyorlar) ya da
-   kapakları kendi depomuza almak.
-2. Hangi baskının kapağı (ISBN'e göre değişir) — 52 kitap için ISBN'leri doğrulamak gerekir;
-   yanlış ISBN yanlış kapak demek.
+1. **Kaynak: Open Library'ye bağlantı**, kopya tutmuyoruz. Kapak telifli bir eser; bağlantıyla
+   gösterirken kopyalayıp yeniden dağıtmış olmayız. Kapak *kimliğiyle* adresler
+   (`covers.openlibrary.org/b/id/<id>-L.jpg?default=false`) hız sınırına girmez; `default=false`
+   sayesinde kalkmış bir kapak boş yer tutucu yerine 404 döner ve üretilmiş kapak görünür. Open
+   Library'nin arşiv sunucusu ara sıra yavaş: o sırada kart bir süre boş zeminle bekler, hata dönerse
+   üretilmiş kapağa düşer. Resim isteği ziyaretçinin tarayıcısından Open Library'ye gider (IP'si
+   onlara görünür); hangi sayfada olunduğu gitmez (`referrerPolicy="no-referrer"`).
+2. **Baskı: Türkçe baskı varsa onun kapağı, yoksa özgün baskı.** Demo seed'in 54 kitabından 53'ü
+   (moderasyonda bekleyen *Simyacı* dahil) gözle doğrulandı: arşiv taramasından gelen bazı "kapaklar"
+   iç sayfaydı (künye, önsöz) ya da serinin başka kitabıydı; beşi elle değiştirildi. *Tehlikeli
+   Oyunlar*'ın Open Library'de kapağı yok, üretilmiş kapak kalıyor.
+
+Veri `0009_demo_book_covers.sql` ile gelir: slug + yazar eşleşen kitapta yalnız boş `cover_url`'i
+doldurur (admin'in koyduğu kapak ezilmez), canlıya Deploy uygular; yerelde `make demo-seed`, ilk
+kurulumda [DEPLOYMENT.md](../DEPLOYMENT.md) aynı dosyayı seed'den sonra yeniden çalıştırır. Bu yüzden
+dosyada Down bölümü yok. `migrations_test.go` her satırın seed'deki bir kitaba (slug + yazar)
+denk geldiğini, seed'deki her kitabın ya kapağı ya da gerekçeli bir istisnası olduğunu ve adreslerin
+biçimini denetler. Yayından sonra "en sevilenler" önbelleği (~60 sn) dolana kadar o şeritte eski
+(kapaksız) kayıtlar görünebilir. Sıradaki adım: eser/baskı ayrımı ve baskı başına kapak
+([#36](https://github.com/mtgezgin/BookHub/issues/36)).
 
 ## ⚠️ Önemli noktalar
 
@@ -270,4 +287,4 @@ e2e testleriyle doğrulandı.
 ## ✅ Tamamlanma (Faz D)
 
 - [x] Katalog sıralaması: en yeni / en yüksek puan (ağırlıklı), backend + arayüz + testler.
-- [ ] Gerçek kapaklar — kaynak ve baskı kararı (yukarıda).
+- [x] Gerçek kapaklar — Open Library bağlantısı, Türkçe baskı varsa o; demo seed'in 54 kitabından 53'ü, gözle doğrulandı (#34).

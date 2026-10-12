@@ -59,6 +59,10 @@ admin: ## İlk admin'i oluştur: make admin EMAIL=sen@ornek.com (parola gizli so
 
 demo-seed: ## Arayüz için örnek katalog (türler, klasikler, puanlar, yorumlar) — tekrar çalıştırılabilir
 	docker exec -i bookhub-postgres psql -U bookhub -d bookhub < backend/scripts/demo_seed.sql
+	@# Kapaklar canlıda migration olarak gelir; yerelde seed migration'lardan SONRA koştuğu için aynı
+	@# dosyayı burada yeniden uygula (tek kaynak, yalnız boş cover_url'leri doldurur). Kapak için yeni
+	@# bir migration gelirse o da buraya eklenir.
+	docker exec -i bookhub-postgres psql -U bookhub -d bookhub -v ON_ERROR_STOP=1 -q < backend/migrations/0009_demo_book_covers.sql
 	@# Seed uygulamayı atlayıp DB'ye doğrudan yazdı → top-rated cache'i bayat; sil (TTL'i beklemeden).
 	@# Desenle siliyoruz (ratings.TopRatedCacheKey'in sürüm eki v1→v2 olsa da çalışsın).
 	@# "|| true": Redis kapalıysa seed yine de tamamlansın (cache 60 sn'de kendiliğinden tazelenir).
