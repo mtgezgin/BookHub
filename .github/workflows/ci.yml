@@ -98,7 +98,7 @@ jobs:
       # golangci-lint (kalite/bug linter — ESLint'in Go karşılığı) — otoriter backstop.
       # Sürüm reproducibility için pinlendi (lokal sürüm ufak farklı olabilir; otorite CI'dır).
       - name: Lint (golangci-lint)
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           working-directory: backend
