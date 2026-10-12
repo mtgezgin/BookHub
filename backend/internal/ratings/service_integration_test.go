@@ -395,3 +395,41 @@ func TestNonApprovedBookRealDB(t *testing.T) {
 		})
 	}
 }
+
+// TestListBooksByRatingMatchesWeightedScoreRealDB: katalogdaki "en yüksek puan" sırası (books.sql
+// ListBooksByRating) ile spesifikasyon olan WeightedScore AYNI sırayı vermeli. C dışarıdan verilir;
+// bu iki kitabın sırası C ≈ 6,33'te yer değiştirir. Formül SQL'de ya da Go'da tek başına değişirse
+// iki C değerinden en az birinde sıra tutmaz.
+func TestListBooksByRatingMatchesWeightedScoreRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	token := testdb.Unique("agirlik")
+	lucky := createBook(t, pool, books.StatusApproved)  // 1 oy, ortalama 10
+	steady := createBook(t, pool, books.StatusApproved) // 10 oy, ortalama 7
+	for _, r := range []struct {
+		id    int64
+		count int
+		avg   float64
+	}{{lucky, 1, 10}, {steady, 10, 7}} {
+		testdb.Exec(t, pool, "UPDATE books SET title = $1, rating_count = $2, average_rating = $3 WHERE id = $4",
+			"Kitap "+token, r.count, r.avg, r.id)
+	}
+
+	const m = 10
+	q := db.New(pool)
+	for _, c := range []float64{5, 8} {
+		got, err := q.ListBooksByRating(context.Background(), db.ListBooksByRatingParams{Query: &token, M: m, C: c, Limit: 10})
+		if err != nil {
+			t.Fatalf("C=%v: liste okunamadı: %v", c, err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("C=%v: 2 kitap bekleniyordu, %d geldi", c, len(got))
+		}
+		want := lucky
+		if WeightedScore(10, 1, m, c) < WeightedScore(7, 10, m, c) {
+			want = steady
+		}
+		if got[0].ID != want {
+			t.Errorf("C=%v: ilk sırada %d bekleniyordu (WeightedScore'a göre), SQL %d verdi", c, want, got[0].ID)
+		}
+	}
+}
