@@ -209,4 +209,38 @@ describe("Moderation", () => {
     expect(input.value).toBe("Roman");
     expect(alertText(el)).toBe("bu tür zaten var");
   });
+
+  it("işlem sürerken aynı düğmeye ikinci tıklama ikinci isteği göndermez; hata sonrası düğme yeniden kullanılır", async () => {
+    let fail!: () => void;
+    stub({ approve: () => new Promise((_, rej) => { fail = () => rej(new ApiError(500, "internal", "onaylanamadı")); }) });
+    const el = await render();
+    await act(async () => {
+      button(el, "Onayla")!.click();
+      button(el, "Onayla")!.click();
+    });
+    expect(calls.approve).toHaveLength(1);
+    expect(button(el, "Onayla")!.disabled).toBe(true);
+    await act(async () => fail());
+    await flush();
+    expect(alertText(el)).toBe("onaylanamadı");
+    expect(button(el, "Onayla")!.disabled).toBe(false);
+  });
+
+  it("tür formu iki kez gönderilse de tek istek gider", async () => {
+    let done!: () => void;
+    stub({ createGenre: (name: string) => new Promise((res) => { done = () => res({ id: 9, name, slug: "roman" }); }) });
+    const el = await render();
+    const input = el.querySelector<HTMLInputElement>('form[aria-label="Yeni tür"] input')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Roman");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      input.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(calls.createGenre).toHaveLength(1);
+    await act(async () => done());
+    await flush();
+  });
 });

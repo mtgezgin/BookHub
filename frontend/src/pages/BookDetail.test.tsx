@@ -282,6 +282,13 @@ describe("BookDetail — yükleme ve şablon", () => {
     expect(el.querySelector("[data-from]")!.getAttribute("data-from")).toBe("/books/1");
   });
 
+  it("kitap yüklenirken sekme başlığı önceki sayfanınki kalmaz", async () => {
+    document.title = "Önceki kitap — BookHub";
+    stub({ book: () => new Promise(() => {}) });
+    await render();
+    expect(document.title).toBe("Yükleniyor — BookHub");
+  });
+
   it("sekme başlığı kitabın adı", async () => {
     await render();
     expect(document.title).toBe("Kitap 1 — BookHub");
