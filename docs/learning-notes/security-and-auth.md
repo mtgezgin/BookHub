@@ -16,6 +16,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 9. [httpOnly çerez mi localStorage mı: neyi çözer, neyi ÇÖZMEZ](#9-httponly-çerez-mi-localstorage-mı-neyi-çözer-neyi-çözmez)
 10. [CSRF katmanları: SameSite=Strict, CrossOriginProtection ve login-CSRF](#10-csrf-katmanları-samesitestrict-crossoriginprotection-ve-login-csrf)
 11. [Parola değiştirmek neden "her yerden çıkış" demektir](#11-parola-değiştirmek-neden-her-yerden-çıkış-demektir)
+12. [Git'e sızan sır: saklamak değil değiştirmek (rotate)](#12-gite-sızan-sır-saklamak-değil-değiştirmek-rotate)
 
 ---
 
@@ -623,3 +624,68 @@ ayrıntısı ve kilit türlerinin neden özellikle seçildiği [database.md #10]
 - [#4 Parola hash'leme](#4-parola-hashleme-neden-bcrypt-cost-ne-demek-72-bayt-tuzağı) — 72 bayt tuzağı
 - [docs/phases/phase-13-session-hardening.md](../phases/phase-13-session-hardening.md)
 - [backend/internal/auth/repository.go](../../backend/internal/auth/repository.go) (`ChangePassword`) · [frontend/src/pages/Account.tsx](../../frontend/src/pages/Account.tsx)
+
+---
+
+## 12. Git'e sızan sır: saklamak değil değiştirmek (rotate)
+
+**🗓️ Bağlam:** 2026-10-12'de PR #18'de SonarCloud "C" (main'de "E") güvenlik notu verdi; bulgular
+arasında "hard-coded password" görünce "ilk commit'lerde secret'ları açık etmiş miyiz; öyleyse
+değiştirmek mi, saklamak mı gerekir?" diye sordum. Tarama 135 commit'te canlı sır bulmadı;
+Sonar'ın işaretledikleri [#1](#1-sır-secret-nedir--dev-credentialı-repoya-yazmak-neden-güvenli-olabilir)'deki
+dev DSN'leriydi.
+
+**⚡ Kısa cevap:** Git'e (hele push'a) girmiş gerçek bir sırrın çaresi onu **değiştirmektir**:
+sağlayıcıda eskisini iptal et, yenisini üret. Geçmişten silmek ikincil ve isteğe bağlı; tek başına
+bir şey çözmez, çünkü sır push edildiği an kopyalanmıştır.
+
+**📖 Açıklama:**
+
+Neden "saklamak" yetmez: push edilen bir commit'in kopyaları.
+
+| Kopya | Geçmişi yeniden yazınca (filter-repo + force push) gider mi? |
+|---|---|
+| Diğer klonlar (başka makinen, CI runner'ları) | Hayır |
+| Fork'lar | Hayır |
+| CI logları, PR diff'leri, bildirim e-postaları | Çoğu hayır |
+| GitHub'ın önbelleği: eski commit SHA'sıyla hâlâ açılabilir | Destek talebi açılana kadar hayır |
+
+Private repo riski azaltır (erişimi olan az kişi ve araç var) ama sıfırlamaz: erişimi olan her
+araç ve kişi bir kopya demek.
+
+**Doğru sıra:**
+
+1. **Değiştir (rotate):** sağlayıcının panelinde eski sırrı iptal et, yenisini üret (Supabase
+   parola sıfırlama, Upstash token yenileme, JWT secret değiştirme).
+2. **Yerleştir:** yenisini Keychain'den doğrudan panele/secret'a aktar
+   (`security find-generic-password … | pbcopy` ya da `| gh secret set …`). Sohbete, dosyaya,
+   asistana uğramasın.
+3. **İzlere bak:** eski sırla yapılmış erişim var mı (sağlayıcının logları).
+4. **Geçmiş temizliği, isteğe bağlı ve en son:** değiştirilmiş bir sır artık hiçbir kilidi
+   açmadığı için çoğu zaman gerekmez. Bedeli büyük: herkesin geçmişi değişir, açık PR'lar bozulur
+   ve bizim süreçte force push zaten yasak.
+
+**Sonar'ın bulgusu gerçek bir sızıntı demek değil.** Araç bir dizenin neyin kilidini açtığını
+bilemez; `postgres://bookhub:…@localhost` gördüğü her yeri işaretler. #1'deki ölçüt geçerli: dev
+parolası yalnız senin makinendeki ya da CI'daki geçici bir konteyneri açıyor. Böyle bir bulgu
+Sonar'da gerekçesiyle "Safe" işaretlenir; kod değişmez.
+
+**Sızdı mı, nasıl anlaşılır:**
+
+```bash
+# Tüm dallar, tüm commit'ler; değerler maskeli (--redact)
+gitleaks git --redact --log-opts="--all" .
+
+# Canlı sistemlerin izi (yalnız dosya adları basılır)
+git log --all -G 'supabase\.co|upstash\.io' --name-only --format=''
+```
+
+Bir de aracı sına: boş bir test reposuna sahte bir token koyup yakaladığını gör. "0 bulgu" ancak
+araç gerçekten çalışıyorsa bir şey söyler.
+
+Bu konu dilden bağımsız; TS/JS projelerinde de birebir aynı.
+
+**🔗 İlgili:**
+- [#1 Sır (secret) nedir](#1-sır-secret-nedir--dev-credentialı-repoya-yazmak-neden-güvenli-olabilir) — dev değeri ile gerçek sırrın farkı
+- [CLAUDE.md](../../CLAUDE.md) "Güvenlik" bölümü — "Sır commit'lenmez", sırların Keychain'den doğrudan aktarılması
+- [.env.example](../../.env.example) · [docker-compose.yml](../../docker-compose.yml) — Sonar'ın işaretlediği dev DSN'leri
