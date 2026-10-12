@@ -1,6 +1,7 @@
 # Faz 14 — Arayüz yeniden tasarımı (Tailwind + shadcn/ui)
 
-> Durum: ✅ Faz A–C bitti; D'nin sıralama yarısı bitti, gerçek kapaklar karar bekliyor (2026-10-11) · İlgili: [frontend/src](../../frontend/src),
+> Durum: ✅ A–C ve D'nin sıralama yarısı canlıda (PR #21, takipler #25; 2026-10-12); gerçek kapaklar
+> [#34](https://github.com/mtgezgin/BookHub/issues/34)'te · İlgili: [frontend/src](../../frontend/src),
 > [styles.css](../../frontend/src/styles.css)
 
 ## 🎯 Amaç
@@ -50,10 +51,10 @@ Canlı sitenin ekran görüntülerinden ve koddan (2026-10-10):
 
 | Bölüm | Kapsam | Durum |
 |---|---|---|
-| **A — Temel** | Token'lar, tipografi, bileşen kiti, üretilmiş kapak + yeni kitap kartı, yükleme / boş / 404 durumları, marka (logo, favicon); bütün sayfalar yeni kitle, yerleşim aynı | ✅ (inceleme bekliyor) |
-| **B — Ana sayfa + detay** | Karşılama alanı, tür çipleri, kapaklı "en sevilenler" şeridi, yazarken arama; detayda iki sütun (kapak + puan kartı), yıldızlı puan verme, yorum deneyimi, "aynı türden" şeridi | ✅ (inceleme bekliyor) |
-| **C — Formlar, gezinme, admin, erişilebilirlik** | Parola göster/gizle, girişten sonra geldiği sayfaya dönüş, kullanıcı menüsü + mobil menü, moderasyonda `window.prompt` yerine Dialog, toast'lar, sayfa başlıkları, tema düğmesi, erişilebilirlik turu | ✅ |
-| **D — Backend isteyenler** | Katalog sıralaması (bugün yalnız en yeni: `books.sql:47`), gerçek kapaklar (ISBN + Open Library; CSP `img-src https:` izin veriyor) | 🟡 sıralama ✅ · kapaklar karar bekliyor |
+| **A — Temel** | Token'lar, tipografi, bileşen kiti, üretilmiş kapak + yeni kitap kartı, yükleme / boş / 404 durumları, marka (logo, favicon); bütün sayfalar yeni kitle, yerleşim aynı | ✅ canlıda (PR #21) |
+| **B — Ana sayfa + detay** | Karşılama alanı, tür çipleri, kapaklı "en sevilenler" şeridi, yazarken arama; detayda iki sütun (kapak + puan kartı), yıldızlı puan verme, yorum deneyimi, "aynı türden" şeridi | ✅ canlıda (PR #21) |
+| **C — Formlar, gezinme, admin, erişilebilirlik** | Parola göster/gizle, girişten sonra geldiği sayfaya dönüş, kullanıcı menüsü + mobil menü, moderasyonda `window.prompt` yerine Dialog, toast'lar, sayfa başlıkları, tema düğmesi, erişilebilirlik turu | ✅ canlıda (PR #21; moderasyon koruması #25) |
+| **D — Backend isteyenler** | Katalog sıralaması (bugün yalnız en yeni: `books.sql:47`), gerçek kapaklar (ISBN + Open Library; CSP `img-src https:` izin veriyor) | 🟡 sıralama ✅ canlıda · kapaklar [#34](https://github.com/mtgezgin/BookHub/issues/34) |
 
 ## 🪜 Faz A — adımlar
 
@@ -133,9 +134,11 @@ geçerdi; Faz 6'nın çözdüğü sorun kataloğa geri gelirdi.
 
 - Ayrı sorgu (`ListBooksByRating`), `ORDER BY CASE …` değil: varsayılan "en yeni" sırası
   `created_at` indeksini kullanmaya devam etsin.
-- C (genel ortalama) sorgunun içinde bağımsız bir alt sorgu (Postgres bir kez hesaplar); m
-  config'ten (`RATING_MIN_VOTES`), oy yokken C'nin yerine geçen değer `ratings.ColdStartMean`.
-  İkisini HTTP katmanı verir: `books`, `ratings`'i içe aktaramaz (ratings books'u aktarıyor).
+- C (genel ortalama) ayrı bir sorgudan (`GlobalAverageRating`) gelir ve `ListBooksByRating`'e
+  parametre olarak verilir: top-rated ile aynı formül tek yerde (PR #25; ilk sürümde sorgunun
+  içinde bir kopyası vardı). m config'ten (`RATING_MIN_VOTES`), oy yokken C'nin yerine geçen değer
+  `ratings.ColdStartMean`. İkisini HTTP katmanı verir: `books`, `ratings`'i içe aktaramaz (ratings
+  books'u aktarıyor).
 - Oysuz kitap `NULL` → en sonda. `CASE`, `RATING_MIN_VOTES=0` iken oysuz kitapta 0/0
   bölmesini de önler.
 - **A–Z sırası bilerek yok:** Türkçe doğru sıra (Ç, Ö, Ş yerinde) ICU harmanlaması
@@ -246,7 +249,7 @@ e2e testleriyle doğrulandı.
 - [x] Yükleme, boş ve 404 durumları; favicon.
 - [x] Testler rol/etiket tabanlı; vitest + e2e yeşil.
 - [x] Doğrulama listesindeki ölçümler yazıldı (yukarıda).
-- [ ] Kullanıcı incelemesi ve commit (dal + PR, [PROCESS.md](../PROCESS.md)).
+- [x] Kullanıcı incelemesi ve commit — PR #21 (2026-10-12, canlıda), [PROCESS.md](../PROCESS.md).
 
 ## ✅ Tamamlanma (Faz B)
 
@@ -254,7 +257,7 @@ e2e testleriyle doğrulandı.
 - [x] Detay iki sütun; yıldızlı puan verme; yorumlarda avatar, göreli zaman, sayaç, gönderim kilidi.
 - [x] "Aynı türden" şeridi (başarısız olursa sessiz).
 - [x] vitest + e2e yeşil; Lighthouse 100.
-- [ ] Kullanıcı incelemesi ve commit.
+- [x] Kullanıcı incelemesi ve commit — PR #21 (2026-10-12, canlıda).
 
 ## ✅ Tamamlanma (Faz C)
 

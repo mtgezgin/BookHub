@@ -3,21 +3,24 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-10-05):** **13 fazın tamamı ✅** — MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-10-12):** **13 fazın tamamı ✅**, Faz 14 canlıda (yalnız gerçek kapaklar açık) — MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React frontend, CI/CD, NGINX,
 Kubernetes) + **Faz 13 oturum sertleştirme** (httpOnly refresh çerezi, token aileleri + reuse
 tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 
 - **Canlıda (2026-10-04):** Northflank (`web` public, `api` private) + Supabase + Upstash —
   https://p01--web--4x2qb6s8vg5j.code.run · [DEPLOYMENT.md](DEPLOYMENT.md).
-- **Süreç (2026-10-05):** issue/PR şablonları, testlere bağlı yayın (`release` dalı + Deploy iş
-  akışı), [CLAUDE.md](../CLAUDE.md) kuralları · [PROCESS.md](PROCESS.md).
-- **Açık maddeler:** canlı izleme ve alarm (henüz yok),
-  [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular, 14 Dependabot PR'ı.
+- **Süreç (2026-10-05, canlıda 2026-10-12):** issue/PR şablonları, testlere bağlı yayın (`release`
+  dalı + Deploy iş akışı; main'e her merge = yayın), [CLAUDE.md](../CLAUDE.md) kuralları,
+  makinenin denetlediği kurallar (`scripts/checks.sh`: git kancaları + CI'da Kurallar) ·
+  [PROCESS.md](PROCESS.md).
+- **Açık maddeler:** gerçek kapaklar ([#34](https://github.com/mtgezgin/BookHub/issues/34)), canlı
+  izleme ve alarm (henüz yok), [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular,
+  Node 26 (Dependabot #13, #29; LTS'i bekliyor).
 
-> **Faz 14 — arayüz yeniden tasarımı (2026-10-10/11):** `feat/ui-redesign` dalında dört commit —
-> A tasarım temeli · B ana sayfa + detay · C formlar, gezinme, tema, moderasyon diyaloğu ·
-> D katalog sıralaması (`?sort=rating`). Push edilmedi; gerçek kapaklar karar bekliyor ·
+> **Faz 14 — arayüz yeniden tasarımı (canlıda 2026-10-12):** A tasarım temeli · B ana sayfa +
+> detay · C formlar, gezinme, tema, moderasyon diyaloğu · D katalog sıralaması (`?sort=rating`) —
+> PR #21, takipleri #25. Açık: gerçek kapaklar ([#34](https://github.com/mtgezgin/BookHub/issues/34)) ·
 > [phase-14](phases/phase-14-ui-redesign.md).
 
 > **Ortam notu:** Kabukta `go` bulunamazsa `export PATH="/opt/homebrew/bin:$HOME/go/bin:$PATH"`
@@ -46,7 +49,7 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 | 11 | NGINX (tek origin, CSP, güvenilen proxy) | ✅ |
 | 12 | Kubernetes (kind'da doğrulandı) | ✅ |
 | 13 | Oturum sertleştirme (httpOnly çerez, token ailesi + reuse, CSRF, parola değişimi, Playwright) | ✅ |
-| 14 | Arayüz yeniden tasarımı (tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik, katalog sıralaması) | ✅ A–C · 🟡 D (kapaklar) |
+| 14 | Arayüz yeniden tasarımı (tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik, katalog sıralaması) | ✅ canlıda · 🟡 gerçek kapaklar (#34) |
 
 ## Faz 2'de ne oldu (özet)
 
