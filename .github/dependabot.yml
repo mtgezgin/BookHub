@@ -9,6 +9,8 @@
 version: 2
 updates:
   # Temel imajlar: FROM ...@sha256 satırlarındaki digest'ler (ve etiketler) güncellenir.
+  # golang imajının yama sürümü değişirse Kurallar kontrolü kırmızı olur (go.mod da aynı yamaya
+  # çıkmalı); o PR elle tamamlanır.
   - package-ecosystem: docker
     directory: /backend
     schedule:
@@ -22,13 +24,16 @@ updates:
     commit-message:
       prefix: "build(web)"
 
-  # Go modülleri (go.mod / go.sum).
+  # Go modülleri (go.mod / go.sum). Küçük güncellemeler tek PR'da; major ayrı PR (genelde kod ister).
   - package-ecosystem: gomod
     directory: /backend
     schedule:
       interval: weekly
     commit-message:
       prefix: "build(api)"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
 
   # npm (package-lock.json). Küçük (patch/minor) güncellemeler tek PR'da toplanır: React,
   # Vite ve TypeScript'in her yamasına ayrı PR açılmasın.
@@ -42,10 +47,14 @@ updates:
       minor-and-patch:
         update-types: ["minor", "patch"]
 
-  # CI'daki action sürümleri (actions/checkout@v4 gibi).
+  # CI'daki action sürümleri (actions/checkout@v4 gibi). Hepsi tek PR'da: her action'ın ayrı PR'ı
+  # ayrı bir CI + yayın turu demek.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     commit-message:
       prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
