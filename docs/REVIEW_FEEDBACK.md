@@ -295,7 +295,7 @@ Moderasyon geçişleri transaction içinde audit oluşturuyor; kitap-tür ilişk
 
 **Öncelik:** Orta · Kalite güvencesi
 
-**Kaynaklar:** [.github/workflows/ci.yml](../.github/workflows/ci.yml), [.github/workflows/release.yml](../.github/workflows/release.yml), [backend/scripts/mvp_smoke.sh](../backend/scripts/mvp_smoke.sh).
+**Kaynaklar:** [.github/workflows/ci.yml](../.github/workflows/ci.yml), `.github/workflows/release.yml` (2026-10-12'de kaldırıldı), [backend/scripts/mvp_smoke.sh](../backend/scripts/mvp_smoke.sh).
 
 CI E2E işi localhost:8080 API'sine doğrudan curl gönderiyor. NGINX, tarayıcı çerezleri, Web Locks, çoklu sekme ve mobil yerleşim bu yolla doğrulanmıyor. Release workflow'u kendi içinde başarılı test sonucuna bağlı olmadan imaj yayınlayabiliyor. Yalnız Kubernetes/Makefile değişiklikleri CI path filtrelerine girmiyor.
 
@@ -314,6 +314,8 @@ CI E2E işi localhost:8080 API'sine doğrudan curl gönderiyor. NGINX, tarayıc�
 **Kalan risk / erteleme gerekçesi:** `release.yml` hâlâ hiçbir CI sonucuna bağlı değil (`needs`/`workflow_run` yok) → doğrulanmamış bir commit'ten imaj yayınlanabilir. Path filtrelerine `scripts/**` eklendi (Makefile zaten vardı) ama `deploy/k8s/**` hâlâ dışarıda: yalnız Kubernetes manifesti değiştiren bir commit CI'yı tetiklemez.
 
 **İlerleme (5 Ekim 2026):** Canlıya giden yol CI'a bağlandı: Northflank yalnız `release` dalını yayınlıyor; o dalı da yalnız `deploy.yml` ilerletiyor — main'de `ci.yml` başarıyla bitince ve yalnız CI'ın test ettiği commit'e (`workflow_run` + fast-forward). `release.yml` artık yayın yolunun parçası değil (ghcr imajı); CI'a bağlanması ya da kaldırılması ve `deploy/k8s/**` path filtresi hâlâ açık.
+
+**İlerleme (12 Ekim 2026):** `release.yml` kaldırıldı (hiç çalışmamıştı; Northflank imajı `release` dalından kendisi derliyor). Açık kalan: `deploy/k8s/**` path filtresi.
 
 ## F17 — Frontend oturum sorumlulukları sadeleştirilmeli
 

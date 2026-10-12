@@ -110,6 +110,9 @@ Ayrıntı: [docs/PROCESS.md](docs/PROCESS.md).
   o commit'e ilerletir; Northflank yalnız `release`'i yayınlar. `release`'e elle push edilmez.
 - Commit mesajlarında `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip nf]` gibi atlama bayrakları
   kullanılmaz: Northflank, aynı push'taki tek bir bayraklı commit yüzünden bütün yayını atlar.
+- Makinenin denetleyebildiği kurallar `scripts/checks.sh`'ta (git kancaları + CI'da **Kurallar** işi,
+  `rules.yml`). Bu dosyaya denetlenebilir bir kural eklenince betiğe ve `scripts/checks_test.sh`'a da
+  eklenir; Kurallar kırmızıyken PR birleştirilmez.
 - Yayından sonra doğrulama yapılır; doğrulanamayan her şey PR'da ya da issue'da açıkça yazılır.
 - Canlıdaki bir olay "önleme kuralı" bulunmadan kapanmaz: bir test, bir alarm ya da bu dosyaya
   eklenen bir kural.

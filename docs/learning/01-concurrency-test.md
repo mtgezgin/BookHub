@@ -127,8 +127,8 @@ bulunamadığında sahte bir hash'le aynı karşılaştırma yapılır. İkinci 
 
 ## D. Tuzak avı (3 soru)
 
-**D1.** Aşağıdaki kod eski Go blog yazılarında "klasik hata" diye geçer. Go 1.26 kullanan bu
-repoda hâlâ hata mı? Neden?
+**D1.** Aşağıdaki kod eski Go blog yazılarında "klasik hata" diye geçer. Go 1.22 sonrasını kullanan
+bu repoda hâlâ hata mı? Neden?
 
 ```go
 for _, id := range ids {
@@ -252,7 +252,7 @@ anda uyandırır — kapalı channel'dan okuma hemen sıfır değerle döner. Bu
 ## D
 
 **D1.** **Artık hata değil.** Go 1.22'den beri `for` döngüsünün değişkeni her iterasyonda
-yeniden tanımlanıyor, yani her goroutine kendi `id` kopyasını görür. Bu repo Go 1.26 kullanıyor
+yeniden tanımlanıyor, yani her goroutine kendi `id` kopyasını görür. Bu repo 1.22'den yeni bir Go kullanıyor
 (`backend/go.mod`), dolayısıyla güvenli. Go 1.21 ve öncesinde tüm goroutine'ler
 aynı değişkeni paylaşır ve çoğu "son eleman"ı görürdü. *(Eski blog yazılarını okurken bu
 tuzağın tarihe karıştığını bil.)*

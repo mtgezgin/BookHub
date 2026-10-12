@@ -68,6 +68,11 @@ make help        # tüm hedefler
 `make e2e` yığını kendisi kaldırır, demo veriyi basar ve bu koşuya özel bir admin açar.
 Tarayıcıyı bir kereliğine indir: `cd frontend && npx playwright install --only-shell chromium`.
 
+Git kancaları (commit ve push öncesi repo kuralları, bir kez):
+`git config core.hooksPath .githooks` ve `brew install gitleaks shellcheck actionlint sqlc golangci-lint`.
+gitleaks zorunlu; diğerleri yoksa o kontrol yerelde atlanır, CI'daki **Kurallar** işi yine denetler
+([PROCESS](docs/PROCESS.md)).
+
 Kubernetes (yerel kind kümesi): `make k8s-up` → `make k8s-port` → http://localhost:3001.
 
 ## API özeti

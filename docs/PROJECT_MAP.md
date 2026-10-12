@@ -85,10 +85,11 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `Makefile` | tüm komutların kısayolları (`make help`) |
 | `docker-compose.yml` | Postgres + Redis (her zaman) · api + web (`app` profili) · sabit alt ağ |
 | `.env.example` | env şablonu (dev değerleri, açıklamalı); gerçek `.env` git dışı |
-| `.githooks/` | pre-commit (gofmt + vet), pre-push (golangci-lint + test -race) |
-| `.github/workflows/` | `ci.yml` (backend / frontend / **images** = Trivy taraması / e2e = compose + smoke + Playwright), `deploy.yml` (main'de CI yeşil → yeni migration varsa uygula → `release` dalını ilerlet; Northflank yalnız `release`'i yayınlar), `release.yml` (yalnız tag/elle ghcr imaj yayını; yayın yolunun parçası değil) |
+| `.githooks/` | pre-commit (`scripts/checks.sh staged` + gofmt/vet), commit-msg (atlama bayrağı), pre-push (golangci-lint + test -race + frontend değiştiyse vitest) |
+| `.github/workflows/` | `ci.yml` (backend / frontend / **images** = Trivy taraması / e2e = compose + smoke + Playwright), `deploy.yml` (main'de CI yeşil → yeni migration varsa uygula → `release` dalını ilerlet; Northflank yalnız `release`'i yayınlar), `rules.yml` (**Kurallar**: her push/PR'da `scripts/checks.sh` ve testleri; yol filtresi yok) |
 | `.github/ISSUE_TEMPLATE/`, `pull_request_template.md` | özellik / bug / olay şablonları ve PR şablonu — [PROCESS.md](PROCESS.md) §2–§4 |
 | `CLAUDE.md` | proje kuralları: her Claude oturumu ve AI review kapısı okur (önleme kuralları burada) |
+| `scripts/checks.sh`, `checks_test.sh` | makinenin denetlediği repo kuralları (sır, `.env`/`supabase/`, canlıya çıkmış migration, Go sürüm kayması, üretilmiş kod, lint, atlama bayrağı) ve testleri; kancalar ve CI'daki **Kurallar** işi aynı betiği çağırır — [PROCESS.md](PROCESS.md) |
 | `scripts/setup-github.sh` | bir kerelik: etiketler + `release` dalı ([PROCESS.md](PROCESS.md) §9) |
 | `.github/dependabot.yml` | haftalık bağımlılık PR'ları: docker digest'leri, Go modülleri, npm, actions — digest pinlemenin diğer yarısı (Faz 13) |
 | `scripts/e2e.sh` | `make e2e`: yığını kaldırır, NGINX auth kovasını sıfırlar (web restart), demo veriyi basar, koşuya özel rastgele parolalı admin açar, Playwright'i koşar, çıkarken bu koşunun kullanıcılarını siler |
@@ -243,7 +244,7 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
   tarafını anında keser ama verilmiş access token'lar ≤ `JWT_ACCESS_TTL` (15 dk) yaşar
   ([REVIEW_FEEDBACK F06](REVIEW_FEEDBACK.md)).
 - [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki açık bulgular: F03, F04, F06–F09, F11–F15, F17 +
-  F10'un BookDetail yarısı, F16'nın kalan yarısı (`release.yml` ve `deploy/k8s/**` path filtresi).
+  F10'un BookDetail yarısı, F16'nın kalan yarısı (`deploy/k8s/**` path filtresi; `release.yml` kaldırıldı).
   F05 risk kabul edildi.
 - Kullanıcı silme ucu yok (hesap yalnızca veritabanından silinebiliyor).
 - Canlıda izleme ve alarm yok (sağlık kontrolü, uptime, hata izleme) — [DEPLOYMENT.md](DEPLOYMENT.md) §5.

@@ -112,7 +112,8 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 - **8 Docker:** distroless imaj 38 MB, uid 65532; slog JSON log + `X-Request-Id`; `run() int` ile temiz çıkış.
 - **9 Frontend:** React 19 + Vite; tek uçuşlu token yenileme (refresh token tek kullanımlık olduğu için şart).
 - **10 CI/CD:** gerçek Postgres/Redis ile entegrasyon testleri, frontend işi, compose + smoke E2E;
-  imaj yayını yalnız `v*` etiketi/elle (`release.yml`).
+  imaj yayını yalnız `v*` etiketi/elle (`release.yml`; 2026-10-12'de kaldırıldı, Northflank
+  imajı kendisi derliyor).
 - **11 NGINX:** tek origin, CSP + başlıklar (add_header tuzağı snippet ile aşıldı), `X-Real-IP`'ye
   yalnız güvenilen proxy'den güven; root olmayan NGINX.
 - **12 Kubernetes:** kustomize manifestleri, migrate Job, 2 API kopyası, pod güvenliği; kind'da 21/21
@@ -151,7 +152,8 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 ## Ortam / gerçekler
 
 - **Go toolchain 1.27.1** (Homebrew) · `go.mod`: `go 1.27.2` (Docker derleme imajıyla aynı yama) · module `github.com/mtgezgin/bookhub/backend`.
-- CLI'lar `~/go/bin`: goose v3.27.2, sqlc v1.31.1, golangci-lint v2.13 (CI v2.12.2 pinli).
+- CLI'lar `~/go/bin`: goose v3.27.2, sqlc v1.31.1. golangci-lint v2.14.0 Homebrew'dan (CI'da da v2.14.0
+  pinli); `~/go/bin`'deki eski v1.64.8 PATH'te arkada kalıyor.
 - Docker Desktop + `docker compose up -d` → Postgres 16 (`127.0.0.1:5432`) + Redis 7 (`127.0.0.1:6380` — 6379 başka projenin). Veri named volume'da.
 - Tüm uygulama: `make app-up` → http://localhost:3000 · Kubernetes: `make k8s-up` / `make k8s-down` (kind).
 - Canlı: Northflank, `release` dalından yayınlanıyor; `release`'i yalnız Deploy iş akışı ilerletir — [PROCESS.md](PROCESS.md) §5.

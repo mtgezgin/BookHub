@@ -9,6 +9,7 @@ Her push'ta otomatik doğrulama; imaj yayınlamayı kontrollü bir adıma bağla
 - GitHub Actions **servis konteynerleri** (gerçek Postgres/Redis ile entegrasyon testi).
 - Uçtan uca iş: aynı `docker-compose.yml` + MVP smoke.
 - Yayın ayrı iş akışında (`release.yml`): yalnız `v*` etiketi ya da elle; `GITHUB_TOKEN` ile ghcr.io.
+  (2026-10-12'de kaldırıldı: hiç çalışmadı; Northflank imajı `release` dalından kendisi derliyor.)
 
 ## ✅ Tamamlanma
 - [x] `backend` (birim + entegrasyon + lint), `frontend` (tsc + vitest + build), `e2e` (compose + smoke).

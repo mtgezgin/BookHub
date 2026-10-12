@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# BookHub — git commit-msg hook: mesajda atlama bayrağı ([skip ci], [skip nf] …) olmasın; Northflank
+# aynı push'taki tek bir bayraklı commit yüzünden bütün yayını atlar (CLAUDE.md "Süreç").
+#
+# Kurulum (repo başına bir kez):  git config core.hooksPath .githooks
+set -euo pipefail
+exec scripts/checks.sh commit-msg "$1"
