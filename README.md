@@ -30,7 +30,7 @@ içindeki Türkçe yorumlar "neden böyle"yi anlatır; her faz bir kavram öğre
 
 | Katman | Teknoloji |
 |---|---|
-| API | Go 1.26 · chi · pgx/v5 · sqlc (ORM yok) · goose · slog |
+| API | Go 1.27 · chi · pgx/v5 · sqlc (ORM yok) · goose · slog |
 | Veri | PostgreSQL 16 · Redis 7 |
 | Web | React 19 · TypeScript · Vite · react-router |
 | Altyapı | Docker (distroless) · Docker Compose · NGINX · Kubernetes (kind) · GitHub Actions |
@@ -42,7 +42,7 @@ tarayıcı ──▶ NGINX (statik frontend, /api proxy, CSP) ──▶ Go API (
 
 ## Hızlı başlangıç
 
-Gerekenler: Docker Desktop, Go 1.26+, Node 24+ (yalnız frontend geliştirmek için), `make`.
+Gerekenler: Docker Desktop, Go 1.27+, Node 24+ (yalnız frontend geliştirmek için), `make`.
 
 ```bash
 cp .env.example .env            # dev değerleri; JWT_SECRET'ı prod'da mutlaka değiştir
