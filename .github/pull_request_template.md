@@ -44,5 +44,5 @@ kapatır. Issue, yayından sonraki doğrulamayla (PROCESS.md §6) elle kapatıl�
 - [ ] Yeni ya da değişen davranışın testi var
 - [ ] Go değiştiyse [GO_CONVENTIONS hızlı kontrol listesi](https://github.com/mtgezgin/BookHub/blob/main/docs/GO_CONVENTIONS.md#quick-checklist-paste-into-each-prcommit-description) gözden geçirildi
 - [ ] Sır, `.env`, parola, token ya da kişisel veri yok
-- [ ] Commit mesajlarında `[skip ci]` gibi atlama bayrağı yok (Northflank yayını atlar)
+- [ ] Commit mesajlarında atlama bayrağı (köşeli parantez içinde skip ci, skip nf vb.) yok (Northflank yayını atlar)
 - [ ] Gerekiyorsa dokümanlar güncellendi (DEPLOYMENT, STATUS, öğrenme notu)

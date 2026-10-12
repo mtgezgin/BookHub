@@ -109,11 +109,12 @@ commit'e ilerletiyor. Sırla çalışan migration işi salt-okunur, dalı ilerle
   - Normal bir migration kendi transaction'ıyla birlikte geri alınmıştır. Dosyayı düzelt, yeniden
     gönder.
   - `-- +goose NO TRANSACTION` işaretli bir migration yarıda kalmış olabilir; ilk adımları canlıda
-    duruyor olabilir (ör. `CREATE INDEX CONCURRENTLY`'nin bıraktığı geçersiz index). N'yi bu yarım
-    hâlin üstünde yeniden çalışabilecek şekilde düzelt (`IF NOT EXISTS`, `DROP INDEX IF EXISTS`)
-    ya da yarım kalanı bir sonraki Deploy'dan önce elle temizle; elle temizlik canlı veritabanına
-    doğrudan dokunmaktır, yalnız acil durumda ve yapılan issue'ya yazılarak. Yarım kalma ihtimali
-    küçük kalsın diye böyle bir migration tek bir ifade içerir.
+    duruyor olabilir. N'yi bu yarım hâlin üstünde yeniden çalışabilecek şekilde düzelt ya da yarım
+    kalanı bir sonraki Deploy'dan önce elle temizle; elle temizlik canlı veritabanına doğrudan
+    dokunmaktır, yalnız acil durumda ve yapılan issue'ya yazılarak. Dikkat: yarıda kalan
+    `CREATE INDEX CONCURRENTLY` geçersiz (INVALID) bir index bırakır; `IF NOT EXISTS` onu var
+    sayıp atlar ve index geçersiz kalır. Doğrusu önce `DROP INDEX CONCURRENTLY IF EXISTS`, sonra
+    yeniden oluşturmak. Böyle bir migration yalnız gerçekten gereken ifadeleri içerir.
 - **`release`'e elle push edilmez.** Özel repoda branch koruması ücretli (GitHub Pro ya da public
   repo); şimdilik bu bir kural.
 - Bekleyen yayınlar iptal edilmez, sırayla koşar. Release'in zaten kapsadığı bir commit'in

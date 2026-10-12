@@ -12,13 +12,13 @@ afterEach(() => cleanup.splice(0).forEach((f) => f()));
 
 const user: User = { id: 1, email: "ayse@example.com", display_name: "Ayşe", role: "USER", created_at: "2026-01-01T00:00:00Z" };
 
-function renderOpen(u: User) {
+function renderOpen(u: User, path = "/") {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
   act(() =>
     root.render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>
         <UserMenu user={u} onLogout={() => {}} />
       </MemoryRouter>,
     ),
@@ -56,5 +56,28 @@ describe("UserMenu", () => {
     const links = Array.from(panel.querySelectorAll("a")).map((a) => a.textContent);
     expect(links).toContain("Kitap öner");
     expect(links).not.toContain("Moderasyon");
+  });
+
+  it("bulunulan sayfanın bağlantısına tıklamak da menüyü kapatır (adres değişmese bile)", () => {
+    const { button } = renderOpen(user, "/account");
+    const panel = document.getElementById(button.getAttribute("aria-controls")!)!;
+    const link = Array.from(panel.querySelectorAll("a")).find((a) => a.textContent === "Hesabım")!;
+    act(() => void link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })));
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("listede bağlantı dışında bir yere tıklamak menüyü kapatmaz", () => {
+    const { button } = renderOpen(user);
+    const panel = document.getElementById(button.getAttribute("aria-controls")!)!;
+    act(() => void panel.querySelector("ul")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("\"Çıkış\"a tıklamak menüyü kapatır (oturum hemen düşmese de)", () => {
+    const { button } = renderOpen(user);
+    const panel = document.getElementById(button.getAttribute("aria-controls")!)!;
+    const out = Array.from(panel.querySelectorAll("button")).find((b) => b.textContent === "Çıkış")!;
+    act(() => out.click());
+    expect(button.getAttribute("aria-expanded")).toBe("false");
   });
 });

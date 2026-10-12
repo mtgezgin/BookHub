@@ -52,14 +52,17 @@ function StarPicker({ value, onPick }: { value: number | null; onPick: (score: n
 
 function DetailSkeleton() {
   return (
-    <div role="status" aria-label="Kitap yükleniyor" className="mx-auto flex max-w-5xl gap-6 md:gap-10">
-      <Skeleton className="aspect-[2/3] w-26 shrink-0 sm:w-36 md:w-64" />
-      <div className="flex flex-1 flex-col gap-3">
-        <Skeleton className="h-9 w-2/3" />
-        <Skeleton className="h-4 w-1/2" />
-        <Skeleton className="h-4 w-1/3" />
+    <>
+      <PageTitle title="Yükleniyor" />
+      <div role="status" aria-label="Kitap yükleniyor" className="mx-auto flex max-w-5xl gap-6 md:gap-10">
+        <Skeleton className="aspect-[2/3] w-26 shrink-0 sm:w-36 md:w-64" />
+        <div className="flex flex-1 flex-col gap-3">
+          <Skeleton className="h-9 w-2/3" />
+          <Skeleton className="h-4 w-1/2" />
+          <Skeleton className="h-4 w-1/3" />
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -154,7 +157,7 @@ function BookDetailView() {
       await api.addComment(id, text);
       setText("");
       toast("Yorumun eklendi");
-      if (comments.offset === 0) comments.reload();
+      if (comments.offset === 0) void comments.reload();
       else comments.setOffset(0); // en yeni yorum ilk sayfada
     } catch (err) {
       setError(err);
@@ -170,14 +173,14 @@ function BookDetailView() {
     } catch (e) {
       setError(e);
     }
-    comments.reload();
+    void comments.reload();
   };
 
   if (!book) {
     if (error instanceof ApiError && error.status === 404) {
       return <NotFound title="Kitap bulunamadı">Bu kitap katalogda yok ya da yayından kaldırılmış.</NotFound>;
     }
-    return error ? <ErrorBox error={error} /> : <DetailSkeleton />;
+    return error ? <><PageTitle title="Kitap yüklenemedi" /><ErrorBox error={error} /></> : <DetailSkeleton />;
   }
   const max = Math.max(1, ...(summary?.distribution.map((d) => d.votes) ?? [1]));
   const meta = [

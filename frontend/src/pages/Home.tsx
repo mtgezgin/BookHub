@@ -110,7 +110,7 @@ export function Home() {
       now.update({ q: trimmed }, true);
     }, SEARCH_DELAY_MS);
     return () => clearTimeout(t);
-    // q bilerek bağımlılık değil: yalnız KULLANICI yazınca zamanlayıcı kurulur.
+    // q bilerek bağımlılık değil: karar zamanlayıcının içinde son render'ın q'suyla verilir.
   }, [search]);
 
   // URL dışarıdan değişince (geri/ileri, logo) kutu da onu göstersin. Kutudaki değer zaten q'ya
@@ -123,6 +123,15 @@ export function Home() {
     if (q === own) return;
     setSearch((s) => (s.trim() === q ? s : q));
   }, [q]);
+
+  // Zaten seçili tür ya da sıra yeniden seçilince bir şey olmaz: update offset'i silip sayfayı başa
+  // alır ve geçmişe kayıt eklerdi.
+  // Karşılaştırma ekranda görünen (normalleştirilmiş) değerle: ?sort=foo da "En yeni" sayılır.
+  const select = (next: Record<string, string>) => {
+    const shown: Record<string, string> = { genre, sort };
+    if (Object.entries(next).every(([k, v]) => shown[k] === v)) return;
+    update(next);
+  };
 
   const submitSearch = () => {
     const next = search.trim();
@@ -161,9 +170,9 @@ export function Home() {
           <Button type="submit" size="lg" className="h-11">Ara</Button>
         </form>
         <div role="group" aria-label="Türler" className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1">
-          <Chip active={genre === ""} onClick={() => update({ genre: "" })}>Tümü</Chip>
+          <Chip active={genre === ""} onClick={() => select({ genre: "" })}>Tümü</Chip>
           {genres.map((g) => (
-            <Chip key={g.id} active={genre === g.slug} onClick={() => update({ genre: g.slug })}>{g.name}</Chip>
+            <Chip key={g.id} active={genre === g.slug} onClick={() => select({ genre: g.slug })}>{g.name}</Chip>
           ))}
         </div>
       </section>
@@ -221,10 +230,10 @@ export function Home() {
             <div className="flex items-center gap-3">
               <p aria-live="polite" className="text-sm text-muted-foreground">{page.total} kitap</p>
               <div role="group" aria-label="Sıralama" className="inline-flex gap-1 rounded-lg border bg-card p-1">
-                <Button size="sm" variant={sort === "" ? "default" : "ghost"} aria-pressed={sort === ""} onClick={() => update({ sort: "" })}>
+                <Button size="sm" variant={sort === "" ? "default" : "ghost"} aria-pressed={sort === ""} onClick={() => select({ sort: "" })}>
                   En yeni
                 </Button>
-                <Button size="sm" variant={sort === "rating" ? "default" : "ghost"} aria-pressed={sort === "rating"} onClick={() => update({ sort: "rating" })}>
+                <Button size="sm" variant={sort === "rating" ? "default" : "ghost"} aria-pressed={sort === "rating"} onClick={() => select({ sort: "rating" })}>
                   En yüksek puan
                 </Button>
               </div>

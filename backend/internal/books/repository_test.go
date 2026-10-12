@@ -299,3 +299,69 @@ func TestRepositoryListCountErrorWrapping(t *testing.T) {
 		t.Errorf("hata yolunda nil liste ve 0 toplam bekleniyordu, gelen %+v, %d", got, total)
 	}
 }
+
+// TestRepositoryListRatingAverageError: puana göre sıralamada önce genel ortalama okunur;
+// o sorgu (QueryRow) patlarsa List liste sorgusuna hiç geçmeden, "genel ortalama sorgusu"
+// bağlamıyla sarılı hatayı döner. Query ayrı bir hata döndürecek şekilde kurulu: liste
+// sorgusu atılsaydı gelen hata errConn değil o olurdu.
+func TestRepositoryListRatingAverageError(t *testing.T) {
+	errConn := errors.New("bağlantı koptu")
+	errList := errors.New("liste sorgusu atılmamalıydı")
+	repo := NewRepository(fakeDBTX{row: fakeRow{err: errConn}, queryErr: errList})
+
+	got, total, err := repo.List(context.Background(), ListFilter{Sort: SortRating, MinVotes: 5, ColdStart: 3, Limit: 20})
+	if !errors.Is(err, errConn) {
+		t.Fatalf("genel ortalama sorgusunun sarılı hatası bekleniyordu, gelen %v", err)
+	}
+	if errors.Is(err, errList) {
+		t.Errorf("ortalama hatasından sonra liste sorgusu atılmamalıydı, gelen %v", err)
+	}
+	if !strings.Contains(err.Error(), "genel ortalama sorgusu") {
+		t.Errorf("hata metni \"genel ortalama sorgusu\" bağlamını içermeli, gelen %q", err.Error())
+	}
+	if got != nil || total != 0 {
+		t.Errorf("hata yolunda nil liste ve 0 toplam bekleniyordu, gelen %+v, %d", got, total)
+	}
+}
+
+// averageRow, GlobalAverageRating'e sabit bir C, CountBooks'a 0 döner.
+type averageRow struct{ c float64 }
+
+func (r averageRow) Scan(dest ...any) error {
+	switch p := dest[0].(type) {
+	case *float64:
+		*p = r.c
+	case *int64:
+		*p = 0
+	}
+	return nil
+}
+
+// captureDBTX, liste sorgusunun argümanlarını kaydeder.
+type captureDBTX struct {
+	fakeDBTX
+	row  pgx.Row
+	args *[]any
+}
+
+func (f captureDBTX) QueryRow(context.Context, string, ...interface{}) pgx.Row { return f.row }
+
+func (f captureDBTX) Query(_ context.Context, _ string, args ...interface{}) (pgx.Rows, error) {
+	*f.args = args
+	return emptyRows{}, nil
+}
+
+// TestRepositoryListRatingUsesDatabaseAverage: puan sırasının C'si veritabanındaki genel ortalamadır
+// (GlobalAverageRating), soğuk başlangıç değeri değil. Biri ColdStart'ı doğrudan C diye verirse
+// katalog sırası "en sevilenler" şeridinden sessizce ayrışırdı.
+func TestRepositoryListRatingUsesDatabaseAverage(t *testing.T) {
+	var args []any
+	repo := NewRepository(captureDBTX{row: averageRow{c: 7.25}, args: &args})
+	if _, _, err := repo.List(context.Background(), ListFilter{Sort: SortRating, MinVotes: 5, ColdStart: 3, Limit: 20}); err != nil {
+		t.Fatalf("liste okunamadı: %v", err)
+	}
+	// Sıra sqlc'nin ürettiği çağrıdakidir: genre, query, m, c, offset, limit.
+	if len(args) < 4 || args[3] != 7.25 {
+		t.Errorf("C olarak genel ortalama (7.25) bekleniyordu, gelen argümanlar %v", args)
+	}
+}

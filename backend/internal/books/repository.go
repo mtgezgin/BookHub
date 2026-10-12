@@ -141,8 +141,13 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]db.Book, int64, 
 		err  error
 	)
 	if f.Sort == SortRating {
+		var c float64
+		c, err = r.q.GlobalAverageRating(ctx, f.ColdStart)
+		if err != nil {
+			return nil, 0, fmt.Errorf("genel ortalama sorgusu: %w", err)
+		}
 		list, err = r.q.ListBooksByRating(ctx, db.ListBooksByRatingParams{
-			Genre: genre, Query: query, M: f.MinVotes, Fallback: f.ColdStart, Limit: f.Limit, Offset: f.Offset,
+			Genre: genre, Query: query, M: f.MinVotes, C: c, Limit: f.Limit, Offset: f.Offset,
 		})
 	} else {
 		list, err = r.q.ListBooks(ctx, db.ListBooksParams{Genre: genre, Query: query, Limit: f.Limit, Offset: f.Offset})

@@ -143,4 +143,23 @@ describe("Pager", () => {
     act(() => next.click());
     expect(calls).toEqual([0, 4]);
   });
+
+  it("boş sayfadan geri adım atarken eski satırlar ekranda kalmaz", async () => {
+    let total = 3;
+    let back!: () => void;
+    const fetch = (offset: number) =>
+      offset === 0 && total === 2
+        ? new Promise<Page<number>>((res) => { back = () => res(page([1, 2], total)); })
+        : Promise.resolve(offset === 0 ? page([1, 2], total) : page(total > 2 ? [3] : [], total));
+    const h = mount(fetch);
+    await flush();
+    await act(async () => h.current!.setOffset(2));
+    expect(h.current!.page!.items).toEqual([3]);
+    total = 2;
+    await act(async () => h.current!.reload());
+    await flush();
+    expect(h.current!.page).toBeNull();
+    await act(async () => back());
+    expect(h.current!.page!.items).toEqual([1, 2]);
+  });
 });

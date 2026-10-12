@@ -49,7 +49,8 @@ LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- Katalogda "en yüksek puan" sırası: ListTopRated ile AYNI ağırlıklı (Bayes) skor. Basit
 -- ortalama olsaydı 1 oyla 10 alan kitap, 40 oyla 9 alanın önüne geçerdi.
--- C (genel ortalama) bağımsız bir alt sorgu: Postgres onu bir kez hesaplar (InitPlan).
+-- C (genel ortalama) parametre: tek tanımı ratings.sql'deki GlobalAverageRating; repository önce onu
+-- okur. Burada ikinci bir kopyası olsaydı şerit ile katalog sırası sessizce ayrışabilirdi.
 -- Oysuz kitap NULL → en sonda (kendi aralarında en yeni önce). CASE, m = 0 iken oysuz
 -- kitapta 0/0 bölmesini de önler (RATING_MIN_VOTES 0 olabilir).
 -- Filtreler ListBooks ile birebir aynı; birini değiştiren ikisini de değiştirir.
@@ -66,12 +67,7 @@ WHERE b.status = 'APPROVED'
 ORDER BY
   CASE WHEN b.rating_count = 0 THEN NULL ELSE
        (b.rating_count::float8 / (b.rating_count + sqlc.arg('m')::float8)) * b.average_rating::float8
-     + (sqlc.arg('m')::float8 / (b.rating_count + sqlc.arg('m')::float8)) * (
-         SELECT COALESCE(
-                    sum(o.average_rating * o.rating_count)::float8 / NULLIF(sum(o.rating_count), 0),
-                    sqlc.arg('fallback')::float8)
-         FROM books o
-         WHERE o.status = 'APPROVED' AND o.rating_count > 0)
+     + (sqlc.arg('m')::float8 / (b.rating_count + sqlc.arg('m')::float8)) * sqlc.arg('c')::float8
   END DESC NULLS LAST,
   b.rating_count DESC, b.created_at DESC, b.id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');

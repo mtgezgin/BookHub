@@ -283,29 +283,25 @@ WHERE b.status = 'APPROVED'
 ORDER BY
   CASE WHEN b.rating_count = 0 THEN NULL ELSE
        (b.rating_count::float8 / (b.rating_count + $3::float8)) * b.average_rating::float8
-     + ($3::float8 / (b.rating_count + $3::float8)) * (
-         SELECT COALESCE(
-                    sum(o.average_rating * o.rating_count)::float8 / NULLIF(sum(o.rating_count), 0),
-                    $4::float8)
-         FROM books o
-         WHERE o.status = 'APPROVED' AND o.rating_count > 0)
+     + ($3::float8 / (b.rating_count + $3::float8)) * $4::float8
   END DESC NULLS LAST,
   b.rating_count DESC, b.created_at DESC, b.id DESC
 LIMIT $6 OFFSET $5
 `
 
 type ListBooksByRatingParams struct {
-	Genre    *string `json:"genre"`
-	Query    *string `json:"query"`
-	M        float64 `json:"m"`
-	Fallback float64 `json:"fallback"`
-	Offset   int32   `json:"offset"`
-	Limit    int32   `json:"limit"`
+	Genre  *string `json:"genre"`
+	Query  *string `json:"query"`
+	M      float64 `json:"m"`
+	C      float64 `json:"c"`
+	Offset int32   `json:"offset"`
+	Limit  int32   `json:"limit"`
 }
 
 // Katalogda "en yüksek puan" sırası: ListTopRated ile AYNI ağırlıklı (Bayes) skor. Basit
 // ortalama olsaydı 1 oyla 10 alan kitap, 40 oyla 9 alanın önüne geçerdi.
-// C (genel ortalama) bağımsız bir alt sorgu: Postgres onu bir kez hesaplar (InitPlan).
+// C (genel ortalama) parametre: tek tanımı ratings.sql'deki GlobalAverageRating; repository önce onu
+// okur. Burada ikinci bir kopyası olsaydı şerit ile katalog sırası sessizce ayrışabilirdi.
 // Oysuz kitap NULL → en sonda (kendi aralarında en yeni önce). CASE, m = 0 iken oysuz
 // kitapta 0/0 bölmesini de önler (RATING_MIN_VOTES 0 olabilir).
 // Filtreler ListBooks ile birebir aynı; birini değiştiren ikisini de değiştirir.
@@ -314,7 +310,7 @@ func (q *Queries) ListBooksByRating(ctx context.Context, arg ListBooksByRatingPa
 		arg.Genre,
 		arg.Query,
 		arg.M,
-		arg.Fallback,
+		arg.C,
 		arg.Offset,
 		arg.Limit,
 	)

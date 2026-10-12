@@ -268,6 +268,13 @@ describe("BookDetail — yükleme ve şablon", () => {
     expect(alertText(el)).toBe("kitap yüklenemedi");
   });
 
+  it("404 dışındaki yükleme hatasında sekme başlığı \"Kitap yüklenemedi\" olur, önceki sayfanınki kalmaz", async () => {
+    document.title = "Önceki kitap — BookHub";
+    stub({ book: () => Promise.reject(new ApiError(500, "internal", "kitap yüklenemedi")) });
+    await render();
+    expect(document.title).toBe("Kitap yüklenemedi — BookHub");
+  });
+
   it("kitap yüklenirken iskelet gösterir", async () => {
     stub({ book: () => new Promise<Book>(() => {}) });
     const { el } = await render();
@@ -280,6 +287,13 @@ describe("BookDetail — yükleme ve şablon", () => {
     const link = Array.from(el.querySelectorAll("a")).find((a) => a.textContent === "giriş yap")!;
     await act(async () => link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })));
     expect(el.querySelector("[data-from]")!.getAttribute("data-from")).toBe("/books/1");
+  });
+
+  it("kitap yüklenirken sekme başlığı önceki sayfanınki kalmaz", async () => {
+    document.title = "Önceki kitap — BookHub";
+    stub({ book: () => new Promise(() => {}) });
+    await render();
+    expect(document.title).toBe("Yükleniyor — BookHub");
   });
 
   it("sekme başlığı kitabın adı", async () => {

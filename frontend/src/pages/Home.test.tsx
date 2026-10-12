@@ -212,6 +212,30 @@ describe("Home", () => {
     expect(el.querySelector(TOP)).toBeNull();
   });
 
+  it("zaten seçili sıralama düğmesine basmak URL'yi değiştirmez (sayfa başa dönmez)", async () => {
+    const { el, params } = await render("/?sort=rating&offset=12");
+    await act(async () => button(el, "En yüksek puan").click());
+    await flush();
+    expect(Object.fromEntries(params())).toEqual({ sort: "rating", offset: "12" });
+    cleanup.splice(0).forEach((f) => f());
+    const def = await render("/?offset=12");
+    await act(async () => button(def.el, "En yeni").click());
+    await flush();
+    expect(Object.fromEntries(def.params())).toEqual({ offset: "12" });
+    // Elle yazılmış geçersiz sıra varsayılan sayılır ("En yeni" basılı); ona basmak da bir şey yapmaz.
+    cleanup.splice(0).forEach((f) => f());
+    const bogus = await render("/?sort=foo&offset=12");
+    await act(async () => button(bogus.el, "En yeni").click());
+    await flush();
+    expect(Object.fromEntries(bogus.params())).toEqual({ sort: "foo", offset: "12" });
+    cleanup.splice(0).forEach((f) => f());
+    const def2 = await render("/?offset=12");
+    // Aynı kök neden: zaten seçili tür çipi de sayfayı başa almamalı.
+    await act(async () => button(def2.el, "Tümü").click());
+    await flush();
+    expect(Object.fromEntries(def2.params())).toEqual({ offset: "12" });
+  });
+
   it("yazmayı bırakınca (300 ms) Enter'a basmadan arar", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
