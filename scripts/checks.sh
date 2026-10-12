@@ -39,7 +39,9 @@ need() {
 	return 1
 }
 
-# Değişen dosyalar "DURUM<TAB>yol[<TAB>yeni-yol]" biçiminde (yeniden adlandırmada iki yol).
+# Değişen dosyalar "DURUM<TAB>yol[<TAB>yeni-yol]" biçiminde (yeniden adlandırmada iki yol). staged ve
+# range modunda bir kez CHANGES'e alınır: git diff düşerse (ör. ortak ata yok) set -e betiği durdurur;
+# süreç ikamesi (< <(…)) hatayı yutardı.
 changes() {
 	case "$MODE" in
 	staged) git diff --cached --name-status -M ;;
@@ -54,6 +56,14 @@ blob_at() {
 	case "$MODE" in
 	staged) git rev-parse -q --verify ":$1" || true ;;
 	range) git rev-parse -q --verify "$HEAD:$1" || true ;;
+	esac
+}
+
+# tree_files <klasör/>: denetlenen ağaçtaki dosyalar (staged'de index, range'de HEAD).
+tree_files() {
+	case "$MODE" in
+	staged) git ls-files -- "$1" ;;
+	range) git ls-tree -r --name-only "$HEAD" -- "$1" ;;
 	esac
 }
 
@@ -79,7 +89,7 @@ check_forbidden_paths() {
 		if [[ "$base" == .env || ("$base" == .env.* && "$base" != .env.example) ]]; then
 			fail "yasak yol: $path — sırlar repoya girmez; yalnız .env.example (herkese açık dev değerleri)"
 		fi
-	done < <(changes)
+	done <<<"$CHANGES"
 }
 
 # Kural: canlıya çıkmış (release'teki) migration değişmez, silinmez, yeniden adlandırılmaz ve
@@ -93,11 +103,16 @@ check_migrations() {
 		fi
 		return
 	fi
-	# Kullanılmış numaralar ("numara yol"): canlıdakiler ve main'e girmiş ama henüz yayınlanmamışlar.
-	local taken status path new
-	taken="$(for ref in origin/release origin/main; do
-		if git rev-parse --verify -q "$ref" >/dev/null; then git ls-tree --name-only "$ref" backend/migrations/; fi
-	done | sed -nE 's|^(backend/migrations/([0-9]+)_[^/]*\.sql)$|\2 \1|p' | sort -u)"
+	# Kullanılmış numaralar ("numara yol"): canlıdakiler, main'e girmiş ama henüz yayınlanmamışlar ve
+	# denetlenen ağacın kendisindekiler. Bu değişikliğin sildiği ya da taşıdığı yollar sayılmaz.
+	local taken gone status path new
+	gone="$(awk -F'\t' '$1 ~ /^[DR]/ {print $2}' <<<"$CHANGES")"
+	taken="$({
+		for ref in origin/release origin/main; do
+			if git rev-parse --verify -q "$ref" >/dev/null; then git ls-tree --name-only "$ref" backend/migrations/; fi
+		done
+		tree_files backend/migrations/
+	} | { grep -vxF -e "${gone:-/}" || true; } | sed -nE 's|^(backend/migrations/([0-9]+)_[^/]*\.sql)$|\2 \1|p' | sort -u)"
 	while IFS=$'\t' read -r status path new; do
 		case "$status" in
 		R*)
@@ -122,7 +137,7 @@ check_migrations() {
 			fi
 			;;
 		esac
-	done < <(changes)
+	done <<<"$CHANGES"
 }
 
 # released <yol>: dosya canlıda (origin/release'te) var mı.
@@ -161,10 +176,9 @@ check_migration_number() {
 # Kural: commit mesajında atlama bayrağı olmaz; Northflank aynı push'taki tek bir bayrak yüzünden
 # bütün yayını atlar. GitHub ayrıca "skip-checks: true" satırıyla kontrolleri atlar.
 #
-# check_commit_message <dosya> [raw]: commit-msg kancasında git'in yorum satırları (#) ve
-# `git commit -v`'nin makas çizgisinden sonraki diff'i mesaja girmez (git onları kancadan SONRA atar).
-# raw (range modu): mesajlar commit'lenmiş hâliyle gelir; '#' ile başlayan satır da mesajın parçası
-# (GitHub arayüzü, --cleanup=verbatim).
+# check_commit_message <dosya> [raw]: '#' ile başlayan satırlar da taranır: editörde git onları atar
+# ama `git commit -m`/`-F` atmaz. Yalnız `git commit -v`'nin makas çizgisinden sonrası (diff) mesaj
+# değildir; git onu kancadan SONRA keser. raw (range modu): mesajlar commit'lenmiş hâliyle gelir.
 SKIP_FLAGS='\[(skip ci|ci skip|no ci|skip actions|actions skip|skip nf|nf skip|northflank skip|skip northflank)\]|^skip-checks: ?true'
 check_commit_message() {
 	local hit
@@ -172,7 +186,7 @@ check_commit_message() {
 	if [[ "${2:-}" == raw ]]; then
 		hit="$(grep -oiE "$SKIP_FLAGS" "$1" | sed -n 1p || true)"
 	else
-		hit="$(sed '/^# -\{24\} >8 -\{24\}$/,$d' "$1" | grep -v '^#' | grep -oiE "$SKIP_FLAGS" | sed -n 1p || true)"
+		hit="$(sed '/^# -\{24\} >8 -\{24\}$/,$d' "$1" | grep -oiE "$SKIP_FLAGS" | sed -n 1p || true)"
 	fi
 	if [[ -n "$hit" ]]; then
 		fail "commit mesajında atlama bayrağı var ($hit) — Northflank yayını atlar"
@@ -209,7 +223,7 @@ check_secrets() {
 	esac
 }
 
-changed_matching() { changes | cut -f2- | tr '\t' '\n' | grep -E "$1" || true; }
+changed_matching() { printf '%s\n' "$CHANGES" | cut -f2- | tr '\t' '\n' | grep -E "$1" || true; }
 
 # sqlc'nin ürettiği kod sorgularla, go.mod/go.sum bağımlılıklarla uyumlu mu.
 check_generated() {
@@ -247,6 +261,7 @@ check_frontend_types() {
 
 case "$MODE" in
 staged)
+	CHANGES="$(changes)"
 	check_forbidden_paths
 	check_migrations
 	check_go_version
@@ -275,6 +290,7 @@ range)
 	git log --format=%B "$BASE..$HEAD" >"$msgs"
 	check_commit_message "$msgs" raw
 	rm -f "$msgs"
+	CHANGES="$(changes)"
 	check_forbidden_paths
 	check_migrations
 	check_go_version

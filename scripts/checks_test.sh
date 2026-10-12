@@ -113,6 +113,16 @@ git checkout -q feature
 printf -- '-- +goose Up\nCREATE TABLE y (id int);\n' >backend/migrations/0002_y.sql
 git add backend/migrations/0002_y.sql
 expect fail:"numarası kullanılmış" "main'de olup henüz yayınlanmamış numara da kullanılamaz" staged
+git rm -q --cached backend/migrations/0002_y.sql && rm backend/migrations/0002_y.sql
+printf -- '-- +goose Up\nCREATE TABLE p (id int);\n' >backend/migrations/0009_p.sql
+printf -- '-- +goose Up\nCREATE TABLE q (id int);\n' >backend/migrations/0009_q.sql
+git add backend/migrations/0009_p.sql backend/migrations/0009_q.sql
+expect fail:"numarası kullanılmış" "aynı dalda aynı numaralı iki yeni migration durur" staged
+git rm -q --cached backend/migrations/0009_p.sql backend/migrations/0009_q.sql
+rm backend/migrations/0009_p.sql backend/migrations/0009_q.sql
+git checkout -q main
+git mv backend/migrations/0002_x.sql backend/migrations/0002_x_yeni_ad.sql
+expect pass "main'de olup yayınlanmamış migration yeniden adlandırılabilir" staged
 
 echo "▶ main'den birleştirme"
 new_repo mergemain
@@ -153,8 +163,8 @@ printf 'fix: bir şey\n\nAyrıntı [Skip NF]\n' >"$msg"
 expect fail:"atlama bayrağı" "gövdedeki [Skip NF] büyük/küçük harf fark etmeden reddedilir" "$CHECKS" commit-msg "$msg"
 printf 'docs: skip ci bayrağını anlat (köşeli parantezsiz)\n' >"$msg"
 expect pass "köşeli parantezsiz söz geçer" "$CHECKS" commit-msg "$msg"
-printf 'fix: bir şey\n# [skip ci] yorum satırı, mesaja girmez\n' >"$msg"
-expect pass "git yorum satırları sayılmaz" "$CHECKS" commit-msg "$msg"
+printf 'fix: bir şey\n#24 [skip ci]\n' >"$msg"
+expect fail:"atlama bayrağı" "# ile başlayan satır da taranır (git commit -m onu silmez)" "$CHECKS" commit-msg "$msg"
 printf 'docs: kural notu\n# ------------------------ >8 ------------------------\n+bir satır [skip ci]\n' >"$msg"
 expect pass "git commit -v: makas çizgisinin altındaki diff sayılmaz" "$CHECKS" commit-msg "$msg"
 printf 'fix: bir şey\n\n\nskip-checks: true\n' >"$msg"
@@ -233,6 +243,9 @@ expect pass "aralıkta canlıdakiyle aynı migration geçer" "$CHECKS" range mai
 printf 'ALTER TABLE h ADD b int;\n' >>backend/migrations/0002_h.sql
 git add backend/migrations/0002_h.sql && git commit -qm "dalda değişti"
 expect fail:"canlıya çıkmış migration" "aralıkta canlıdakinden farklı migration durur" "$CHECKS" range main feature
+git checkout -q --orphan yetim
+git commit -q -m "ortak atası olmayan dal"
+expect fail:"merge base" "aralığın ortak atası yoksa kontrol sessizce geçmez" "$CHECKS" range main yetim
 new_repo range5
 base="$(git rev-parse HEAD)"
 printf 'b\n' >b.txt && git add b.txt && git commit -q --cleanup=verbatim -m "feat: b" -m "#24 [skip ci]"
