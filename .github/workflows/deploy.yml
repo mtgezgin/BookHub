@@ -141,7 +141,10 @@ jobs:
   release:
     name: Release
     needs: plan
-    if: needs.plan.outputs.skip == 'false'
+    # Aynı depo kontrolü plan'da da var; head_sha'yı checkout eden her iş kendi kapısını taşır.
+    if: >-
+      needs.plan.outputs.skip == 'false' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: write # release dalını ilerletmek için; bu iş repo kodu çalıştırmaz
