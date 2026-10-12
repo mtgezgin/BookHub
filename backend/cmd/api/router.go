@@ -24,9 +24,11 @@ type deps struct {
 	moderation moderationService
 	comments   commentService
 	ratings    ratingService
-	auth       authService
-	tokens     tokenVerifier
-	limiter    ratelimit.Limiter // nil → sınırsız (yalnız bir alanı dolduran testler)
+	// ratingMinVotes: ağırlıklı puandaki m (RATING_MIN_VOTES); katalogun ?sort=rating sırası için.
+	ratingMinVotes int64
+	auth           authService
+	tokens         tokenVerifier
+	limiter        ratelimit.Limiter // nil → sınırsız (yalnız bir alanı dolduran testler)
 	// trustedProxies: X-Real-IP başlığına güvenilecek proxy adresleri (NGINX). Boş → hiçbiri.
 	trustedProxies []netip.Prefix
 	// cookies: refresh çerezinin adı + Secure özniteliği (config'ten gelir). Adı boşsa
@@ -60,7 +62,7 @@ func newRouter(d deps) http.Handler {
 	r.Get("/health", handleHealth)
 
 	// Herkese açık okuma uçları.
-	r.Get("/api/books", handleListBooks(d.books))
+	r.Get("/api/books", handleListBooks(d.books, d.ratingMinVotes))
 	r.Get("/api/books/top-rated", handleTopRated(d.books, d.ratings)) // statik yol {id}'den önce eşleşir
 	r.Get("/api/books/{id}", handleGetBook(d.books))                  // {id} = Chi URL parametresi
 	r.Get("/api/genres", handleListGenres(d.genres))

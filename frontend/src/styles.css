@@ -1,61 +1,118 @@
-*, *::before, *::after { box-sizing: border-box; }
+/*
+ * Tasarım token'ları (Faz 14). Bileşenler ham renk değil ANLAMLI ad kullanır (`bg-primary`,
+ * `text-muted-foreground`); tema yalnız buradaki değerleri değiştirir. Görsel yön: "sıcak
+ * kütüphane" — kâğıt tonu zemin, mürekkep rengi metin, koyu yeşil vurgu, kehribar yıldız.
+ * Renkler OKLCH: ilk sayı algılanan parlaklık (0–1). Kontrast hedefi WCAG AA; bir değeri
+ * değiştirince `node scripts/check-contrast.mjs` çalıştır (bütün çiftler iki temada ölçülür).
+ */
+@import "tailwindcss";
+
+/* Tailwind'in `dark:` varyantı da aynı özniteliğe baksın (sistem tercihine değil). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
-  --bg: #f7f5f0; --fg: #1f2328; --muted: #6b7280; --card: #fff; --line: #e5e1d8;
-  --accent: #7c3aed; --accent-soft: #ede9fe; --danger: #b91c1c; --ok: #15803d;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg);
+  color-scheme: light;
+  --background: oklch(0.977 0.008 85);
+  --foreground: oklch(0.235 0.018 55);
+  --card: oklch(0.993 0.004 85);
+  --card-foreground: var(--foreground);
+  --primary: oklch(0.43 0.075 162);
+  --primary-foreground: oklch(0.985 0.01 160);
+  --secondary: oklch(0.935 0.014 85);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.945 0.012 85);
+  --muted-foreground: oklch(0.47 0.02 60);
+  --accent: oklch(0.93 0.035 160);
+  --accent-foreground: oklch(0.33 0.07 162);
+  --destructive: oklch(0.52 0.19 27);
+  --destructive-foreground: oklch(0.985 0.005 27);
+  --success: oklch(0.42 0.09 150);
+  --border: oklch(0.885 0.014 80);
+  --input: oklch(0.8 0.018 75);
+  --ring: oklch(0.43 0.075 162);
+  --star: oklch(0.64 0.16 62);
+  --radius: 0.75rem;
 }
-body { margin: 0; line-height: 1.5; }
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
-h1 { font-size: 1.6rem; margin: 0 0 .5rem; }
-h2 { font-size: 1.15rem; margin: 1.5rem 0 .5rem; }
-h3 { margin: 0; font-size: 1rem; }
-.topbar { display: flex; gap: 1rem; align-items: center; padding: .75rem 1.5rem; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 1; }
-.brand { font-weight: 700; font-size: 1.1rem; color: var(--fg); }
-.spacer { flex: 1; }
-main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
-.layout { display: grid; grid-template-columns: 1fr 300px; gap: 2rem; }
-@media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
-.muted { color: var(--muted); }
-.small { font-size: .85rem; }
-button { font: inherit; padding: .45rem .9rem; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
-button:disabled { opacity: .4; cursor: default; }
-button.link { background: none; border: none; color: var(--accent); padding: 0 .3rem; }
-button.danger, .danger { border-color: var(--danger); background: var(--danger); color: #fff; }
-button.link.danger { background: none; color: var(--danger); }
-input, select, textarea { font: inherit; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 8px; background: #fff; width: 100%; }
-textarea { min-height: 90px; resize: vertical; }
-.search { display: flex; gap: .5rem; margin-bottom: 1rem; }
-.search select { width: auto; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
-.book-card, .card { display: flex; gap: 1rem; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1rem; }
-.card { display: block; }
-.cover { width: 64px; height: 92px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
-.cover.placeholder { display: grid; place-items: center; background: var(--accent-soft); font-size: 1.6rem; }
-.tags { display: flex; flex-wrap: wrap; gap: .3rem; margin: .3rem 0; }
-.tag { font-size: .75rem; padding: .1rem .5rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
-.rating { font-weight: 600; }
-.pager { display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; }
-.top { padding-left: 1.2rem; }
-.top li { margin-bottom: .5rem; }
-.panel { max-width: 420px; margin: 2rem auto; display: flex; flex-direction: column; gap: .8rem; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1.5rem; }
-.panel label { display: flex; flex-direction: column; gap: .3rem; font-size: .9rem; }
-.error { background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; padding: .5rem .75rem; border-radius: 8px; margin: .5rem 0; }
-.success { background: #f0fdf4; color: var(--ok); border: 1px solid #bbf7d0; padding: .5rem .75rem; border-radius: 8px; }
-.detail .description { white-space: pre-wrap; }
-.histogram { display: flex; gap: 4px; align-items: flex-end; height: 90px; margin: .75rem 0; max-width: 360px; }
-.histogram .bar { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; }
-.histogram .bar div { width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 2px; }
-.histogram .bar span { font-size: .7rem; color: var(--muted); }
-.score-picker { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; margin-top: .5rem; }
-.score-picker button { background: #fff; color: var(--accent); padding: .3rem .6rem; }
-.score-picker button.active { background: var(--accent); color: #fff; }
-.comment-form { display: flex; flex-direction: column; gap: .5rem; align-items: flex-end; }
-.comments { list-style: none; padding: 0; }
-.comments li { border-bottom: 1px solid var(--line); padding: .75rem 0; }
-.comments p { margin: .25rem 0 0; white-space: pre-wrap; }
-.tabs { display: flex; gap: .4rem; margin-bottom: 1rem; }
-.tabs button { background: #fff; color: var(--accent); }
-.tabs button.active { background: var(--accent); color: #fff; }
-.queue { list-style: none; padding: 0; display: flex; flex-direction: column; gap: .6rem; }
-.actions { display: flex; gap: .5rem; margin-top: .5rem; }
+
+/*
+ * Koyu tema TEK blokta. Hangi temanın geçerli olduğuna public/theme-init.js ilk boyamadan önce
+ * karar verir (kullanıcının seçimi, yoksa sistem tercihi) ve <html data-theme> koyar.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.185 0.008 60);
+  --foreground: oklch(0.935 0.01 85);
+  --card: oklch(0.225 0.01 60);
+  --primary: oklch(0.74 0.1 162);
+  --primary-foreground: oklch(0.2 0.03 162);
+  --secondary: oklch(0.28 0.01 60);
+  --muted: oklch(0.26 0.01 60);
+  --muted-foreground: oklch(0.72 0.015 80);
+  --accent: oklch(0.3 0.04 162);
+  --accent-foreground: oklch(0.88 0.06 162);
+  --destructive: oklch(0.7 0.17 25);
+  --destructive-foreground: oklch(0.18 0.03 25);
+  --success: oklch(0.78 0.11 150);
+  --border: oklch(0.32 0.01 60);
+  --input: oklch(0.42 0.012 60);
+  --ring: oklch(0.74 0.1 162);
+  --star: oklch(0.8 0.15 75);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-star: var(--star);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* Fontlar pakete girer ve kendi sunucumuzdan gelir: CSP font CDN'ine izin vermiyor. */
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Fraunces Variable", ui-serif, Georgia, serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/60;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-serif tracking-tight text-balance;
+  }
+}
+
+/* "Hareketi azalt" diyen kullanıcıya kart kalkması, iskelet nabzı gibi hareketler yok. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

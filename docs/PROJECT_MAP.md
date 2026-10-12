@@ -19,8 +19,8 @@ gerçek bir problem doğunca eklendi; kodun içi Türkçe "neden böyle" yorumla
   Docker · Kubernetes · GitHub Actions · Playwright. **ORM yok.**
 - **Kapsam:** MVP (Faz 1–7) + altyapı rayı (Faz 8–12) + oturum sertleştirme (Faz 13) tamam.
   Canlıda (2026-10-04): Northflank + Supabase + Upstash — [DEPLOYMENT.md](DEPLOYMENT.md).
-- **Boyut:** ~7.7k satır Go (+ ~9.3k satır test, 226 test fonksiyonu), ~1.2k satır TypeScript
-  (+ ~2.4k vitest, ~0.9k Playwright), 8 migration, 58 öğrenme notu.
+- **Boyut:** ~7.7k satır Go (+ ~9.3k satır test, 226 test fonksiyonu), ~2.4k satır TypeScript
+  (+ ~3.1k vitest, ~0.9k Playwright), 8 migration, 62 öğrenme notu.
 
 ---
 
@@ -173,6 +173,11 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
 | `src/api/types.ts` | API sözleşmesinin TS tipleri (`Session`'da `refresh_token` YOK) |
 | `src/auth/AuthContext.tsx` | oturum durumu, açılışta geri yükleme |
 | `src/pages/` | Home (katalog + en iyiler), BookDetail, Auth, Suggest, **Account** ("Hesabım": parola değiştirme, Faz 13), admin/Moderation |
+| `src/styles.css` | Tailwind + **tasarım token'ları** (açık/koyu tema, OKLCH); değeri değişince `node scripts/check-contrast.mjs` — [Faz 14](phases/phase-14-ui-redesign.md) |
+| `src/components/ui/` | shadcn/ui yaklaşımıyla repoya kopyalanmış temel bileşenler (Button, Input, Card, Badge, Alert, Skeleton, Label, Dialog) |
+| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `BookCard`, `EmptyState`, `NotFound`, `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged`, `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
+| `src/lib/` | `cn()` (sınıf birleştirme), `format.ts` (Türkçe puan, dil adı, göreli zaman, baş harf), `theme.ts` (açık/koyu tema) |
+| `public/theme-init.js` | temayı ilk boyamadan önce uygular (CSP satır içi betiğe izin vermediği için ayrı dosya) |
 | `e2e/` | Playwright senaryoları (`catalog`, `auth-flow`, `reuse`, `tabs`, `cross-origin`, `rating-comment`, `moderation`) + `env.ts`, `helpers.ts` (**rate limit bütçesi tablosu**), `global-setup.ts` |
 | `playwright.config.ts` | yalnız chromium, `baseURL` = `E2E_BASE_URL`, `trace: retain-on-failure`, CI'da 1 yeniden deneme |
 | `nginx/` | `default.conf` (auth + **password** rate limit zone'ları, `$api_host` map'i), `api-proxy.conf` (`Host` = `$http_host` → port korunur), `security-headers.conf` |

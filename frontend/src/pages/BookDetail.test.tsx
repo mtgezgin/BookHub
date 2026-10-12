@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Book, Comment, RatingSummary, User } from "../api/types";
 
@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({ user: null as unknown }));
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ user: h.user, ready: true }) }));
 
 import { api, ApiError } from "../api/client";
+import { ToastProvider } from "../components/toast";
 import { BookDetail } from "./BookDetail";
 
 const calls: Record<string, unknown[][]> = {};
@@ -45,7 +46,11 @@ const notRated = () => Promise.reject(new ApiError(404, "not_rated", "bu kitaba 
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach((f) => f()));
+// jsdom scrollTo'yu uygulamıyor; çağrıldığını görmek için yerine casus.
+const scrollTo = vi.fn();
 beforeEach(() => {
+  window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
+  scrollTo.mockClear();
   for (const k of Object.keys(calls)) delete calls[k];
   h.user = USER;
   stub({
@@ -53,12 +58,18 @@ beforeEach(() => {
     ratingSummary: async () => summaryOf(0),
     comments: async (_id: number, offset: number) => ({ items: [comment(offset + 1, { id: 7, display_name: "Ali" })], total: 1, limit: 10, offset }),
     myRating: notRated,
+    books: async () => ({ items: [], total: 0, limit: 7, offset: 0 }),
   });
 });
 
 const flush = async () => {
   for (let i = 0; i < 4; i++) await act(async () => {});
 };
+
+function FromProbe() {
+  const from = (useLocation().state as { from?: { pathname: string } } | null)?.from?.pathname;
+  return <p data-from={from}>login</p>;
+}
 
 async function render(path = "/books/1") {
   const nav: { go?: (to: string) => void } = {};
@@ -71,11 +82,14 @@ async function render(path = "/books/1") {
   const root = createRoot(el);
   act(() =>
     root.render(
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/books/:id" element={<><BookDetail /><Nav /></>} />
-        </Routes>
-      </MemoryRouter>,
+      <ToastProvider>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/books/:id" element={<><BookDetail /><Nav /></>} />
+            <Route path="/login" element={<FromProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>,
     ),
   );
   cleanup.push(() => {
@@ -89,14 +103,18 @@ const button = (el: ParentNode, text: string) =>
   Array.from(el.querySelectorAll("button")).find((b) => b.textContent === text);
 const alertText = (el: HTMLElement) => el.querySelector("[role=alert]")?.textContent ?? null;
 
-async function postComment(el: HTMLElement, text: string) {
+function type(el: HTMLElement, text: string) {
   const ta = el.querySelector("textarea")!;
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(ta, text);
     ta.dispatchEvent(new Event("input", { bubbles: true }));
   });
+}
+
+async function postComment(el: HTMLElement, text: string) {
+  type(el, text);
   await act(async () => {
-    ta.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    el.querySelector("textarea")!.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
   await flush();
 }
@@ -189,8 +207,16 @@ describe("BookDetail — puan verme/kaldırma", () => {
     await act(async () => button(el, "7")!.click());
     await flush();
     expect(calls.rate).toEqual([[1, 7]]);
-    expect(button(el, "7")!.className).toBe("active");
+    expect(button(el, "7")!.getAttribute("aria-pressed")).toBe("true");
     expect(calls.ratingSummary.length).toBe(before + 1);
+  });
+
+  it("başarılı puan kısa bir bildirimle onaylanır", async () => {
+    stub({ rate: async (_id: number, score: number) => ({ score }) });
+    const { el } = await render();
+    await act(async () => button(el, "7")!.click());
+    await flush();
+    expect(el.querySelector('[aria-label="Bildirimler"]')!.textContent).toContain("Puanın kaydedildi: 7/10");
   });
 
   it("başarısız puan hatasını gösterir", async () => {
@@ -199,7 +225,7 @@ describe("BookDetail — puan verme/kaldırma", () => {
     await act(async () => button(el, "7")!.click());
     await flush();
     expect(alertText(el)).toBe("kitap bulunamadı");
-    expect(button(el, "7")!.className).toBe("");
+    expect(button(el, "7")!.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("unrate 'kaldır'ı gizler ve özeti yeniden yükler", async () => {
@@ -227,31 +253,81 @@ describe("BookDetail — puan verme/kaldırma", () => {
 });
 
 describe("BookDetail — yükleme ve şablon", () => {
-  it("404 kitap yalnız API mesajlı ErrorBox çizer", async () => {
+  it("404 kitap \"Kitap bulunamadı\" sayfasını ve kataloğa dönüş bağlantısını çizer", async () => {
     stub({ book: () => Promise.reject(new ApiError(404, "not_found", "kitap bulunamadı")) });
     const { el } = await render();
-    expect(el.childElementCount).toBe(1);
-    expect(el.firstElementChild!.getAttribute("role")).toBe("alert");
-    expect(el.textContent).toBe("kitap bulunamadı");
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap bulunamadı");
+    const back = Array.from(el.querySelectorAll("a")).find((a) => a.textContent === "Kataloğa dön")!;
+    expect(back.getAttribute("href")).toBe("/");
+    expect(el.querySelector("textarea")).toBeNull();
+  });
+
+  it("404 dışındaki yükleme hatası ErrorBox'ta API mesajıyla gösterilir", async () => {
+    stub({ book: () => Promise.reject(new ApiError(500, "internal", "kitap yüklenemedi")) });
+    const { el } = await render();
+    expect(alertText(el)).toBe("kitap yüklenemedi");
+  });
+
+  it("kitap yüklenirken iskelet gösterir", async () => {
+    stub({ book: () => new Promise<Book>(() => {}) });
+    const { el } = await render();
+    expect(el.querySelector('[role=status][aria-label="Kitap yükleniyor"]')).not.toBeNull();
+  });
+
+  it("girişsiz \"giriş yap\" bağlantısı kitabın adresini taşır (girişten sonra geri dönülsün)", async () => {
+    h.user = null;
+    const { el } = await render();
+    const link = Array.from(el.querySelectorAll("a")).find((a) => a.textContent === "giriş yap")!;
+    await act(async () => link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })));
+    expect(el.querySelector("[data-from]")!.getAttribute("data-from")).toBe("/books/1");
+  });
+
+  it("sekme başlığı kitabın adı", async () => {
+    await render();
+    expect(document.title).toBe("Kitap 1 — BookHub");
+  });
+
+  it("dil kodu Türkçe dil adıyla gösterilir", async () => {
+    stub({ book: async (id: number) => ({ ...bookOf(id), language: "en" }) });
+    const { el } = await render();
+    expect(el.querySelector("header")!.textContent).toContain("İngilizce");
   });
 
   it("yeniden yükleme (başka kitap) eski hatayı temizler", async () => {
-    stub({ book: (id: number) => (id === 1 ? Promise.reject(new ApiError(404, "not_found", "kitap bulunamadı")) : Promise.resolve(bookOf(id))) });
+    stub({ book: (id: number) => (id === 1 ? Promise.reject(new ApiError(500, "internal", "kitap yüklenemedi")) : Promise.resolve(bookOf(id))) });
     const { el, nav } = await render();
-    expect(alertText(el)).toBe("kitap bulunamadı");
+    expect(alertText(el)).toBe("kitap yüklenemedi");
     await act(async () => nav.go!("/books/2"));
     await flush();
     expect(alertText(el)).toBeNull();
     expect(el.querySelector("h1")!.textContent).toBe("Kitap 2");
   });
 
+  it("başka kitaba geçince öncekinin içeriği yeni kitap yüklenirken kalmaz, sayfa en üstten açılır", async () => {
+    const { el, nav } = await render();
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap 1");
+    let release!: () => void;
+    stub({
+      book: (id: number) =>
+        id === 2 ? new Promise((res) => { release = () => res(bookOf(2)); }) : Promise.resolve(bookOf(id)),
+    });
+    scrollTo.mockClear();
+    await act(async () => nav.go!("/books/2"));
+    await flush();
+    expect(el.textContent).not.toContain("Kitap 1");
+    expect(scrollTo).toHaveBeenCalledWith(0, 0);
+    await act(async () => release());
+    await flush();
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap 2");
+  });
+
   it("rating_count 0 iken histogram gizli, oy varken görünür", async () => {
     const { el } = await render();
-    expect(el.querySelector(".histogram")).toBeNull();
+    expect(el.querySelector('[aria-label="Puan dağılımı"]')).toBeNull();
     cleanup.splice(0).forEach((f) => f());
     stub({ ratingSummary: async () => summaryOf(3) });
     const second = await render();
-    expect(second.el.querySelector(".histogram")).not.toBeNull();
+    expect(second.el.querySelector('[aria-label="Puan dağılımı"]')).not.toBeNull();
   });
 
   it("puan özeti hatası sayfayı düşürmez: kitap çizilir, hata ErrorBox'ta", async () => {
@@ -261,9 +337,80 @@ describe("BookDetail — yükleme ve şablon", () => {
     expect(alertText(el)).toBe("özet yüklenemedi");
   });
 
+  it("yorum yoksa bunu söyler; giriş yapmış kullanıcıyı ilk yorumu yazmaya çağırır", async () => {
+    stub({ comments: async () => ({ items: [], total: 0, limit: 10, offset: 0 }) });
+    const { el } = await render();
+    expect(el.textContent).toContain("Henüz yorum yok. İlk yorumu sen yaz.");
+  });
+
   it("yazarı olmayan yorum \"silinmiş kullanıcı\" gösterir", async () => {
     stub({ comments: async () => ({ items: [comment(5, null)], total: 1, limit: 10, offset: 0 }) });
     const { el } = await render();
-    expect(el.querySelector(".comments strong")!.textContent).toBe("silinmiş kullanıcı");
+    expect(el.querySelector('[aria-label="Yorumlar"] strong')!.textContent).toBe("silinmiş kullanıcı");
+  });
+});
+
+describe("BookDetail — aynı türden kitaplar", () => {
+  const withGenre = (id: number): Book => ({ ...bookOf(id), genres: [{ id: 1, name: "Roman", slug: "roman" }] });
+  const SIMILAR = '[aria-labelledby="similar-heading"]';
+
+  it("ilk türden en fazla 6 kitap gösterir, mevcut kitabı göstermez", async () => {
+    stub({
+      book: async (id: number) => withGenre(id),
+      books: async () => ({ items: [1, 2, 3, 4, 5, 6, 7, 8].map(withGenre), total: 8, limit: 7, offset: 0 }),
+    });
+    const { el } = await render();
+    expect(calls.books).toEqual([[{ genre: "roman", limit: 7 }]]);
+    const hrefs = Array.from(el.querySelectorAll(`${SIMILAR} h3 a`)).map((a) => a.getAttribute("href"));
+    expect(hrefs).toEqual(["/books/2", "/books/3", "/books/4", "/books/5", "/books/6", "/books/7"]);
+  });
+
+  it("türü olmayan kitapta istek atılmaz, bölüm çizilmez", async () => {
+    const { el } = await render();
+    expect(calls.books).toBeUndefined();
+    expect(el.querySelector(SIMILAR)).toBeNull();
+  });
+
+  it("istek başarısızsa hata gösterilmez, bölüm çizilmez (yardımcı içerik)", async () => {
+    stub({
+      book: async (id: number) => withGenre(id),
+      books: () => Promise.reject(new ApiError(500, "internal", "liste yüklenemedi")),
+    });
+    const { el } = await render();
+    expect(alertText(el)).toBeNull();
+    expect(el.querySelector(SIMILAR)).toBeNull();
+  });
+});
+
+describe("BookDetail — yorum deneyimi", () => {
+  it("gönderilirken düğme kilitli: çift tıklama iki yorum yazmaz", async () => {
+    stub({ addComment: () => new Promise(() => {}) });
+    const { el } = await render();
+    type(el, "merhaba");
+    await act(async () => {
+      el.querySelector("textarea")!.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(button(el, "Gönderiliyor…")!.disabled).toBe(true);
+  });
+
+  it("karakter sayacı yazılanı ve sınırı gösterir", async () => {
+    const { el } = await render();
+    type(el, "merhaba");
+    expect(el.textContent).toContain("7/2000");
+  });
+
+  it("yorum zamanı göreli yazılır, makine okunur tarih <time>'da", async () => {
+    const iso = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    stub({ comments: async () => ({ items: [{ ...comment(9, { id: 7, display_name: "Ali" }), created_at: iso }], total: 1, limit: 10, offset: 0 }) });
+    const { el } = await render();
+    const time = el.querySelector('[aria-label="Yorumlar"] time')!;
+    expect(time.textContent).toBe("3 gün önce");
+    expect(time.getAttribute("dateTime")).toBe(iso);
+  });
+
+  it("yorumda yazarın baş harfi avatar olarak görünür (dekoratif)", async () => {
+    const { el } = await render();
+    const avatar = el.querySelector('[aria-label="Yorumlar"] li [aria-hidden="true"]')!;
+    expect(avatar.textContent).toBe("A");
   });
 });

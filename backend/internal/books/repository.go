@@ -108,21 +108,45 @@ func (r *Repository) Create(ctx context.Context, params db.CreateBookParams) (db
 	return book, nil
 }
 
-// ListFilter, public kitap listesinin filtre ve sayfalama parametreleri.
+// Sort, katalog sırası.
+type Sort string
+
+const (
+	SortNewest Sort = ""       // varsayılan: en yeni önce
+	SortRating Sort = "rating" // ağırlıklı (Bayes) puan, oysuzlar sonda
+)
+
+// ListFilter, public kitap listesinin filtre, sıra ve sayfalama parametreleri.
 // Boş string = o filtre yok. Sınırların doğrulanması (limit ≤ 100 vb.) HTTP katmanının işi.
 type ListFilter struct {
-	Genre  string // tür slug'ı
-	Query  string // başlık/yazar içinde aranan metin
-	Limit  int32
-	Offset int32
+	Genre string // tür slug'ı
+	Query string // başlık/yazar içinde aranan metin
+	Sort  Sort
+	// Yalnız SortRating için: ağırlıklı skorun m'i ve hiç oy yokken genel ortalamanın yerine
+	// geçen değer. Değerler ratings paketinden gelir; books onu içe aktaramaz (ratings books'u
+	// aktarıyor), bu yüzden çağıran (HTTP katmanı) verir.
+	MinVotes  float64
+	ColdStart float64
+	Limit     int32
+	Offset    int32
 }
 
 // List, filtreye uyan onaylı kitapların bir SAYFASINI ve filtreye uyan TOPLAM sayıyı
-// döner (en yeniden eskiye). Boş sonuç hata değildir; ErrNotFound çevirisi yoktur.
+// döner (varsayılan en yeniden eskiye). Boş sonuç hata değildir; ErrNotFound çevirisi yoktur.
 func (r *Repository) List(ctx context.Context, f ListFilter) ([]db.Book, int64, error) {
 	genre, query := optional(f.Genre), optional(escapeLike(f.Query))
 
-	list, err := r.q.ListBooks(ctx, db.ListBooksParams{Genre: genre, Query: query, Limit: f.Limit, Offset: f.Offset})
+	var (
+		list []db.Book
+		err  error
+	)
+	if f.Sort == SortRating {
+		list, err = r.q.ListBooksByRating(ctx, db.ListBooksByRatingParams{
+			Genre: genre, Query: query, M: f.MinVotes, Fallback: f.ColdStart, Limit: f.Limit, Offset: f.Offset,
+		})
+	} else {
+		list, err = r.q.ListBooks(ctx, db.ListBooksParams{Genre: genre, Query: query, Limit: f.Limit, Offset: f.Offset})
+	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("kitap listeleme sorgusu: %w", err)
 	}

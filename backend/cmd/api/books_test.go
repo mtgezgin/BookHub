@@ -12,6 +12,7 @@ import (
 
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
+	"github.com/mtgezgin/bookhub/backend/internal/ratings"
 )
 
 // fakeBooks, bookStore'un SAHTE uygulaması: ne dönmesi söylendiyse onu döner.
@@ -167,6 +168,10 @@ func TestListBooksQueryParams(t *testing.T) {
 		{"/api/books", books.ListFilter{Limit: 20}},
 		{"/api/books?genre=bilim-kurgu&q=%20dune%20&limit=5&offset=10", books.ListFilter{Genre: "bilim-kurgu", Query: "dune", Limit: 5, Offset: 10}},
 		{"/api/books?limit=100", books.ListFilter{Limit: 100}},
+		{"/api/books?sort=newest", books.ListFilter{Limit: 20}},
+		// Puan sırası ağırlıklı skor ister: m router'dan (config), oy yokken C'nin yerine geçen
+		// değer ratings'ten gelir (books, ratings'i içe aktaramaz: ratings books'u aktarıyor).
+		{"/api/books?sort=rating", books.ListFilter{Sort: books.SortRating, ColdStart: ratings.ColdStartMean, Limit: 20}},
 	}
 	for _, tc := range valid {
 		t.Run(tc.url, func(t *testing.T) {
@@ -185,6 +190,7 @@ func TestListBooksQueryParams(t *testing.T) {
 		"/api/books?limit=0", "/api/books?limit=101", "/api/books?limit=abc",
 		"/api/books?offset=-1", "/api/books?offset=10001",
 		"/api/books?genre=Kötü%20Slug", "/api/books?q=" + strings.Repeat("a", maxQueryLen+1),
+		"/api/books?sort=title",
 	} {
 		t.Run("400: "+url[:min(len(url), 40)], func(t *testing.T) {
 			rec := do(t, newRouter(deps{books: fakeBooks{}}), http.MethodGet, url, "")
@@ -349,5 +355,29 @@ func TestHandleListBooksGenresError(t *testing.T) {
 	rec := do(t, newRouter(deps{books: fake}), http.MethodGet, "/api/books", "")
 	if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
 		t.Errorf("500 internal bekleniyordu: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// TestListBooksRatingMinVotesFromDeps, router'a verilen ratingMinVotes'un (RATING_MIN_VOTES)
+// yalnız ?sort=rating filtresine m olarak taşındığını doğrular; newest sırası m'yi taşımaz.
+func TestListBooksRatingMinVotesFromDeps(t *testing.T) {
+	tests := []struct {
+		url  string
+		want float64
+	}{
+		{"/api/books?sort=rating", 25},
+		{"/api/books?sort=newest", 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.url, func(t *testing.T) {
+			var got books.ListFilter
+			rec := do(t, newRouter(deps{books: fakeBooks{filter: &got}, ratingMinVotes: 25}), http.MethodGet, tc.url, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("durum kodu: istenen 200, gelen %d (%s)", rec.Code, rec.Body)
+			}
+			if got.MinVotes != tc.want {
+				t.Errorf("MinVotes: istenen %v, gelen %v", tc.want, got.MinVotes)
+			}
+		})
 	}
 }

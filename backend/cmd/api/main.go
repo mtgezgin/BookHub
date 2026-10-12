@@ -106,9 +106,11 @@ func run() int {
 		moderation: moderationSvc,
 		comments:   comments.NewService(pool),
 		ratings:    ratingSvc,
-		auth:       auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL, cfg.SessionMaxAge),
-		tokens:     tokens,
-		limiter:    limiter,
+		// Katalogun ?sort=rating sırası top-rated ile aynı m'yi kullanır.
+		ratingMinVotes: int64(cfg.RatingMinVotes),
+		auth:           auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL, cfg.SessionMaxAge),
+		tokens:         tokens,
+		limiter:        limiter,
 
 		trustedProxies: cfg.TrustedProxies,
 		// Refresh token artık cevabın gövdesinde değil, httpOnly bir çerezde (Faz 13).

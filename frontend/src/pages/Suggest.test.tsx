@@ -59,18 +59,28 @@ describe("Suggest", () => {
     expect(sent).toEqual([{ title: "Kürk Mantolu Madonna", author: "Sabahattin Ali", description: undefined, publication_year: undefined }]);
   });
 
-  it("yıl sayı olarak gider; başarıda PENDING mesajı çıkar ve form sıfırlanır", async () => {
+  it("yıl sayı olarak gider; başarıda \"incelemeye gönderildi\" mesajı çıkar ve form sıfırlanır", async () => {
     result = async () => ({ title: "Tutunamayanlar", status: "PENDING" });
     const { el, inputs } = await fillAndSubmit({ title: "Tutunamayanlar", author: "Oğuz Atay", year: "1972", description: "roman" });
     expect(sent).toEqual([{ title: "Tutunamayanlar", author: "Oğuz Atay", description: "roman", publication_year: 1972 }]);
-    expect(el.querySelector(".success")!.textContent).toContain("PENDING");
+    expect(el.querySelector("[role=status]")!.textContent).toContain("\"Tutunamayanlar\" incelemeye gönderildi");
+    // İç durum adı (PENDING) kullanıcıya gösterilmez.
+    expect(el.querySelector("[role=status]")!.textContent).not.toContain("PENDING");
     expect(inputs.map((i) => i.value)).toEqual(["", "", "", ""]);
+  });
+
+  it("gönderilirken düğme kilitli ve \"Gönderiliyor…\" yazar", async () => {
+    result = () => new Promise(() => {});
+    const { el } = await fillAndSubmit({ title: "T", author: "A", year: "", description: "" });
+    const btn = el.querySelector<HTMLButtonElement>("button[type=submit]")!;
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toBe("Gönderiliyor…");
   });
 
   it("hata gösterilir", async () => {
     result = () => Promise.reject(new ApiError(409, "slug_conflict", "bu slug zaten kullanılıyor"));
     const { el } = await fillAndSubmit({ title: "T", author: "A", year: "", description: "" });
     expect(el.querySelector("[role=alert]")!.textContent).toBe("bu slug zaten kullanılıyor");
-    expect(el.querySelector(".success")).toBeNull();
+    expect(el.querySelector("[role=status]")).toBeNull();
   });
 });

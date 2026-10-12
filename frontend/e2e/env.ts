@@ -65,7 +65,7 @@ export function randomPassword(): string {
  *
  * NEDEN rastgele kısım: `books.slug` tablonun tek UNIQUE kolonu ve E2E_RUN_ID tüm koşu
  * boyunca SABİT. CI'da `retries: 1` var (playwright.config.ts) — yeniden deneme aynı
- * başlığı gönderseydi API 409 (slug çakışması) döner, arayüz `.success` yerine `.error`
+ * başlığı gönderseydi API 409 (slug çakışması) döner, arayüz başarı mesajı yerine hata
  * basar ve test "başarı kutusu bulunamadı" gibi gerçek sebebi hiç söylemeyen bir yerde
  * düşerdi. Aynı şey `--repeat-each` için de geçerli.
  *

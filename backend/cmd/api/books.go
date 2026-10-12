@@ -13,6 +13,7 @@ import (
 
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
+	"github.com/mtgezgin/bookhub/backend/internal/ratings"
 	"github.com/mtgezgin/bookhub/backend/internal/slug"
 )
 
@@ -137,8 +138,9 @@ type bookPage struct {
 	Offset int32          `json:"offset"`
 }
 
-// parseListFilter, ?genre=&q=&limit=&offset= parametrelerini doğrulayıp filtreye çevirir.
-func parseListFilter(r *http.Request) (books.ListFilter, error) {
+// parseListFilter, ?genre=&q=&sort=&limit=&offset= parametrelerini doğrulayıp filtreye çevirir.
+// minVotes: ağırlıklı puandaki m (config'ten); yalnız ?sort=rating'te kullanılır.
+func parseListFilter(r *http.Request, minVotes int64) (books.ListFilter, error) {
 	q := r.URL.Query()
 	f := books.ListFilter{
 		Genre: strings.TrimSpace(q.Get("genre")),
@@ -148,6 +150,13 @@ func parseListFilter(r *http.Request) (books.ListFilter, error) {
 	var v validator
 	v.match("genre", f.Genre, slugPattern, "tür slug'ı; ör. bilim-kurgu")
 	v.maxLen("q", f.Query, maxQueryLen)
+	switch sort := q.Get("sort"); sort {
+	case "", "newest":
+	case "rating":
+		f.Sort, f.MinVotes, f.ColdStart = books.SortRating, float64(minVotes), ratings.ColdStartMean
+	default:
+		v.check(false, "sort yalnız newest ya da rating olabilir")
+	}
 	f.Limit, f.Offset = parsePage(q, &v)
 	return f, v.err()
 }
@@ -169,12 +178,12 @@ func parsePage(q url.Values, v *validator) (limit, offset int32) {
 	return limit, offset
 }
 
-// handleListBooks, GET /api/books — onaylı kitapları en yeniden eskiye, sayfalı listeler.
-// Opsiyonel: ?genre=<slug> (türe göre), ?q=<metin> (başlık/yazar), ?limit=&offset=.
-// Görünürlük sınırı (yalnızca APPROVED) burada değil SQL'de yaşıyor (ListBooks sorgusu).
-func handleListBooks(store bookStore) http.HandlerFunc {
+// handleListBooks, GET /api/books — onaylı kitapları sayfalı listeler (varsayılan en yeni önce).
+// Opsiyonel: ?genre=<slug> (türe göre), ?q=<metin> (başlık/yazar), ?sort=rating (ağırlıklı
+// puan), ?limit=&offset=. Görünürlük sınırı (yalnızca APPROVED) SQL'de yaşıyor.
+func handleListBooks(store bookStore, minVotes int64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		filter, err := parseListFilter(r)
+		filter, err := parseListFilter(r, minVotes)
 		if err != nil {
 			writeRequestError(w, err)
 			return
