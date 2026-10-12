@@ -252,8 +252,8 @@ anda uyandırır — kapalı channel'dan okuma hemen sıfır değerle döner. Bu
 ## D
 
 **D1.** **Artık hata değil.** Go 1.22'den beri `for` döngüsünün değişkeni her iterasyonda
-yeniden tanımlanıyor, yani her goroutine kendi `id` kopyasını görür. Bu repo `go 1.26.4`
-kullanıyor (`backend/go.mod`), dolayısıyla güvenli. Go 1.21 ve öncesinde tüm goroutine'ler
+yeniden tanımlanıyor, yani her goroutine kendi `id` kopyasını görür. Bu repo Go 1.26 kullanıyor
+(`backend/go.mod`), dolayısıyla güvenli. Go 1.21 ve öncesinde tüm goroutine'ler
 aynı değişkeni paylaşır ve çoğu "son eleman"ı görürdü. *(Eski blog yazılarını okurken bu
 tuzağın tarihe karıştığını bil.)*
 

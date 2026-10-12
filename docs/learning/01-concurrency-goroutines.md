@@ -206,7 +206,7 @@ BookHub'ın Faz 5 ve Faz 13'te uğraştığı yarışların neredeyse tamamı ik
    BookHub'da `sleepCtx`'in bütçesi ve `lockWait` timeout'ları bu yüzden var.
 3. **Döngü değişkeni tuzağı — artık YOK.** Go 1.22'den beri `for` değişkeni her iterasyonda
    yeni; eski `for i := range x { go func(){ use(i) }() }` hatası tarihe karıştı (bu repo
-   Go 1.26.4). Eski blog yazılarında bu tuzağı görürsen: geçersiz.
+   Go 1.26). Eski blog yazılarında bu tuzağı görürsen: geçersiz.
 4. **`defer` goroutine'e değil fonksiyona bağlıdır** — `go` ile başlatılan fonksiyonun kendi
    `defer`'i vardır.
 5. **Panik yayılmaz.** Bir goroutine'deki panik tüm programı çökertir; recover o goroutine'in

@@ -103,11 +103,17 @@ commit'e ilerletiyor. Sırla çalışan migration işi salt-okunur, dalı ilerle
   release adımı düşmüş olsa bile. `release` ilerlemediği için Deploy'un koruması o dosyayı hâlâ
   "yeni" görür ve değiştirilmiş hâlini durdurmaz, ama goose onu bir daha uygulamaz.
   Migrate adımı hata verirse log durduğu sürümü yazar (`partial migration error (…,version:N)`);
-  o koşuda N'den önceki yeni dosyalar tabloya yazılmıştır. N'nin kendisi için:
-  - Normal bir migration hata verirse kendi transaction'ıyla birlikte geri alınır, tabloya
-    yazılmaz. O dosya düzeltilip yeniden gönderilebilir.
-  - `-- +goose NO TRANSACTION` işaretli bir migration yarıda kalmış olabilir. Yazılmamış olsa da
-    canlıya çıkmış sayılır; onarım yeni bir migration'dır.
+  o koşuda N'den önceki yeni dosyalar tabloya yazılmıştır. N yazılmamıştır ve bir sonraki Deploy
+  onu **ilk iş yeniden çalıştırır**. Yanına eklenen bir onarım migration'ının sırası hiç gelmez;
+  N'yi geçmenin tek yolu N'yi düzeltmektir (hiç yazılmadığı için değiştirilebilir):
+  - Normal bir migration kendi transaction'ıyla birlikte geri alınmıştır. Dosyayı düzelt, yeniden
+    gönder.
+  - `-- +goose NO TRANSACTION` işaretli bir migration yarıda kalmış olabilir; ilk adımları canlıda
+    duruyor olabilir (ör. `CREATE INDEX CONCURRENTLY`'nin bıraktığı geçersiz index). N'yi bu yarım
+    hâlin üstünde yeniden çalışabilecek şekilde düzelt (`IF NOT EXISTS`, `DROP INDEX IF EXISTS`)
+    ya da yarım kalanı bir sonraki Deploy'dan önce elle temizle; elle temizlik canlı veritabanına
+    doğrudan dokunmaktır, yalnız acil durumda ve yapılan issue'ya yazılarak. Yarım kalma ihtimali
+    küçük kalsın diye böyle bir migration tek bir ifade içerir.
 - **`release`'e elle push edilmez.** Özel repoda branch koruması ücretli (GitHub Pro ya da public
   repo); şimdilik bu bir kural.
 - Bekleyen yayınlar iptal edilmez, sırayla koşar. Release'in zaten kapsadığı bir commit'in
