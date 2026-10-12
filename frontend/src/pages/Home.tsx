@@ -1,5 +1,5 @@
 import { Search, SearchX } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Book, Genre, Page, TopRated } from "../api/types";
@@ -12,6 +12,7 @@ import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
 import { Pager } from "../components/usePaged";
 import { formatScore } from "../lib/format";
+import { cn } from "../lib/utils";
 
 const PAGE = 12;
 // 12'lik sayfa her sütun sayısında satırları tam doldurur (2, 3, 4, 6).
@@ -40,6 +41,10 @@ export function Home() {
   const [genres, setGenres] = useState<Genre[]>([]);
   const [top, setTop] = useState<TopRated | null>(null);
   const [error, setError] = useState<unknown>(null);
+  // Liste hatası ayrı: yeni bir liste isteği yalnız KENDİ eski hatasını temizler (tür/şerit
+  // hatası kalır).
+  const [listError, setListError] = useState<unknown>(null);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(q);
 
   useEffect(() => {
@@ -56,17 +61,21 @@ export function Home() {
   // ÖNCE çalışır: geç gelen cevabı sessizce düşürüyoruz.
   useEffect(() => {
     let current = true;
+    setListError(null);
+    setLoading(true);
     // sort yalnız varsayılan değilken gider: istek adresi gereksiz yere uzamasın.
     api.books({ q, genre, limit: PAGE, offset, ...(sort && { sort }) })
       .then((p) => current && setPage(p))
-      .catch((e) => current && setError(e));
+      .catch((e) => current && setListError(e))
+      .finally(() => current && setLoading(false));
     return () => {
       current = false;
     };
   }, [q, genre, offset, sort]);
 
-  // Fonksiyon biçimi (prev): gecikmeli arama 300 ms sonra çalışır; o arada bir tür seçildiyse
-  // render anındaki `params`'tan kurmak o seçimi ESKİ parametrelerle ezerdi.
+  // Dikkat: react-router 7'de `prev`, setParams'ın OLUŞTUĞU render'daki URL'dir; en güncel URL
+  // değil. Gecikmeli çağrılar bu yüzden aşağıdaki `latest` üzerinden son render'ın update'ini
+  // kullanır.
   const update = useCallback(
     (next: Record<string, string>, replace = false) =>
       setParams((prev) => {
@@ -78,15 +87,31 @@ export function Home() {
     [setParams],
   );
 
+  // Zamanlayıcı kurulduktan sonraki 300 ms'de tür, sıra ya da sayfa seçilmiş, Enter'a basılmış
+  // olabilir. Kurulduğu anın q/update'ini kullanırsa o seçimi eski URL ile ezer.
+  const latest = useRef({ q, update });
+  useEffect(() => {
+    latest.current = { q, update };
+  });
+
   // Yazarken arama: yazmayı SEARCH_DELAY_MS bırakınca. replace: her duraklama tarayıcı
   // geçmişine ayrı bir kayıt eklemesin ("geri" tuşu harf harf geri gitmesin).
   useEffect(() => {
     const trimmed = search.trim();
     if (trimmed === q) return;
-    const t = setTimeout(() => update({ q: trimmed }, true), SEARCH_DELAY_MS);
+    const t = setTimeout(() => {
+      const now = latest.current;
+      if (trimmed !== now.q) now.update({ q: trimmed }, true);
+    }, SEARCH_DELAY_MS);
     return () => clearTimeout(t);
-    // q ve update bilerek bağımlılık değil: yalnız KULLANICI yazınca zamanlayıcı kurulur.
+    // q bilerek bağımlılık değil: yalnız KULLANICI yazınca zamanlayıcı kurulur.
   }, [search]);
+
+  // URL dışarıdan değişince (geri/ileri, logo) kutu da onu göstersin. Kutudaki değer zaten q'ya
+  // denkse dokunulmaz: kullanıcının yazdığı baştaki/sondaki boşluklar silinmesin.
+  useEffect(() => {
+    setSearch((s) => (s.trim() === q ? s : q));
+  }, [q]);
 
   const clearFilters = () => {
     setSearch("");
@@ -126,7 +151,7 @@ export function Home() {
         </div>
       </section>
 
-      <ErrorBox error={error} className="mb-6" />
+      <ErrorBox error={listError ?? error} className="mb-6" />
 
       {showTop && (
         <section aria-labelledby="top-heading" className="mb-12">
@@ -159,7 +184,7 @@ export function Home() {
         </section>
       )}
 
-      {!page && !error && (
+      {!page && !listError && (
         <div role="status" aria-label="Kitaplar yükleniyor" className={GRID}>
           {Array.from({ length: PAGE }, (_, i) => (
             <div key={i} className="flex flex-col gap-3">
@@ -197,7 +222,7 @@ export function Home() {
               {filtered ? "Aramanı ya da türü değiştirmeyi dene." : "Katalogda henüz kitap yok."}
             </EmptyState>
           ) : (
-            <ul aria-label="Kitaplar" className={GRID}>
+            <ul aria-label="Kitaplar" aria-busy={loading} className={cn(GRID, "transition-opacity", loading && "opacity-60")}>
               {page.items.map((b) => <li key={b.id}><BookCard book={b} headingLevel="h3" /></li>)}
             </ul>
           )}

@@ -156,6 +156,14 @@ describe("App nav", () => {
     expect(menuButton(el)!.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("zaten açık olan sayfanın bağlantısına tıklayınca da menü kapanır (adres değişmese de)", () => {
+    const el = render("/account", USER);
+    openMenu(el);
+    const account = Array.from(el.querySelectorAll("nav a")).find((a) => a.textContent === "Hesabım")!;
+    act(() => account.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 })));
+    expect(menuButton(el)!.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("menü düğmesinin adında kullanıcının adı geçer (görünen metin = erişilebilir ad)", () => {
     expect(menuButton(render("/", USER))!.getAttribute("aria-label")).toBe("Hesap menüsü: Ali");
   });

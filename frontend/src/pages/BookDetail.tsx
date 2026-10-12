@@ -63,7 +63,15 @@ function DetailSkeleton() {
   );
 }
 
+// Benzer kitaplardan aynı rotada başka bir kitaba geçince bileşen yeniden kurulur: önceki kitabın
+// başlığı, puanı ve yorum taslağı yenisi yüklenirken ekranda kalmaz (o arada verilen puan
+// görünmeyen kitaba gitmez) ve sayfa en üstten açılır.
 export function BookDetail() {
+  const { id } = useParams();
+  return <BookDetailView key={id} />;
+}
+
+function BookDetailView() {
   const id = Number(useParams().id);
   const { user } = useAuth();
   const location = useLocation();
@@ -75,6 +83,8 @@ export function BookDetail() {
   const [posting, setPosting] = useState(false);
   const [similar, setSimilar] = useState<Book[] | null>(null);
   const [error, setError] = useState<unknown>(null);
+
+  useEffect(() => window.scrollTo(0, 0), []);
 
   // Kitap + puan özeti ve yorumlar AYRI yüklenir: yorum sayfası değişince kitabı yeniden
   // çekmeye gerek yok. Hatalar yutulmaz; yeni bir yükleme eski hata mesajını temizler.

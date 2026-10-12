@@ -36,14 +36,15 @@ export function BookCover({ title, author, src, className }: {
   src?: string;
   className?: string;
 }) {
-  const [broken, setBroken] = useState(false);
+  // Yüklenemeyen ADRES tutulur: aynı kapak başka bir resme geçince eski hata taşınmaz.
+  const [broken, setBroken] = useState<string | null>(null);
   const frame = "relative aspect-[2/3] w-full overflow-hidden rounded-md shadow-md";
 
   // src backend'de yalnız http(s) olarak kabul ediliyor (javascript: XSS'i yok).
-  if (src && !broken) {
+  if (src && broken !== src) {
     return (
       <div aria-hidden="true" className={cn(frame, "bg-muted", className)}>
-        <img src={src} alt="" loading="lazy" className="size-full object-cover" onError={() => setBroken(true)} />
+        <img src={src} alt="" loading="lazy" className="size-full object-cover" onError={() => setBroken(src)} />
       </div>
     );
   }

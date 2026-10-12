@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Book, Page, TopRated } from "../api/types";
 
@@ -49,8 +49,10 @@ const flush = async () => {
 
 async function render(path: string) {
   const loc = { search: "" };
+  const nav: { go?: (to: string) => void } = {};
   function Probe() {
     loc.search = useLocation().search;
+    nav.go = useNavigate();
     return null;
   }
   const el = document.createElement("div");
@@ -70,7 +72,7 @@ async function render(path: string) {
     el.remove();
   });
   await flush();
-  return { el, params: () => new URLSearchParams(loc.search) };
+  return { el, nav, params: () => new URLSearchParams(loc.search) };
 }
 // Rol/etiket seçicileri: görünüm (sınıflar) değişince testler kırılmasın (Faz 14).
 const LIST = '[aria-label="Kitaplar"]';
@@ -217,6 +219,83 @@ describe("Home", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("yazarken 300 ms dolmadan tür seçilirse zamanlayıcı seçimi ezmez: arama da tür de kalır", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { el, params } = await render("/");
+      setValue(el.querySelector<HTMLInputElement>("input[type=search]")!, "dune");
+      await act(async () => vi.advanceTimersByTime(100));
+      await act(async () => button(el, "Roman").click());
+      await act(async () => vi.advanceTimersByTime(200));
+      await flush();
+      expect(Object.fromEntries(params())).toEqual({ genre: "roman", q: "dune" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Enter'dan hemen sonra sayfa değişirse bekleyen zamanlayıcı sayfayı geri almaz", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { el, params } = await render("/?q=eski");
+      setValue(el.querySelector<HTMLInputElement>("input[type=search]")!, "yeni");
+      await act(async () => {
+        el.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      });
+      await flush();
+      await act(async () => button(el, "Sonraki →").click());
+      await act(async () => vi.advanceTimersByTime(300));
+      await flush();
+      expect(Object.fromEntries(params())).toEqual({ q: "yeni", offset: "12" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("URL dışarıdan değişince (geri/ileri, logo) arama kutusu onu gösterir", async () => {
+    const { el, nav } = await render("/?q=dune");
+    const input = el.querySelector<HTMLInputElement>("input[type=search]")!;
+    expect(input.value).toBe("dune");
+    await act(async () => nav.go!("/"));
+    await flush();
+    expect(input.value).toBe("");
+  });
+
+  it("liste hatası, filtre değişip yeni istek başarılı olunca kalkar", async () => {
+    let fail = true;
+    stub({
+      books: (p: { offset: number }) =>
+        fail
+          ? Promise.reject(new ApiError(500, "internal", "arama başarısız"))
+          : Promise.resolve({ items: [bookOf(1)], total: 1, limit: 12, offset: p.offset }),
+    });
+    const { el } = await render("/?q=tolstoy");
+    expect(el.querySelector("[role=alert]")!.textContent).toBe("arama başarısız");
+    fail = false;
+    await act(async () => button(el, "Roman").click());
+    await flush();
+    expect(el.querySelector("[role=alert]")).toBeNull();
+    expect(el.querySelector(LIST)).not.toBeNull();
+  });
+
+  it("sıra ya da filtre değişince yeni cevap gelene kadar liste meşgul işaretlenir", async () => {
+    const { el } = await render("/");
+    expect(el.querySelector(LIST)!.getAttribute("aria-busy")).toBe("false");
+    let release!: () => void;
+    stub({
+      books: (p: { offset: number }) =>
+        new Promise((res) => {
+          release = () => res({ items: [bookOf(p.offset + 1)], total, limit: 12, offset: p.offset });
+        }),
+    });
+    await act(async () => button(el, "En yüksek puan").click());
+    await flush();
+    expect(el.querySelector(LIST)!.getAttribute("aria-busy")).toBe("true");
+    await act(async () => release());
+    await flush();
+    expect(el.querySelector(LIST)!.getAttribute("aria-busy")).toBe("false");
   });
 
   it.each([

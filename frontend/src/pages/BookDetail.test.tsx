@@ -46,7 +46,11 @@ const notRated = () => Promise.reject(new ApiError(404, "not_rated", "bu kitaba 
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach((f) => f()));
+// jsdom scrollTo'yu uygulamıyor; çağrıldığını görmek için yerine casus.
+const scrollTo = vi.fn();
 beforeEach(() => {
+  window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
+  scrollTo.mockClear();
   for (const k of Object.keys(calls)) delete calls[k];
   h.user = USER;
   stub({
@@ -296,6 +300,24 @@ describe("BookDetail — yükleme ve şablon", () => {
     await act(async () => nav.go!("/books/2"));
     await flush();
     expect(alertText(el)).toBeNull();
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap 2");
+  });
+
+  it("başka kitaba geçince öncekinin içeriği yeni kitap yüklenirken kalmaz, sayfa en üstten açılır", async () => {
+    const { el, nav } = await render();
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap 1");
+    let release!: () => void;
+    stub({
+      book: (id: number) =>
+        id === 2 ? new Promise((res) => { release = () => res(bookOf(2)); }) : Promise.resolve(bookOf(id)),
+    });
+    scrollTo.mockClear();
+    await act(async () => nav.go!("/books/2"));
+    await flush();
+    expect(el.textContent).not.toContain("Kitap 1");
+    expect(scrollTo).toHaveBeenCalledWith(0, 0);
+    await act(async () => release());
+    await flush();
     expect(el.querySelector("h1")!.textContent).toBe("Kitap 2");
   });
 

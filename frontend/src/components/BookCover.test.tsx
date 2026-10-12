@@ -56,4 +56,17 @@ describe("BookCover", () => {
     expect(el.querySelector("img")).toBeNull();
     expect(el.textContent).toContain("Huzur");
   });
+
+  it("src değişince yüklenemeyen eski resmin durumu yeni resme taşınmaz", () => {
+    const el = document.createElement("div");
+    const root = createRoot(el);
+    cleanup.push(() => act(() => root.unmount()));
+    act(() => root.render(<BookCover title="Huzur" author="Yazar" src="https://example.com/a.jpg" />));
+    act(() => {
+      el.querySelector("img")!.dispatchEvent(new Event("error"));
+    });
+    expect(el.querySelector("img")).toBeNull();
+    act(() => root.render(<BookCover title="Huzur" author="Yazar" src="https://example.com/b.jpg" />));
+    expect(el.querySelector("img")?.getAttribute("src")).toBe("https://example.com/b.jpg");
+  });
 });
