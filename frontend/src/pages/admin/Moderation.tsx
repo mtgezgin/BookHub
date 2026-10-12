@@ -1,5 +1,5 @@
 import { Inbox } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { AdminBook, BookStatus } from "../../api/types";
 import { ErrorBox, formatDate, PageTitle } from "../../components/common";
@@ -30,7 +30,17 @@ export function Moderation() {
   const [reason, setReason] = useState("");
 
   const fetchPage = useCallback((offset: number) => api.adminBooks(status, offset), [status]);
-  const { page, offset, setOffset, reload: load, showPager } = usePaged(fetchPage, status, setError);
+  const { page, offset, setOffset, reload, showPager } = usePaged(fetchPage, status, setError);
+  // İşlem bitince EN GÜNCEL listeyi yükle: tıklandığı andaki reload, o arada sekme değiştiyse eski
+  // sekmeyi çeker ve yeni sekmenin üstüne yazardı.
+  const reloadRef = useRef(reload);
+  useEffect(() => {
+    reloadRef.current = reload;
+  });
+  // Bu sekmede başarıyla işlenmiş satırlar pasif kalır: işlenen kitabın durumu değiştiği için bu
+  // sekmede bir daha işlem göremez. Liste geç ya da eski bir sayfayla yenilense de ikinci işlem gitmez.
+  const [settled, setSettled] = useState<ReadonlySet<number>>(new Set());
+  useEffect(() => setSettled(new Set()), [status]);
 
   const toast = useToast();
   // Uçuştaki istek koruması: çift tıklama ikinci isteği göndermesin. Ref ikinci tıklamayı yeniden
@@ -39,15 +49,16 @@ export function Moderation() {
   // birlikte bırakır.
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
-  const act = async (fn: () => Promise<unknown>, done: string) => {
+  const act = async (fn: () => Promise<unknown>, done: string, id?: number) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
       await fn();
+      if (id !== undefined) setSettled((s) => new Set(s).add(id));
       toast(done);
-      await load();
+      await reloadRef.current();
     } catch (e) {
       setError(e); // ör. 409 invalid_transition: başka bir admin önce davrandı
     } finally {
@@ -91,12 +102,12 @@ export function Moderation() {
                 <div className="flex shrink-0 gap-2">
                   {b.status === "PENDING" && (
                     <>
-                      <Button size="sm" disabled={busy} onClick={() => void act(() => api.approve(b.id), `“${b.title}” yayına alındı`)}>Onayla</Button>
-                      <Button size="sm" variant="destructive" disabled={busy} onClick={() => { setReason(""); setRejecting(b); }}>Reddet</Button>
+                      <Button size="sm" disabled={busy || settled.has(b.id)} onClick={() => void act(() => api.approve(b.id), `“${b.title}” yayına alındı`, b.id)}>Onayla</Button>
+                      <Button size="sm" variant="destructive" disabled={busy || settled.has(b.id)} onClick={() => { setReason(""); setRejecting(b); }}>Reddet</Button>
                     </>
                   )}
-                  {b.status === "APPROVED" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => api.archive(b.id), `“${b.title}” arşivlendi`)}>Arşivle</Button>}
-                  {b.status === "ARCHIVED" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => api.restoreBook(b.id), `“${b.title}” yeniden yayında`)}>Geri yayınla</Button>}
+                  {b.status === "APPROVED" && <Button size="sm" variant="outline" disabled={busy || settled.has(b.id)} onClick={() => void act(() => api.archive(b.id), `“${b.title}” arşivlendi`, b.id)}>Arşivle</Button>}
+                  {b.status === "ARCHIVED" && <Button size="sm" variant="outline" disabled={busy || settled.has(b.id)} onClick={() => void act(() => api.restoreBook(b.id), `“${b.title}” yeniden yayında`, b.id)}>Geri yayınla</Button>}
                 </div>
               </Card>
             </li>
@@ -115,7 +126,7 @@ export function Moderation() {
               if (!rejecting) return;
               const target = rejecting;
               setRejecting(null);
-              void act(() => api.reject(target.id, reason), `“${target.title}” reddedildi`);
+              void act(() => api.reject(target.id, reason), `“${target.title}” reddedildi`, target.id);
             }}
           >
             <DialogTitle>“{rejecting?.title}” reddedilsin mi?</DialogTitle>

@@ -72,4 +72,12 @@ describe("UserMenu", () => {
     act(() => void panel.querySelector("ul")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(button.getAttribute("aria-expanded")).toBe("true");
   });
+
+  it("\"Çıkış\"a tıklamak menüyü kapatır (oturum hemen düşmese de)", () => {
+    const { button } = renderOpen(user);
+    const panel = document.getElementById(button.getAttribute("aria-controls")!)!;
+    const out = Array.from(panel.querySelectorAll("button")).find((b) => b.textContent === "Çıkış")!;
+    act(() => out.click());
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+  });
 });

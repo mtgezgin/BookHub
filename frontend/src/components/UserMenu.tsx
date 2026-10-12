@@ -69,7 +69,7 @@ export function UserMenu({ user, onLogout }: { user: User; onLogout: () => void 
             <li className="md:hidden"><Link to="/suggest" className={ITEM} onClick={close}>Kitap öner</Link></li>
             {user.role === "ADMIN" && <li className="md:hidden"><Link to="/admin" className={ITEM} onClick={close}>Moderasyon</Link></li>}
             <li><Link to="/account" className={ITEM} onClick={close}>Hesabım</Link></li>
-            <li className="mt-1 border-t pt-1"><button type="button" className={ITEM} onClick={onLogout}>Çıkış</button></li>
+            <li className="mt-1 border-t pt-1"><button type="button" className={ITEM} onClick={() => { close(); onLogout(); }}>Çıkış</button></li>
           </ul>
         </div>
       )}

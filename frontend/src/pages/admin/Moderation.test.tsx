@@ -244,17 +244,21 @@ describe("Moderation", () => {
     await flush();
   });
 
-  it("başarılı işlem bittiğinde düğmeler yeniden kullanılır: sonraki tıklama yeni istek gönderir", async () => {
+  it("başarılı işlem bittiğinde koruma kalkar: başka bir satırın işlemi yeni istek gönderir", async () => {
     let succeed!: () => void;
-    stub({ approve: () => new Promise((res) => { succeed = () => res(book(1, "APPROVED")); }) });
+    stub({
+      adminBooks: async () => pageOf([book(1, "PENDING"), book(2, "PENDING")]),
+      approve: () => new Promise((res) => { succeed = () => res(book(1, "APPROVED")); }),
+    });
     const el = await render();
-    await act(async () => button(el, "Onayla")!.click());
-    expect(button(el, "Onayla")!.disabled).toBe(true);
+    const approveOf = (title: string) =>
+      Array.from(el.querySelectorAll(QUEUE)).find((li) => li.textContent!.includes(title))!.querySelector("button")!;
+    await act(async () => approveOf("Kitap 1").click());
+    expect(approveOf("Kitap 2").disabled).toBe(true);
     await act(async () => succeed());
     await flush();
-    expect(button(el, "Onayla")!.disabled).toBe(false);
-    expect(button(el, "Reddet")!.disabled).toBe(false);
-    await act(async () => button(el, "Onayla")!.click());
+    expect(approveOf("Kitap 2").disabled).toBe(false);
+    await act(async () => approveOf("Kitap 2").click());
     expect(calls.approve).toHaveLength(2);
     await act(async () => succeed());
     await flush();
@@ -273,5 +277,33 @@ describe("Moderation", () => {
     await act(async () => reloaded());
     await flush();
     expect(button(el, "Onayla")).toBeUndefined();
+  });
+
+  it("işlem başarıyla bittiyse o satırın düğmeleri bu sekmede pasif kalır", async () => {
+    stub({ approve: async () => book(1, "APPROVED") });
+    const el = await render();
+    // Yeniden yükleme ESKİ sayfayı döndürse bile (ör. adım geri, bayat cevap) ikinci onay gitmemeli.
+    await act(async () => button(el, "Onayla")!.click());
+    await flush();
+    expect(button(el, "Onayla")!.disabled).toBe(true);
+    await act(async () => button(el, "Onayla")!.click());
+    expect(calls.approve).toHaveLength(1);
+  });
+
+  it("işlem sürerken sekme değişirse eski sekmenin listesi yeni sekmeye yazılmaz", async () => {
+    let finish!: () => void;
+    stub({
+      approve: () => new Promise((res) => { finish = () => res(book(1, "APPROVED")); }),
+      adminBooks: async (status: BookStatus) => pageOf([book(status === "PENDING" ? 1 : 2, status)]),
+    });
+    const el = await render();
+    await act(async () => button(el, "Onayla")!.click());
+    await act(async () => button(el, "Yayında")!.click());
+    await flush();
+    expect(el.querySelector(QUEUE)!.textContent).toContain("Kitap 2");
+    await act(async () => finish());
+    await flush();
+    expect(el.querySelector(QUEUE)!.textContent).toContain("Kitap 2");
+    expect(calls.adminBooks.at(-1)).toEqual(["APPROVED", 0]);
   });
 });
