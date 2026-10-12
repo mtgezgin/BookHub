@@ -39,7 +39,7 @@ kapatır. Issue, yayından sonraki doğrulamayla (PROCESS.md §6) elle kapatıl�
 
 ## Kontrol listesi
 
-- [ ] CI yeşil (Backend, Frontend, İmaj taraması, E2E)
+- [ ] CI ve Kurallar yeşil (Backend, Frontend, İmaj taraması, E2E, Kurallar)
 - [ ] Push kapıları (güvenlik incelemesi, AI review, test coverage) Claude Code üzerinden koştu — koşmadıysa nedeni: …
 - [ ] Yeni ya da değişen davranışın testi var
 - [ ] Go değiştiyse [GO_CONVENTIONS hızlı kontrol listesi](https://github.com/mtgezgin/BookHub/blob/main/docs/GO_CONVENTIONS.md#quick-checklist-paste-into-each-prcommit-description) gözden geçirildi

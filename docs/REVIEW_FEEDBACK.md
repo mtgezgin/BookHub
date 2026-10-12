@@ -295,7 +295,7 @@ Moderasyon geçişleri transaction içinde audit oluşturuyor; kitap-tür ilişk
 
 **Öncelik:** Orta · Kalite güvencesi
 
-**Kaynaklar:** [.github/workflows/ci.yml](../.github/workflows/ci.yml), [.github/workflows/release.yml](../.github/workflows/release.yml), [backend/scripts/mvp_smoke.sh](../backend/scripts/mvp_smoke.sh).
+**Kaynaklar:** [.github/workflows/ci.yml](../.github/workflows/ci.yml), `.github/workflows/release.yml` (2026-10-12'de kaldırıldı), [backend/scripts/mvp_smoke.sh](../backend/scripts/mvp_smoke.sh).
 
 CI E2E işi localhost:8080 API'sine doğrudan curl gönderiyor. NGINX, tarayıcı çerezleri, Web Locks, çoklu sekme ve mobil yerleşim bu yolla doğrulanmıyor. Release workflow'u kendi içinde başarılı test sonucuna bağlı olmadan imaj yayınlayabiliyor. Yalnız Kubernetes/Makefile değişiklikleri CI path filtrelerine girmiyor.
 

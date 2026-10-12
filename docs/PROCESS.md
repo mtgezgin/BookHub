@@ -31,7 +31,9 @@ Backlog → Ready → In Progress → In Review → Testing → Released → Don
 
 Kuralların tek kaynağı `scripts/checks.sh`, testleri `scripts/checks_test.sh`. Aynı betiği CI'da
 **Kurallar** iş akışı (`rules.yml`) her push ve PR'da, yol filtresi olmadan çalıştırır: kancayı
-atlayan bir commit de orada yakalanır. Yeni bir kural eklenirken testi de eklenir. Güvenlik incelemesi, AI review
+atlayan bir commit de orada yakalanır. Yeni bir kural eklenirken testi de eklenir. Kurallar zorunlu
+kontrol yapılamıyor (özel repo, ücretsiz plan): PR'da yeşil bir Kurallar koşusu yoksa — GitHub head
+commit'inde atlama bayrağı olan PR'da iş akışını hiç başlatmaz — kırmızı sayılır. Güvenlik incelemesi, AI review
 paneli ve test coverage ise Claude Code eklenti kancalarıdır; yalnız Claude Code üzerinden
 yapılan push'ta çalışırlar. Terminalden push edildiyse bu kapıların koşmadığı PR'da yazılır.
 GitHub'daki asıl güvenlik ağı CI'dır.
@@ -55,7 +57,7 @@ kutuları bunların listesidir; Ready'ye alırken issue düzenlenip işaretlenir
 ## 3. Bitti tanımı (Definition of Done)
 
 - Her kabul kriteri bir teste ya da yazılı bir manuel adıma eşlendi (PR'daki tablo).
-- CI yeşil (backend, frontend, imaj taraması, E2E). Push kapıları koştu ya da koşmadıkları PR'da
+- CI ve Kurallar yeşil (backend, frontend, imaj taraması, E2E, Kurallar). Push kapıları koştu ya da koşmadıkları PR'da
   yazılı (§1'deki not).
 - Doğrulanamayan her şey PR'da yazılı: neden, ne zaman, nasıl doğrulanacak.
 - Yayınlandı ve yayından sonra doğrulandı (§6).

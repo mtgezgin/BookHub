@@ -4,6 +4,10 @@
 # NEDEN ayrı iş akışı: ci.yml yol filtresiyle çalışıyor (yalnız doküman değişen push'ta koşmaz), ama
 # bir sır, bir .env ya da bir atlama bayrağı doküman commit'inde de olabilir. Bu iş akışında filtre
 # yok. Deploy yalnız ci.yml'i bekler; Kurallar bir PR kontrolüdür: kırmızıysa PR birleştirilmez.
+#
+# Sınır: Kurallar zorunlu kontrol yapılamıyor (özel repo, ücretsiz plan: dal koruması yok) ve GitHub
+# head commit'inde atlama bayrağı olan bir PR'da bu iş akışını hiç başlatmaz. PR'da Kurallar'ın yeşil
+# bir koşusu görünmüyorsa kırmızı sayılır; o durumda tek engel yereldeki commit-msg kancasıdır.
 name: Kurallar
 
 on:

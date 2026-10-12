@@ -86,9 +86,10 @@ eklenir; test adımı onlara `localhost` üzerinden bağlanır. Uçtan uca iş i
 
 - Sır YOK: JWT secret her koşuda `openssl rand` ile üretilip `$GITHUB_ENV`'e yazılıyor.
 - Yayın ayrı: `release.yml` yalnız `v*` etiketi ya da elle çalışır. İmaj yayınlamak dışarıya
-  dönük bir eylem — her push'ta otomatik olmamalı.
+  dönük bir eylem — her push'ta otomatik olmamalı. *(2026-10-12: `release.yml` hiç çalışmadığı için
+  kaldırıldı; Northflank imajı `release` dalından kendisi derliyor, yayın akışı `deploy.yml`'de.)*
 
-**🔗 İlgili:** [.github/workflows/ci.yml](../../.github/workflows/ci.yml) · [release.yml](../../.github/workflows/release.yml)
+**🔗 İlgili:** [.github/workflows/ci.yml](../../.github/workflows/ci.yml) · [deploy.yml](../../.github/workflows/deploy.yml)
 
 ---
 

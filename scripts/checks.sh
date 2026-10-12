@@ -11,6 +11,10 @@
 #
 # Araç yoksa: yerelde gitleaks ZORUNLU (sır kuralı), diğerleri uyarıp atlar; CI'da (range) hepsi
 # zorunlu — orada kurulu olmaları iş akışının sorumluluğu.
+#
+# staged modunda yol, migration, Go sürümü ve sır kuralları index'e (commit'e girecek hâle) bakar;
+# araç kontrolleri (sqlc, go mod tidy, lint, tsc) çalışma ağacında koşar. Kısmen stage'lenmiş bir
+# değişiklikte kesin sonucu CI verir.
 set -euo pipefail
 
 MODE="${1:-}"
@@ -70,7 +74,8 @@ check_forbidden_paths() {
 	done < <(changes)
 }
 
-# Kural: canlıya çıkmış (release'teki) migration değişmez, silinmez, yeniden adlandırılmaz.
+# Kural: canlıya çıkmış (release'teki) migration değişmez, silinmez, yeniden adlandırılmaz ve
+# numarası yeniden kullanılmaz (goose sürümü numarayla takip eder; 001 ile 0001 aynı sürümdür).
 check_migrations() {
 	if ! git rev-parse --verify -q origin/release >/dev/null; then
 		if [[ "$MODE" == range ]]; then
@@ -80,35 +85,62 @@ check_migrations() {
 		fi
 		return
 	fi
-	local status path new
+	local released status path new
+	released="$(git ls-tree --name-only origin/release backend/migrations/ | sed -nE 's|^backend/migrations/([0-9]+)_[^/]*\.sql$|\1|p')"
 	while IFS=$'\t' read -r status path new; do
 		[[ "$path" == backend/migrations/*.sql ]] || continue
 		case "$status" in
+		A*) check_migration_number "$path" "$released" ;;
 		M* | D* | R*)
 			if git cat-file -e "origin/release:$path" 2>/dev/null; then
 				fail "canlıya çıkmış migration değişmez: $path (${status:0:1}) — düzeltme yeni bir migration'dır"
+			elif [[ "$status" == R* ]]; then
+				check_migration_number "$new" "$released"
 			fi
 			;;
 		esac
 	done < <(changes)
 }
 
+# check_migration_number <yol> <canlıdaki numaralar>: yeni dosyanın numarası canlıda kullanılmış mı.
+check_migration_number() {
+	local name="${1##*/}" num n
+	num="${name%%_*}"
+	[[ "$num" =~ ^[0-9]+$ ]] || return 0
+	for n in $2; do
+		if ((10#$n == 10#$num)); then
+			fail "migration numarası canlıda kullanılmış: $1 ($num) — yeni bir numara al"
+			return
+		fi
+	done
+}
+
 # Kural: commit mesajında atlama bayrağı olmaz; Northflank aynı push'taki tek bir bayrak yüzünden
-# bütün yayını atlar. Git'in yorum satırları (#) mesaja girmez.
-SKIP_FLAGS='\[(skip ci|ci skip|no ci|skip actions|actions skip|skip nf|nf skip|northflank skip|skip northflank)\]'
+# bütün yayını atlar. GitHub ayrıca "skip-checks: true" satırıyla kontrolleri atlar. Git'in yorum
+# satırları (#) ve `git commit -v`'nin makas çizgisinden sonraki diff'i mesaja girmez (git onları
+# kancadan SONRA atar).
+SKIP_FLAGS='\[(skip ci|ci skip|no ci|skip actions|actions skip|skip nf|nf skip|northflank skip|skip northflank)\]|^skip-checks: ?true'
 check_commit_message() {
-	if grep -v '^#' "$1" | grep -qiE "$SKIP_FLAGS"; then
-		fail "commit mesajında atlama bayrağı var ($(grep -v '^#' "$1" | grep -oiE "$SKIP_FLAGS" | head -1)) — Northflank yayını atlar"
+	local hit
+	# grep -q DEĞİL: ilk eşleşmede çıkınca öndeki komut SIGPIPE alır, pipefail eşleşmeyi yok sayar.
+	hit="$(sed '/^# -\{24\} >8 -\{24\}$/,$d' "$1" | grep -v '^#' | grep -oiE "$SKIP_FLAGS" | sed -n 1p || true)"
+	if [[ -n "$hit" ]]; then
+		fail "commit mesajında atlama bayrağı var ($hit) — Northflank yayını atlar"
 	fi
 }
 
 # Kural: go.mod ile Dockerfile'daki Go sürümü aynı yamadadır (CI ve Deploy go.mod'dan, canlı binary
 # imajdan derlenir; ayrışırlarsa test edilen ile çıkan farklı Go olur).
 check_go_version() {
-	local mod docker
+	local mod dockerfile docker
 	mod="$(file_at backend/go.mod | sed -nE 's/^go ([0-9.]+)$/\1/p')"
-	docker="$(file_at backend/Dockerfile | sed -nE 's/^FROM golang:([0-9.]+)-alpine.*/\1/p' | head -1)"
-	[[ -z "$mod" || -z "$docker" ]] && return
+	dockerfile="$(file_at backend/Dockerfile)"
+	[[ -z "$mod" || -z "$dockerfile" ]] && return
+	docker="$(sed -nE 's/^FROM (--[^ ]+ +)*golang:([0-9.]+)[-@ ].*/\2/p' <<<"$dockerfile" | sed -n 1p)"
+	if [[ -z "$docker" ]]; then
+		fail "backend/Dockerfile'da golang:<sürüm> satırı bulunamadı; Go sürüm kayması denetlenemedi (biçim değiştiyse scripts/checks.sh'ı güncelle)"
+		return
+	fi
 	if [[ "$mod" != "$docker" ]]; then
 		fail "Go sürümü ayrışmış: go.mod $mod, Dockerfile golang:$docker — ikisini birlikte güncelle"
 	fi
@@ -145,7 +177,8 @@ check_lint() {
 		if need actionlint; then actionlint || fail "actionlint bulgu verdi"; fi
 	fi
 	local scripts
-	scripts="$(changed_matching '(\.sh$|^\.githooks/)' | while read -r f; do [[ -f "$f" ]] && echo "$f"; done)"
+	# Silinen ya da adı değişen betik diskte yok; döngü yine 0 dönmeli (set -e + pipefail).
+	scripts="$(changed_matching '(\.sh$|^\.githooks/)' | while read -r f; do if [[ -f "$f" ]]; then echo "$f"; fi; done)"
 	if [[ -n "$scripts" ]]; then
 		# shellcheck disable=SC2086 # dosya adları boşluksuz
 		if need shellcheck; then shellcheck $scripts || fail "shellcheck bulgu verdi"; fi
