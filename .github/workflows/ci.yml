@@ -2,7 +2,7 @@
 # frontend (tip kontrolü + test + build), imaj taraması (Trivy) ve uçtan uca (tüm stack
 # konteynerde + MVP smoke).
 # Bu, lokalde yaptığımız kontrollerin sunucudaki güvenlik ağı hâlidir.
-# İmaj YAYINLAMA burada değil: release.yml (yalnız tag ya da elle tetiklenir).
+# Ayrıca: rules.yml (Kurallar, yol filtresiz) ve deploy.yml (main'de CI yeşilse yayın).
 name: CI
 
 on:

@@ -110,8 +110,8 @@ Geri dönüş ve yeniden deneme: [PROCESS.md](PROCESS.md) §5.
   `git fetch origin && git switch --detach origin/release`, sonra yalnız `manage migrate` satırı.
 - **Süreç kurulumu** (`release` dalı, etiketler, secret, pano): [PROCESS.md](PROCESS.md) §9.
 
-`release.yml` (etiket atılınca API imajını ghcr'ye yayınlar) artık yayın yolunun parçası değil;
-Northflank imajı repodan kendisi derliyor.
+Northflank imajı repodan kendisi derliyor; ayrı bir imaj kayıt defteri (ghcr) kullanılmıyor.
+Eski `release.yml` (etiketle ghcr'ye imaj yayını) hiç çalışmadığı için 2026-10-12'de kaldırıldı.
 
 ## 5. Bilinen sınırlar
 

@@ -1,0 +1,6 @@
+# actionlint ayarı. `concurrency.queue` GitHub'ın 2026-05'te eklediği bir anahtar; actionlint 1.7.12
+# henüz tanımıyor. Yalnız bu bulgu, yalnız deploy.yml için susturulur.
+paths:
+  .github/workflows/deploy.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'

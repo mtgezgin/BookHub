@@ -1,0 +1,83 @@
+# Kurallar — CLAUDE.md'deki kuralların makinedeki denetimi (scripts/checks.sh ve testleri). Git
+# kancaları aynı betiği yerelde çalıştırır; burası kancayı atlayan commit'leri de yakalar.
+#
+# NEDEN ayrı iş akışı: ci.yml yol filtresiyle çalışıyor (yalnız doküman değişen push'ta koşmaz), ama
+# bir sır, bir .env ya da bir atlama bayrağı doküman commit'inde de olabilir. Bu iş akışında filtre
+# yok. Deploy yalnız ci.yml'i bekler; Kurallar bir PR kontrolüdür: kırmızıysa PR birleştirilmez.
+name: Kurallar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rules:
+    name: Kurallar (scripts/checks.sh)
+    runs-on: ubuntu-latest
+    env:
+      # Olay verisi run: bloklarına ${{ }} ile değil ortam değişkeniyle girer (script injection'a karşı).
+      PR_BASE: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD: ${{ github.event.pull_request.head.sha }}
+      PUSH_BEFORE: ${{ github.event.before }}
+      PUSH_AFTER: ${{ github.sha }}
+    steps:
+      - name: Checkout (tüm geçmiş ve dallar; aralık ve origin/release gerekiyor)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+
+      # Sabit sürüm + sağlama toplamı: doğrulanmamış bir ikili çalışmaz.
+      - name: Araçlar (gitleaks, actionlint, sqlc)
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          get() { # url sha256 dosya
+            curl -fsSL -o "$RUNNER_TEMP/$3" "$1"
+            echo "$2  $RUNNER_TEMP/$3" | sha256sum -c -
+            tar -xzf "$RUNNER_TEMP/$3" -C "$bin"
+          }
+          get https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb gitleaks.tar.gz
+          get https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 actionlint.tar.gz
+          get https://github.com/sqlc-dev/sqlc/releases/download/v1.31.1/sqlc_1.31.1_linux_amd64.tar.gz \
+            497ae4fcdfa64c5b0c311ffe4c2bd991e43991e82e5367792ed78bc2dca27354 sqlc.tar.gz
+          command -v shellcheck >/dev/null || sudo apt-get install -y shellcheck
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Araç sürümleri
+        run: |
+          gitleaks version
+          actionlint -version
+          sqlc version
+          shellcheck --version
+
+      - name: Kural testleri
+        run: scripts/checks_test.sh
+
+      - name: Kurallar
+        run: |
+          set -euo pipefail
+          if [ -n "$PR_BASE" ]; then
+            base="$PR_BASE"
+            head="$PR_HEAD"
+          else
+            base="$PUSH_BEFORE"
+            head="$PUSH_AFTER"
+          fi
+          # Yeni dal: before sıfırlar → yalnız son commit denetlenir.
+          if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ]; then
+            base="$(git rev-parse "$head~1")"
+          fi
+          scripts/checks.sh range "$base" "$head"

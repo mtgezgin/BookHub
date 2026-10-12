@@ -315,6 +315,8 @@ CI E2E işi localhost:8080 API'sine doğrudan curl gönderiyor. NGINX, tarayıc�
 
 **İlerleme (5 Ekim 2026):** Canlıya giden yol CI'a bağlandı: Northflank yalnız `release` dalını yayınlıyor; o dalı da yalnız `deploy.yml` ilerletiyor — main'de `ci.yml` başarıyla bitince ve yalnız CI'ın test ettiği commit'e (`workflow_run` + fast-forward). `release.yml` artık yayın yolunun parçası değil (ghcr imajı); CI'a bağlanması ya da kaldırılması ve `deploy/k8s/**` path filtresi hâlâ açık.
 
+**İlerleme (12 Ekim 2026):** `release.yml` kaldırıldı (hiç çalışmamıştı; Northflank imajı `release` dalından kendisi derliyor). Açık kalan: `deploy/k8s/**` path filtresi.
+
 ## F17 — Frontend oturum sorumlulukları sadeleştirilmeli
 
 **Öncelik:** İyileştirme · Mimari

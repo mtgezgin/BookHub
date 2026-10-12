@@ -20,4 +20,7 @@ fi
 # 2) Tam test takımı, yarış dedektörüyle — push'tan önce son kontrol.
 go -C backend test -race ./...
 
+# 3) Frontend main'den bu yana değiştiyse vitest (scripts/checks.sh push).
+scripts/checks.sh push
+
 echo "✓ pre-push: golangci-lint + test temiz"

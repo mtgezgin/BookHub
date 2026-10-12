@@ -22,8 +22,16 @@ Backlog → Ready → In Progress → In Review → Testing → Released → Don
 | **Released** | main'de CI ve Deploy yeşil bitti; `release` bu commit'te, Northflank yayınladı. | Yayından sonra doğrulama (§6). |
 | **Done** | Doğrulandı; sonuç issue'ya yazıldı ve issue elle kapatıldı. | — |
 
-**Push kapıları nerede çalışır:** `.githooks/pre-push` repo kancasıdır (golangci-lint +
-`go test -race`; `git config core.hooksPath .githooks` gerekir). Güvenlik incelemesi, AI review
+**Push kapıları nerede çalışır:** Repo kancaları `.githooks/` altında (`git config core.hooksPath
+.githooks` gerekir; sır taraması için `gitleaks` zorunlu):
+- **pre-commit:** `scripts/checks.sh staged` (sır, `.env`/`supabase/`, canlıya çıkmış migration,
+  Go sürüm kayması, sqlc ve `go mod tidy`, actionlint ve shellcheck, frontend tipleri) + gofmt/vet.
+- **commit-msg:** mesajda `[skip …]` türü atlama bayrağı yok.
+- **pre-push:** golangci-lint + `go test -race` + (frontend değiştiyse) vitest.
+
+Kuralların tek kaynağı `scripts/checks.sh`, testleri `scripts/checks_test.sh`. Aynı betiği CI'da
+**Kurallar** iş akışı (`rules.yml`) her push ve PR'da, yol filtresi olmadan çalıştırır: kancayı
+atlayan bir commit de orada yakalanır. Yeni bir kural eklenirken testi de eklenir. Güvenlik incelemesi, AI review
 paneli ve test coverage ise Claude Code eklenti kancalarıdır; yalnız Claude Code üzerinden
 yapılan push'ta çalışırlar. Terminalden push edildiyse bu kapıların koşmadığı PR'da yazılır.
 GitHub'daki asıl güvenlik ağı CI'dır.
