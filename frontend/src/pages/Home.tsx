@@ -90,6 +90,9 @@ export function Home() {
   // Zamanlayıcı kurulduktan sonraki 300 ms'de tür, sıra ya da sayfa seçilmiş, Enter'a basılmış
   // olabilir. Kurulduğu anın q/update'ini kullanırsa o seçimi eski URL ile ezer.
   const latest = useRef({ q, update });
+  // Kutunun KENDİSİNİN URL'ye yazdığı q (zamanlayıcı ya da Enter). URL bu değere geçince kutu
+  // geri senkronlanmaz: o arada yazılmış bir harf silinmesin.
+  const ownQ = useRef<string | null>(null);
   useEffect(() => {
     latest.current = { q, update };
   });
@@ -101,7 +104,9 @@ export function Home() {
     if (trimmed === q) return;
     const t = setTimeout(() => {
       const now = latest.current;
-      if (trimmed !== now.q) now.update({ q: trimmed }, true);
+      if (trimmed === now.q) return;
+      ownQ.current = trimmed;
+      now.update({ q: trimmed }, true);
     }, SEARCH_DELAY_MS);
     return () => clearTimeout(t);
     // q bilerek bağımlılık değil: yalnız KULLANICI yazınca zamanlayıcı kurulur.
@@ -110,8 +115,18 @@ export function Home() {
   // URL dışarıdan değişince (geri/ileri, logo) kutu da onu göstersin. Kutudaki değer zaten q'ya
   // denkse dokunulmaz: kullanıcının yazdığı baştaki/sondaki boşluklar silinmesin.
   useEffect(() => {
+    if (q === ownQ.current) {
+      ownQ.current = null;
+      return;
+    }
     setSearch((s) => (s.trim() === q ? s : q));
   }, [q]);
+
+  const submitSearch = () => {
+    const next = search.trim();
+    if (next !== q) ownQ.current = next;
+    update({ q: next });
+  };
 
   const clearFilters = () => {
     setSearch("");
@@ -128,7 +143,7 @@ export function Home() {
       <section className="mb-10 rounded-2xl border bg-card px-5 py-8 shadow-sm sm:px-10 sm:py-10">
         <h1 className="text-3xl font-semibold sm:text-4xl">Bir sonraki kitabını bul</h1>
         <p className="mt-2 max-w-xl text-muted-foreground">Klasiklerden bilim kurguya; okurların puanları ve yorumlarıyla.</p>
-        <form role="search" className="mt-6 flex gap-2" onSubmit={(e) => { e.preventDefault(); update({ q: search.trim() }); }}>
+        <form role="search" className="mt-6 flex gap-2" onSubmit={(e) => { e.preventDefault(); submitSearch(); }}>
           <div className="relative flex-1">
             <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3.5 size-5 -translate-y-1/2 text-muted-foreground" />
             <Input

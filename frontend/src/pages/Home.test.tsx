@@ -254,6 +254,29 @@ describe("Home", () => {
     }
   });
 
+  it("zamanlayıcı URL'yi yazarken yazılan harf yutulmaz; sonraki arama da gider", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { el, params } = await render("/");
+      const input = el.querySelector<HTMLInputElement>("input[type=search]")!;
+      setValue(input, "dun");
+      // Zamanlayıcının URL değişikliği React'e uygulanmadan kullanıcı bir harf daha yazar:
+      // ikisi aynı güncellemede işlenir.
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "dune");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await flush();
+      expect(input.value).toBe("dune");
+      await act(async () => vi.advanceTimersByTime(300));
+      await flush();
+      expect(params().get("q")).toBe("dune");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("URL dışarıdan değişince (geri/ileri, logo) arama kutusu onu gösterir", async () => {
     const { el, nav } = await render("/?q=dune");
     const input = el.querySelector<HTMLInputElement>("input[type=search]")!;
