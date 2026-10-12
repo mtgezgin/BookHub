@@ -29,7 +29,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [x] | F02 | Yüksek | Refresh commit'i sonrası hata yeniden denemede oturumu düşürüyor |
 | [ ] | F03 | Orta | Çıkış, devam eden refresh ve kilidi bekliyor |
 | [ ] | F04 | Yüksek | Rate limit kapsamı kötüye kullanımı yeterince sınırlamıyor |
-| [ ] | F05 | Yüksek — üretim | API ile migration veritabanı yetkileri ayrılmamış |
+| [ ] | F05 | Yüksek — üretim | API ile migration veritabanı yetkileri ayrılmamış — **risk kabul edildi** |
 | [ ] | F06 | Orta | Admin yetkisinin kaldırılması mevcut token'ı hemen etkilemiyor |
 | [ ] | F07 | Orta | Readiness gerçek hizmet verebilirliği ölçmüyor |
 | [ ] | F08 | Orta | İşlem, sorgu ve kilit bekleme süre bütçeleri eksik |
@@ -131,6 +131,14 @@ Gösterilen kurulumlarda API, veritabanını oluşturan kullanıcıyla bağlanı
 **Kabul kriteri:** Runtime rolüyle gerekli API işlemleri çalışmalı; DROP, ALTER, trigger kapatma ve audit kayıtlarını değiştirme girişimleri reddedilmeli.
 
 **Referans:** [PostgreSQL yetki modeli](https://www.postgresql.org/docs/16/ddl-priv.html).
+
+**Durum:** Risk kabul edildi (5 Ekim 2026)
+
+**Gerekçe:** Kullanıcı kararı — canlıda ayrı, kısıtlı bir veritabanı kullanıcısı açılmayacak. BookHub bir öğrenme/demo projesi; canlı API Supabase'e sahip (owner) kullanıcıyla bağlanıyor, migration'lar da (Deploy iş akışı ya da Mac'ten `manage migrate`) aynı kullanıcıyla uygulanıyor.
+
+**Kalan risk:** API ele geçirilirse şema ve audit trigger'ları değiştirilebilir; audit kayıtlarının değiştirilemezliği yalnız uygulama dışından gelen yazmalara karşı geçerli.
+
+**Yeniden değerlendirme koşulu:** Proje gerçek kullanıcı verisi taşıyan bir ürüne dönüşürse ya da audit kayıtları bir uyumluluk gereği hâline gelirse bulgu yeniden açılır. O zamana kadar AI review bu konuyu engelleyici bulgu olarak açmaz ([CLAUDE.md](../CLAUDE.md)).
 
 ## F06 — Admin yetkisinin kaldırılması mevcut token'ı hemen etkilemiyor
 
@@ -304,6 +312,8 @@ CI E2E işi localhost:8080 API'sine doğrudan curl gönderiyor. NGINX, tarayıc�
 **Doğrulama ve sonuç:** Üç ardışık yeşil koşu (11 passed, 0 flaky, 429 yok). Üç mutasyon senaryoları kırmızıya çevirdi: NGINX'in `Host` başlığını `$host`'a geri almak, `refresh_token`'ı login gövdesine geri koymak ve iki test arasında `storageState` paylaşmak (reuse tespitine takılır — her testin kendi girişini yapmasının sebebi). Rate limit bütçesi sert kural olarak yazıldı: NGINX'in login|register kovası 11 istek, suite 9 harcıyor (tablo `frontend/e2e/helpers.ts`), 429 gelirse test sessizce yeniden denemek yerine adıyla patlıyor.
 
 **Kalan risk / erteleme gerekçesi:** `release.yml` hâlâ hiçbir CI sonucuna bağlı değil (`needs`/`workflow_run` yok) → doğrulanmamış bir commit'ten imaj yayınlanabilir. Path filtrelerine `scripts/**` eklendi (Makefile zaten vardı) ama `deploy/k8s/**` hâlâ dışarıda: yalnız Kubernetes manifesti değiştiren bir commit CI'yı tetiklemez.
+
+**İlerleme (5 Ekim 2026):** Canlıya giden yol CI'a bağlandı: Northflank yalnız `release` dalını yayınlıyor; o dalı da yalnız `deploy.yml` ilerletiyor — main'de `ci.yml` başarıyla bitince ve yalnız CI'ın test ettiği commit'e (`workflow_run` + fast-forward). `release.yml` artık yayın yolunun parçası değil (ghcr imajı); CI'a bağlanması ya da kaldırılması ve `deploy/k8s/**` path filtresi hâlâ açık.
 
 ## F17 — Frontend oturum sorumlulukları sadeleştirilmeli
 

@@ -1,0 +1,200 @@
+# Deploy — testlerden geçen kodu canlıya çıkarır (docs/PROCESS.md §5).
+#
+# NEDEN: Northflank canlı servisleri `release` dalından derleyip yayınlıyor. Bu iş akışı o
+# dalı YALNIZCA main'deki CI (ci.yml) yeşil bittiğinde ve YALNIZCA CI'ın test ettiği commit'e
+# ilerletir. Böylece "main'e push = canlı" olmaz; testleri geçmeyen commit canlıya çıkamaz.
+#
+# İki iş, iki yetki:
+#   plan    — salt-okunur token. Ne yapılacağına karar verir; gerekiyorsa migration'ı canlı
+#             veritabanına uygular (repo kodu ve Go modülleri burada, sırla birlikte koşar).
+#   release — yazma token'ı. Repo kodu ÇALIŞTIRMAZ; yalnız release dalını fast-forward eder.
+# Yazma yetkisi, üçüncü taraf kodla aynı işte bulunmasın diye ayrıldı.
+#
+# SIRA: önce migration (yalnız YENİ migration dosyası varsa), sonra release. Yeni şema ESKİ kod
+# hâlâ canlıdayken uygulanır → her migration geriye uyumlu olmalı (CLAUDE.md).
+#
+# Yalnız-doküman commit'leri CI'ı tetiklemez (ci.yml'deki paths), bu yüzden kendi başlarına
+# yayın da tetiklemez; bir sonraki yeşil CI'ın commit'iyle birlikte release'e girerler.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+# Aynı anda tek yayın. Bekleyenler iptal edilmez, sırayla koşar (queue: max). CI'lar sırasız
+# bitebildiği için eski bir commit'in koşusu yenisinden sonra gelebilir; Plan, release'in zaten
+# kapsadığı commit'i atlar, yani release hiçbir zaman geri gitmez.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan + migrate
+    # Yalnız main'e yapılan PUSH'un, gerçek ci.yml dosyasının başarılı koşusu. Ad tek başına
+    # yetmez: "CI" adını taşıyan başka bir iş akışı da yukarıdaki filtreyle eşleşirdi. Koşu bu
+    # depodan olmalı: bir fork'un kodu, aşağıda checkout edilip sırla birlikte çalışmasın.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.path == '.github/workflows/ci.yml' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.plan.outputs.skip }}
+      migrate: ${{ steps.plan.outputs.migrate }}
+    env:
+      # Olay verisi run: bloklarına ${{ }} ile değil ortam değişkeniyle girer (script injection'a karşı).
+      SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Checkout (CI'ın test ettiği commit)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0 # release ve main ile karşılaştırmak için tüm geçmiş ve dallar
+          persist-credentials: false # bu işte git'e yazılacak bir şey yok
+
+      - name: Plan
+        id: plan
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet refs/remotes/origin/release >/dev/null; then
+            echo "::error::release dalı yok. Bir kerelik kurulum: scripts/setup-github.sh (docs/PROCESS.md §9)."
+            exit 1
+          fi
+          # Daha yeni bir commit zaten yayınlandıysa (CI'lar sırasız bitebilir) bu commit onun içinde.
+          if git merge-base --is-ancestor "$SHA" origin/release; then
+            echo "Bu commit zaten yayında (release onu kapsıyor); yapılacak bir şey yok."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor origin/release "$SHA"; then
+            echo "::error::release, $SHA commit'inin atası değil (main'in geçmişi yeniden mi yazıldı?). Elle incelenmeli."
+            exit 1
+          fi
+          # GITHUB_TOKEN'a "workflows" yetkisi verilemiyor. Release'e taşınan aralık iş akışı
+          # dosyalarını değiştiriyor ve bu commit'teki hâlleri main'in ucundakinden farklıysa
+          # GitHub push'u reddeder. O durumda main'in ucundaki commit'in kendi Deploy'u (iş akışı
+          # değişikliği CI'ı her zaman tetikler) bu commit'i de kapsayarak yayına çıkarır.
+          if ! git diff --quiet origin/release "$SHA" -- .github/workflows \
+            && ! git diff --quiet "$SHA" origin/main -- .github/workflows; then
+            echo "::notice::main'de daha yeni bir iş akışı değişikliği var; bu commit, main'in ucunun yayınıyla birlikte çıkacak."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # goose bir migration'ı NUMARASIYLA takip eder: canlıya çıkmış bir dosyanın değişmesi,
+          # silinmesi ya da yeniden adlandırılması canlıya hiç uygulanmaz ve şemayı sessizce
+          # saptırır. Bu yüzden dur; düzeltme yeni bir migration'dır (CLAUDE.md).
+          changed="$(git diff --name-only --diff-filter=DMR origin/release "$SHA" -- 'backend/migrations/*.sql')"
+          if [ -n "$changed" ]; then
+            echo "::error::Canlıya çıkmış migration dosyası değiştirilmiş, silinmiş ya da yeniden adlandırılmış: $changed"
+            exit 1
+          fi
+          # Northflank, aynı push'taki commit'lerden birinin mesajında atlama bayrağı görürse derlemez.
+          # grep -q DEĞİL: ilk eşleşmede çıkınca git log SIGPIPE alır, pipefail koşulu yanlış sayar
+          # ve uzun aralıklarda uyarı kaybolur.
+          if git log --format=%B origin/release.."$SHA" \
+            | grep -iE '\[(skip ci|ci skip|no ci|skip nf|nf skip|northflank skip|skip northflank)\]' >/dev/null; then
+            echo "::warning::Aralıktaki bir commit mesajında atlama bayrağı var; Northflank bu yayını derlemeyebilir (Northflank'ta elle 'Start build')."
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          added="$(git diff --name-only --diff-filter=A origin/release "$SHA" -- 'backend/migrations/*.sql')"
+          if [ -n "$added" ]; then
+            echo "migrate=true" >> "$GITHUB_OUTPUT"
+            echo "Yeni migration'lar:"
+            echo "$added"
+          else
+            echo "migrate=false" >> "$GITHUB_OUTPUT"
+            echo "Yeni migration yok."
+          fi
+
+      - name: Set up Go
+        if: steps.plan.outputs.skip == 'false' && steps.plan.outputs.migrate == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache: false # sırla koşan iş, CI koşularının yazdığı önbelleği geri yüklemesin
+
+      # Migration'ı canlı veritabanına, yeni kod çıkmadan ÖNCE uygular. Başarısız olursa release
+      # ilerlemez: kod, şeması hazır olmayan bir veritabanıyla canlıya çıkmaz.
+      - name: Migrate production database
+        if: steps.plan.outputs.skip == 'false' && steps.plan.outputs.migrate == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::PROD_DATABASE_URL secret'ı tanımlı değil; migration uygulanamadığı için yayın durduruldu."
+            exit 1
+          fi
+          go -C backend run ./cmd/manage migrate
+
+  release:
+    name: Release
+    needs: plan
+    # Aynı depo kontrolü plan'da da var; head_sha'yı checkout eden her iş kendi kapısını taşır.
+    if: >-
+      needs.plan.outputs.skip == 'false' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # release dalını ilerletmek için; bu iş repo kodu çalıştırmaz
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      MIGRATE: ${{ needs.plan.outputs.migrate }}
+    steps:
+      - name: Checkout (yalnız push için)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      # Fast-forward: --force YOK. release geriye ya da yan dala gidemez; o durumda push reddedilir.
+      - name: Release
+        id: push
+        run: |
+          set -euo pipefail
+          if out="$(git push origin "$SHA:refs/heads/release" 2>&1)"; then
+            echo "$out"
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$out"
+          # Plan'daki iş akışı kontrolünün geç kalan hâli: Plan'dan sonra main'e yeni bir iş akışı
+          # değişikliği girdiyse GitHub "workflows" yetkisi yok diye reddeder. main'in ucunun
+          # Deploy'u bu commit'i de kapsar; kırmızı bitirmeye ve yeniden denemeye gerek yok.
+          if grep -q 'without .workflows. permission' <<<"$out"; then
+            git fetch --quiet origin main
+            if ! git diff --quiet "$SHA" origin/main -- .github/workflows; then
+              echo "::notice::Plan'dan sonra main'e daha yeni bir iş akışı değişikliği girdi; bu commit, main'in ucunun yayınıyla birlikte çıkacak."
+              echo "pushed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          exit 1
+
+      - name: Summary
+        env:
+          PUSHED: ${{ steps.push.outputs.pushed }}
+        run: |
+          {
+            if [ "$PUSHED" = "true" ]; then
+              echo "### Yayına çıktı: \`${SHA:0:7}\`"
+              echo "- Yeni migration uygulandı mı: ${MIGRATE}"
+              echo "- Northflank şimdi \`release\` dalını derleyip yayınlayacak."
+              echo "- Yayından sonra: docs/PROCESS.md §6."
+            else
+              echo "### Atlandı: \`${SHA:0:7}\`"
+              echo "- main'e daha yeni bir iş akışı değişikliği girdi; bu commit, main'in ucunun yayınıyla çıkacak."
+              echo "- Yeni migration uygulandı mı: ${MIGRATE} (geriye uyumlu olduğu için eski kodla sorun değil)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

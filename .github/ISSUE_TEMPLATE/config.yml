@@ -1,0 +1,4 @@
+# Boş issue seçeneğini yalnız okuma/triage yetkili katkıcılardan gizler; repo sahibi gibi yazma
+# yetkisi olanlar "Blank issue"ı yine görür. Tek kişilik bu repoda şablon kullanımı teknik bir
+# kısıt değil, docs/PROCESS.md'deki bir kural.
+blank_issues_enabled: false

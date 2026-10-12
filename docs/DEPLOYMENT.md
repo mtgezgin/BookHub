@@ -1,88 +1,135 @@
-# BookHub — Dağıtım (Deploy) Rehberi
+# BookHub — Dağıtım (Deploy)
 
-> **Durum:** CI (test + E2E) ve imaj yayınlama (`release.yml`) hazır. **Gerçek bir buluta
-> deploy EDİLMEDİ** — bunun için senin hesapların (ve kararın) gerekiyor. Bu rehber, hesapları
-> açtığında izleyeceğin adımlar. Mimari kararlar: [PROJECT_BRIEF.md](PROJECT_BRIEF.md) §7, §13.
+> **Durum (2026-10-05):** Canlıda — https://p01--web--4x2qb6s8vg5j.code.run
+> Yayın akışı: `main`'e push → CI → Deploy iş akışı (gerekirse migration + `release` dalı) →
+> Northflank. Süreç: [PROCESS.md](PROCESS.md) §5. Mimari kararlar: [PROJECT_BRIEF.md](PROJECT_BRIEF.md) §7, §13.
 
-## 1. Hedef mimari (ücretsiz/düşük maliyetli katmanlar)
+## 1. Mimari
 
 ```
-                ┌──────────────── tarayıcı ────────────────┐
-                │                                           │
-        statik frontend (dist/)                     /api/* istekleri
-                │                                           │
-     ┌──────────▼──────────┐                    ┌───────────▼───────────┐
-     │  NGINX konteyneri   │── /api/ proxy ───▶ │ API konteyneri        │
-     │  (Faz 11) ya da     │                    │ ghcr.io/…/bookhub-api │
-     │  Cloudflare Pages   │                    └──────┬─────────┬──────┘
-     └─────────────────────┘                           │         │
-                                              DATABASE_URL   REDIS_URL
-                                                       │         │
-                                              ┌────────▼──┐  ┌───▼──────┐
-                                              │ Supabase  │  │ Upstash  │
-                                              │ Postgres  │  │ Redis    │
-                                              └───────────┘  └──────────┘
+tarayıcı ──HTTPS──▶ Northflank ağ geçidi (TLS burada çözülür)
+                        │ HTTP
+                        ▼
+          web: NGINX + React  :8080  (public)
+                        │ HTTP, proje içi özel ağ: api:8080
+                        ▼
+          api: Go API         :8080  (private; servis adı tam olarak "api")
+                 │                      │
+     DATABASE_URL (TLS)          REDIS_URL (rediss://)
+                 ▼                      ▼
+     Supabase Postgres            Upstash Redis
+     (Frankfurt, session pooler)  (Frankfurt)
 ```
 
-Kod, dev ile prod arasında **yalnızca env değişkenleriyle** geçiş yapar (12-factor III):
-lokal Docker Postgres ↔ Supabase, lokal Redis ↔ Upstash.
+- **Northflank** (ücretsiz Developer Sandbox): iki servis, uyumuyor, servisler birbirine
+  `[servis-adı]:[port]` ile ulaşıyor. Bu yüzden NGINX'teki `proxy_pass http://api:8080;` satırı
+  compose, kind ve canlıda aynı. Bölge: ücretsiz planda tek seçenek olan Europe-West (London);
+  veriye (Frankfurt) gidiş-dönüş ~15 ms.
+- **Supabase:** Data API kapalı, otomatik RLS kapalı. Uygulama **Session pooler** adresine
+  bağlanıyor (IPv4; prepared statement ve oturum kilidi destekli — migration'ların advisory
+  lock'u için gerekli). Doğrudan bağlantı yalnız IPv6; transaction pooler prepared statement
+  desteklemiyor.
+- **Upstash:** TCP adresi (`rediss://…:6379`), eviction açık. HTTP/REST adresi go-redis ile
+  çalışmaz.
+- Neden Northflank: Fly.io'nun yeni hesaplara ücretsiz katmanı yok; Render'ın ücretsiz
+  servisleri 15 dk'da uyuyor ve özel ağdan istek alamıyor; Cloudflare Workers Go/Docker
+  çalıştırmıyor ([öğrenme notu #7](learning-notes/infra-and-devops.md)). Koyeb'in ücretsiz
+  katmanında tek servis var (bize iki lazım); Oracle Always Free VM boşta kalan makineyi geri
+  alabiliyor ve sunucu bakımını (SSH, güvenlik duvarı, TLS) bize bırakıyor.
+- Upstash'te neden TCP (`rediss://`) adresi: [öğrenme notu #6](learning-notes/infra-and-devops.md).
 
-## 2. Gerekli env değişkenleri (prod)
+## 2. Env değişkenleri (canlı)
 
-| Değişken | Prod değeri | Not |
+Northflank → `api` → Environment → **Runtime variables** (Build arguments DEĞİL: oradakiler
+imaja girer). `web` servisinin env değişkeni yok.
+
+| Değişken | Canlı değeri | Not |
 |---|---|---|
-| `DATABASE_URL` | Supabase **session pooler** ya da doğrudan bağlantı DSN'i, `sslmode=require` | Platformun secret store'unda; repoya asla |
-| `JWT_SECRET` | `openssl rand -base64 48` çıktısı | `.env.example`'daki dev değerini ASLA kullanma |
-| `REDIS_URL` | Upstash `rediss://…` (TLS) | Opsiyonel; boşsa cache kapalı, rate limit bellek içi (tek instance) |
-| `AUTO_MIGRATE` | `false` | Migration ayrı, bilinçli bir adım (aşağıda) |
-| `LOG_FORMAT` | `json` | Platform log toplayıcısı alanları ayrıştırsın |
-| `PORT` | platformun verdiği | Çoğu platform `PORT`'u kendisi enjekte eder |
-| `COOKIE_SECURE` | `true` (varsayılan) | Refresh çerezi yalnız HTTPS'te gider → **prod HTTPS ŞART**. `false` yalnız lokal denemeler için |
-| `COOKIE_NAME` | `bookhub_refresh` (varsayılan) | Çerezler porta göre değil **host'a** göre kapsanır: aynı host'ta birden çok yığın varsa her birine ayrı ad ver (kind: `bookhub_refresh_k8s`). Boot'ta doğrulanır (RFC 6265 token; `__Host-` öneki `Path=/` istediği için kullanılamaz) |
-| `TRUSTED_PROXIES` | Proxy'nin IP'si ya da CIDR'ı (boş = hiç kimseye güvenme) | `X-Real-IP`/`X-Forwarded-For` yalnız bu adreslerden gelirse dikkate alınır (Faz 11); yanlış değer = rate limit'i atlatan sahte IP |
-| `JWT_ACCESS_TTL` | `15m` (varsayılan) | İptal gecikmesinin üst sınırı: çıkış/parola/rol değişimi bu süre kadar access token'ı etkilemez |
-| `JWT_REFRESH_TTL` | `168h` = 7 gün (varsayılan) | Hareketsizlik penceresi; her rotasyon yeniden başlatır |
-| `JWT_SESSION_MAX_AGE` | `720h` = 30 gün (varsayılan) | Bir girişin (token ailesinin) **mutlak** ömrü; `JWT_REFRESH_TTL`'den kısa olamaz (boot'ta doğrulanır) |
-| `RATING_MIN_VOTES`, `AUTH_RATE_LIMIT_PER_MIN` | varsayılanlar makul | Ağırlıklı puanın `m` değeri · IP başına dakikalık kimlik isteği kotası (login/register/parola) |
+| `DATABASE_URL` | Supabase Session pooler adresi + `?sslmode=require` | Keychain'de `bookhub-prod-dsn`; panele `security … \| tr -d '\n' \| pbcopy` ile |
+| `REDIS_URL` | Upstash `rediss://…` | Boş olsaydı cache kapalı, rate limit bellek içi olurdu |
+| `JWT_SECRET` | `openssl rand -base64 48` çıktısı | Başka yerde saklanmaz. Yalnız access token'ları imzalar: değişince verilmiş access token'lar geçersizleşir ama oturumlar refresh çereziyle kendiliğinden yenilenir (refresh token'lar secret'tan bağımsız). Herkesi çıkarmak: aşağıdaki not |
+| `AUTO_MIGRATE` | `false` | Migration'ı Deploy iş akışı uygular; elle yalnız acil durumda ([CLAUDE.md](../CLAUDE.md)) |
+| `LOG_FORMAT` | `json` | Northflank loglarında alan alan okunur |
+| `PORT` | `8080` | Servisin port ayarıyla aynı |
+| `COOKIE_SECURE` | (varsayılan `true`) | Refresh çerezi yalnız HTTPS'te gider → canlıda HTTPS şart |
+| `COOKIE_NAME` | (varsayılan `bookhub_refresh`) | Aynı host'ta birden çok yığın varsa her birine ayrı ad |
+| `TRUSTED_PROXIES` | (boş) | Bilinen sınır: aşağıda §5 |
+| `JWT_ACCESS_TTL` · `JWT_REFRESH_TTL` · `JWT_SESSION_MAX_AGE` | varsayılanlar (15m · 168h · 720h) | `JWT_SESSION_MAX_AGE`, `JWT_REFRESH_TTL`'den kısa olamaz (açılışta doğrulanır) |
+| `RATING_MIN_VOTES` · `AUTH_RATE_LIMIT_PER_MIN` | varsayılanlar | Ağırlıklı puanın `m`'i · IP başına dakikalık kimlik isteği kotası |
 
-## 3. Adımlar
+Deploy iş akışı için GitHub secret'ı: `PROD_DATABASE_URL` (yukarıdaki `DATABASE_URL` ile aynı
+değer). Yalnız yeni bir migration dosyası geldiğinde kullanılır. Repo seviyesinde bir sır
+(ücretsiz özel repoda Environments yok): yazma yetkisi olan herkes, herhangi bir dalda bu sırrı
+referans eden bir iş akışıyla okuyabilir. Bu yüzden yalnız deploy.yml'in migration adımında
+kullanılır ([CLAUDE.md](../CLAUDE.md)).
 
-1. **Veritabanı (Supabase):** proje aç → Settings → Database → bağlantı dizesini al.
-2. **Migration'ı uygula** (bir kez ve her şema değişikliğinde, deploy'dan ÖNCE):
-   ```bash
-   goose -dir backend/migrations postgres "$PROD_DIRECT_DSN" up
-   ```
-   Transaction-mode pooler (6543) arkasında değil, **doğrudan bağlantıyla** (5432) çalıştır —
-   migration'lar oturum seviyesinde kilit (advisory lock) kullanıyor.
-3. **Redis (Upstash):** veritabanı aç → `rediss://` URL'ini al.
-4. **İmaj:** `git tag v1.0.0` ve etiketi GitHub'a gönder → `release.yml` imajı
-   `ghcr.io/mtgezgin/bookhub-api:1.0.0` olarak yayınlar (Actions sekmesinden elle de tetiklenir).
-   Repo private olduğu için paket de private; platformun ghcr'den çekebilmesi için bir
-   "read:packages" token'ı gerekir.
-5. **API konteyneri:** Render / Fly.io / Koyeb gibi bir platformda imajı çalıştır, 2. bölümdeki
-   env'leri secret olarak gir. Sağlık kontrolü yolu: `/health`.
-6. **İlk admin:** platformun "one-off command" özelliğiyle:
-   ```bash
-   /app/manage create-admin -email sen@ornek.com   # parola gizli sorulur
-   ```
-   (Etkileşimsiz ortamda parolayı stdin'den ver; komut satırı argümanı olarak ASLA.)
-7. **Frontend:** `cd frontend && npm ci && npx vite build` → `dist/`'i NGINX konteynerinde
-   (Faz 11) ya da Cloudflare Pages'te yayınla. `/api/*` isteklerinin API'ye yönlenmesi şart
-   (aynı origin → CORS gerekmez).
-8. **Doğrula:** `API=https://senin-alanin mvp_smoke.sh` — ⚠️ smoke betiği admin açıp test
-   verisi bırakır; prod'da değil, bir staging ortamında çalıştır.
+**Herkesi anında çıkarmak** (ör. bir sızıntıda) iki adımdır: aileleri iptal et ve `JWT_SECRET`'ı
+döndür. Yalnız aileleri iptal etmek verilmiş access token'ları ≤ 15 dk daha yaşatır; yalnız
+secret'ı döndürmek ise kimseyi çıkarmaz.
 
-## 4. Bilinen sınırlar / yapılacaklar
+```sql
+UPDATE refresh_token_families SET revoked_at = now() WHERE revoked_at IS NULL;
+```
 
-- **HTTPS ŞART.** Refresh token httpOnly + `Secure` + `SameSite=Strict` bir çerezte taşınıyor
-  (Faz 13): düz HTTP'de tarayıcı o çerezi ne yazar ne geri gönderir → kullanıcı her sayfa
-  yenilemesinde düşer. `COOKIE_SECURE=false` yalnızca lokal denemeler içindir, prod'da ASLA.
-  Ayrıca tarayıcılar `Sec-Fetch-Site` başlığını yalnız güvenli bağlama yollar; düz HTTP'de
-  CSRF korumasının tek dayanağı `Origin == Host` kontrolü kalır (proxy `Host`'u **portuyla**
-  iletmeli — bkz. `frontend/nginx/api-proxy.conf`).
-- Access token'lar stateless: çıkış, reuse iptali, parola değişimi ve rol değişikliği refresh
-  tarafını anında keser, ama verilmiş access token'lar süreleri dolana kadar (`JWT_ACCESS_TTL`,
-  varsayılan 15 dk) geçerli kalır.
-- Tek API instance'ı varsayımıyla bellek içi rate limit; birden çok instance → `REDIS_URL` şart.
-- `X-Forwarded-For` güveni: NGINX arkasında gerçek istemci IP'si için Faz 11 yapılandırması.
-- Yedekleme: Supabase günlük yedek alır; point-in-time recovery ücretli katmanda.
+## 3. Yayın akışı (her değişiklikte)
+
+1. Dal → PR → CI yeşil → `main`'e merge.
+2. `main`'de CI yeşil bitince **Deploy** iş akışı
+   ([.github/workflows/deploy.yml](../.github/workflows/deploy.yml)):
+   - `plan` işi (salt-okunur): canlıya çıkmış bir migration dosyası değişmiş ya da silinmişse
+     durur; **yeni** migration dosyası varsa `go -C backend run ./cmd/manage migrate` ile canlı
+     veritabanına uygular (yeni kod çıkmadan **önce** → migration'lar geriye uyumlu olmalı),
+   - `release` işi (yazma yetkili, repo kodu çalıştırmaz): `release` dalını CI'ın test ettiği
+     commit'e ilerletir (yalnız fast-forward).
+3. Northflank `release`'i derler ve yayınlar (CI ve CD açık).
+4. Yayından sonra doğrulama: [PROCESS.md](PROCESS.md) §6.
+
+Geri dönüş ve yeniden deneme: [PROCESS.md](PROCESS.md) §5.
+
+## 4. Kurulum kaydı (bir kez yapıldı)
+
+- **Supabase:** proje (Central EU — Frankfurt), harf+rakam parola; Data API ve otomatik RLS
+  kapalı. GitHub entegrasyonu bağlı bırakıldı → repoya **asla `supabase/` klasörü eklenmez**.
+- **Upstash:** Redis (Frankfurt), eviction açık, Free plan.
+- **Northflank:** proje `bookhub` (Europe-West), iki Combined service:
+
+  | Servis | Dockerfile / context | Port | Compute |
+  |---|---|---|---|
+  | `api` | `/backend/Dockerfile` · `/backend` | 8080 HTTP, private | nf-compute-10 |
+  | `web` | `/frontend/Dockerfile` · `/frontend` | 8080 HTTP, public | nf-compute-10 |
+
+- **İlk veritabanı kurulumu** (Mac'ten, repo kökünde):
+  ```bash
+  export DATABASE_URL="$(security find-generic-password -s bookhub-prod-dsn -w)"
+  go -C backend run ./cmd/manage migrate
+  go -C backend run ./cmd/manage create-admin -email <e-posta>     # parola gizli sorulur
+  docker run --rm -i postgres:16 psql "$DATABASE_URL" < backend/scripts/demo_seed.sql
+  unset DATABASE_URL
+  ```
+  Bugün elle migration gerekirse (yalnız acil durumda, [CLAUDE.md](../CLAUDE.md)): önce
+  `git fetch origin && git switch --detach origin/release`, sonra yalnız `manage migrate` satırı.
+- **Süreç kurulumu** (`release` dalı, etiketler, secret, pano): [PROCESS.md](PROCESS.md) §9.
+
+`release.yml` (etiket atılınca API imajını ghcr'ye yayınlar) artık yayın yolunun parçası değil;
+Northflank imajı repodan kendisi derliyor.
+
+## 5. Bilinen sınırlar
+
+- **HTTPS şart.** Refresh token `HttpOnly` + `Secure` + `SameSite=Strict` bir çerezte; Northflank
+  HTTPS'i sağlıyor. `COOKIE_SECURE=false` yalnız lokal denemeler içindir.
+- **IP başına sınır herkes için ortak.** `TRUSTED_PROXIES` boş: API, NGINX'in iç adresini
+  istemci sanıyor; NGINX de Northflank ağ geçidinin adresini görüyor. Giriş denemesi sınırı tüm
+  ziyaretçiler arasında paylaşılıyor ([REVIEW_FEEDBACK](REVIEW_FEEDBACK.md) F04 ile ilgili).
+- **Supabase ücretsiz projesi** bir hafta hareketsiz kalınca duruyor ve kendiliğinden uyanmıyor;
+  panelden *Restore*.
+- **Küçük makine** (0.1 vCPU): bcrypt yüzünden giriş ve kayıt 1–3 sn sürebilir.
+- **API veritabanına sahip (owner) kullanıcıyla bağlanıyor** — kabul edilmiş risk
+  ([REVIEW_FEEDBACK](REVIEW_FEEDBACK.md) F05).
+- **Veritabanı TLS bağlantısı sunucu kimliğini doğrulamıyor.** `sslmode=require` şifreler ama
+  sertifikayı ve host adını doğrulamaz (pgx). Sertleştirme: Supabase'in CA sertifikasını repoya
+  ve imaja koyup `PGSSLROOTCERT` ile vermek, sonra DSN'i `sslmode=verify-full` yapmak
+  ([öğrenme notu #6](learning-notes/infra-and-devops.md)).
+- **İzleme yok:** Northflank'ta sağlık kontrolü, uptime izleyici ve hata izleme (Sentry) henüz
+  kurulmadı; sıradaki adım.
+- Access token'lar stateless: çıkış, parola ve rol değişikliği refresh tarafını anında keser ama
+  verilmiş access token'lar `JWT_ACCESS_TTL` (15 dk) dolana kadar geçerli kalır.

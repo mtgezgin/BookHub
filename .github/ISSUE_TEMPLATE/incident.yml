@@ -1,0 +1,73 @@
+name: Olay (incident) ve postmortem
+description: Canlıda bir şey bozulduysa. Amaç suçlu bulmak değil, aynı sınıftaki hatanın bir daha olmaması.
+title: "[Olay] "
+labels: ["incident"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Önce **etkiyi durdur** (geri al ya da geçici çözüm), sonra bu kaydı doldur. Her aksiyon ayrı bir issue olur.
+        Olay ancak **önleme kuralı** bir yere yazılınca kapanır: bir test, bir alarm ya da `CLAUDE.md`'de bir review kuralı.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Ne oldu?
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Etki
+      description: Kimler, ne kadar süre, hangi işlevler etkilendi? Veri kaybı var mı?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: detection
+    attributes:
+      label: Nasıl fark edildi?
+      description: Hedef, olayı kullanıcıdan önce kendi izlememizin yakalaması.
+      options:
+        - Kendi alarmımız / izlememiz
+        - Bir kullanıcı bildirdi
+        - Tesadüfen / elle kontrolde
+    validations:
+      required: true
+
+  - type: textarea
+    id: timeline
+    attributes:
+      label: Zaman çizelgesi
+      placeholder: |
+        14:02 yayın (release → abc1234)
+        14:10 ilk hata logu
+        14:25 fark edildi (nasıl?)
+        14:31 geri alındı
+    validations:
+      required: true
+
+  - type: textarea
+    id: root_cause
+    attributes:
+      label: Kök neden
+      description: Mekanizma ve kanıt. "Testler, CI ya da review bunu neden yakalamadı?" sorusunu da cevapla.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actions
+    attributes:
+      label: Aksiyonlar
+      description: Her biri ayrı bir issue (#numara). İlk açılışta boş kalabilir; olay kapanmadan doldurulur.
+      placeholder: |
+        - [ ] #... — ...
+
+  - type: textarea
+    id: prevention
+    attributes:
+      label: Önleme kuralı
+      description: >-
+        Bu hata SINIFINI bir daha ne yakalayacak? Yeni bir test, bir alarm ya da CLAUDE.md'de bir review kuralı.
+        İlk açılışta boş kalabilir; olay bu alan dolmadan kapanmaz.

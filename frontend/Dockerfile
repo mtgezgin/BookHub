@@ -29,7 +29,7 @@ RUN npx vite build
 # libxslt, gd… — yok). Hiçbirini kullanmıyoruz; daha az paket = daha küçük saldırı yüzeyi
 # (91 MB → 30 MB, 35 → 21 paket) ve Docker Scout'un standart sürümde bildirdiği "1 high"
 # bu modül kütüphanelerindeydi, slim'de yok. Healthcheck'in wget'i busybox'tan gelir, slim'de de var.
-FROM nginxinc/nginx-unprivileged:stable-alpine-slim@sha256:c2c3905bda3dc8de80023e19bed0a45745279d26e5586cdee64370c8f9b12348
+FROM nginxinc/nginx-unprivileged:stable-alpine-slim@sha256:3af0c10d960cc2502427fe1219c52989d309e7d65596869c60a34fd2fa2406f0
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY nginx/security-headers.conf nginx/api-proxy.conf /etc/nginx/snippets/
 COPY --from=build /src/dist /usr/share/nginx/html

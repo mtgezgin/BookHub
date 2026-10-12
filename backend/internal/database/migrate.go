@@ -18,9 +18,11 @@ import (
 // Idempotent: şema güncelse hiçbir şey yapmaz. goose kendi goose_db_version
 // tablosuyla nerede kaldığını bilir ("şema için git").
 //
-// UYARI (prod): Supabase gibi transaction-mode pooler'ın arkasında migration
-// ÇALIŞTIRMA — doğrudan bağlantıyı (5432) kullan. Bu yüzden API'de otomatik
-// migration bir ayar (AUTO_MIGRATE) ve varsayılanı kapalı.
+// UYARI (prod): Supabase'in transaction-mode pooler'ının (6543) arkasında migration
+// ÇALIŞTIRMA: oturum seviyesindeki advisory lock orada tutulmaz. Session pooler ya da
+// doğrudan bağlantı kullan; Supabase'te doğrudan bağlantı yalnız IPv6 olduğu için canlıda
+// (ve GitHub runner'larında) session pooler. API'de otomatik migration bu yüzden bir ayar
+// (AUTO_MIGRATE) ve varsayılanı kapalı.
 func Migrate(ctx context.Context, dsn string) error {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {

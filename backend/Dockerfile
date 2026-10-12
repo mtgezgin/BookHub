@@ -9,7 +9,9 @@
 
 # ---------- Aşama 1: derleme ----------
 # Digest sabitleme: bkz. frontend/Dockerfile'daki açıklama (Dependabot haftalık günceller).
-FROM golang:1.26-alpine@sha256:51a7c389a5ddaf82f527191a1e9bff9928655130a44e4975dd1d7e0acf59f1ae AS build
+# Go yama sürümü backend/go.mod'daki `go` satırıyla aynı tutulur: CI ve Deploy'un migrate adımı
+# sürümü oradan alır.
+FROM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS build
 WORKDIR /src
 
 # Önce YALNIZCA go.mod/go.sum: bağımlılıklar kodun her değişiminde değil, yalnız bunlar

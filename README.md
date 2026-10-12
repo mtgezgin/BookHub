@@ -4,6 +4,8 @@ Okunan kitapların kataloğu ve topluluğu: kullanıcılar kitap önerir, admin 
 yapar ve 1–10 puan verir; "en iyiler" listesi basit ortalamayla değil **ağırlıklı (Bayes) puanla**
 sıralanır.
 
+**Canlı:** https://p01--web--4x2qb6s8vg5j.code.run
+
 Asıl amaç ürün değil **öğrenme**: TypeScript geçmişinden gelen biri için backend teknolojilerini
 *neden var oldukları* üzerinden, Go ile, baştan sona bir üretim yığını kurarak öğrenmek. Kod
 içindeki Türkçe yorumlar "neden böyle"yi anlatır; her faz bir kavram öğretir.
@@ -88,5 +90,7 @@ Hata zarfı her yerde aynı: `{"error":{"code":"…","message":"…"}}`; her cev
 - [docs/phases/](docs/phases/) — 13 fazın rehberleri · [docs/learning-notes/](docs/learning-notes/) — kavram notları
 - [docs/REVIEW_FEEDBACK.md](docs/REVIEW_FEEDBACK.md) — inceleme bulguları ve çözüm kayıtları (canlı backlog)
 - [docs/WHY_GO_VS_TS.md](docs/WHY_GO_VS_TS.md) — Go vs TS: ölçülmüş, dürüst karşılaştırma
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — buluta dağıtım rehberi (Supabase + Upstash + konteyner)
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — canlı kurulum (Northflank + Supabase + Upstash) ve yayın akışı
+- [docs/PROCESS.md](docs/PROCESS.md) — geliştirme süreci: issue → PR → testlere bağlı yayın → doğrulama
+- [CLAUDE.md](CLAUDE.md) — proje kuralları (AI oturumları ve review kapısı için)
 - [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md) — ürün tanımı ve yol haritası
