@@ -99,9 +99,10 @@ export function Home() {
 
   // Yazarken arama: yazmayı SEARCH_DELAY_MS bırakınca. replace: her duraklama tarayıcı
   // geçmişine ayrı bir kayıt eklemesin ("geri" tuşu harf harf geri gitmesin).
+  // Eşitlik kontrolü zamanlayıcının İÇİNDE, son render'ın q'suyla yapılır: render anındaki q, URL
+  // değişikliği henüz uygulanmamışsa eskidir.
   useEffect(() => {
     const trimmed = search.trim();
-    if (trimmed === q) return;
     const t = setTimeout(() => {
       const now = latest.current;
       if (trimmed === now.q) return;
@@ -114,11 +115,12 @@ export function Home() {
 
   // URL dışarıdan değişince (geri/ileri, logo) kutu da onu göstersin. Kutudaki değer zaten q'ya
   // denkse dokunulmaz: kullanıcının yazdığı baştaki/sondaki boşluklar silinmesin.
+  // İşaret her q değişiminde tüketilir: önce başka bir gezinme geldiyse eski işaret sonraki bir
+  // geri/ileri'yi yanlışlıkla "kendi yazdığım" sanmasın.
   useEffect(() => {
-    if (q === ownQ.current) {
-      ownQ.current = null;
-      return;
-    }
+    const own = ownQ.current;
+    ownQ.current = null;
+    if (q === own) return;
     setSearch((s) => (s.trim() === q ? s : q));
   }, [q]);
 

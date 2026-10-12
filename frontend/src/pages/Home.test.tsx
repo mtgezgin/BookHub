@@ -277,6 +277,27 @@ describe("Home", () => {
     }
   });
 
+  it("kutunun yazdığı q'dan önce başka bir gezinme gelirse, sonradan o q'ya dönünce kutu yine URL'yi izler", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { el, nav } = await render("/");
+      const input = el.querySelector<HTMLInputElement>("input[type=search]")!;
+      setValue(input, "dune");
+      // Zamanlayıcı ?q=dune yazarken (henüz uygulanmadan) kullanıcı başka bir aramaya geçer.
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+        nav.go!("/?q=vakif");
+      });
+      await flush();
+      expect(input.value).toBe("vakif");
+      await act(async () => nav.go!("/?q=dune"));
+      await flush();
+      expect(input.value).toBe("dune");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("URL dışarıdan değişince (geri/ileri, logo) arama kutusu onu gösterir", async () => {
     const { el, nav } = await render("/?q=dune");
     const input = el.querySelector<HTMLInputElement>("input[type=search]")!;
