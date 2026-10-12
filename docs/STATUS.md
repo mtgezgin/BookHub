@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-10-12):** **13 fazın tamamı ✅**, Faz 14 canlıda (yalnız gerçek kapaklar açık) — MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-10-12):** **14 fazın tamamı ✅** (Faz 14 arayüz yeniden tasarımı ve gerçek kapaklar canlıda) — MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React frontend, CI/CD, NGINX,
 Kubernetes) + **Faz 13 oturum sertleştirme** (httpOnly refresh çerezi, token aileleri + reuse
 tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
@@ -14,13 +14,13 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
   dalı + Deploy iş akışı; main'e her merge = yayın), [CLAUDE.md](../CLAUDE.md) kuralları,
   makinenin denetlediği kurallar (`scripts/checks.sh`: git kancaları + CI'da Kurallar) ·
   [PROCESS.md](PROCESS.md).
-- **Açık maddeler:** gerçek kapaklar ([#34](https://github.com/mtgezgin/BookHub/issues/34)), canlı
-  izleme ve alarm (henüz yok), [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular,
+- **Açık maddeler:** eser/baskı ayrımı ve çeviriler ([#36](https://github.com/mtgezgin/BookHub/issues/36),
+  sıradaki özellik), canlı izleme ve alarm (henüz yok), [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular,
   Node 26 (Dependabot #13, #29; LTS'i bekliyor).
 
 > **Faz 14 — arayüz yeniden tasarımı (canlıda 2026-10-12):** A tasarım temeli · B ana sayfa +
 > detay · C formlar, gezinme, tema, moderasyon diyaloğu · D katalog sıralaması (`?sort=rating`) —
-> PR #21, takipleri #25. Açık: gerçek kapaklar ([#34](https://github.com/mtgezgin/BookHub/issues/34)) ·
+> PR #21, takipleri #25; gerçek kapaklar (Open Library, #34) ·
 > [phase-14](phases/phase-14-ui-redesign.md).
 
 > **Ortam notu:** Kabukta `go` bulunamazsa `export PATH="/opt/homebrew/bin:$HOME/go/bin:$PATH"`
@@ -49,7 +49,7 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 | 11 | NGINX (tek origin, CSP, güvenilen proxy) | ✅ |
 | 12 | Kubernetes (kind'da doğrulandı) | ✅ |
 | 13 | Oturum sertleştirme (httpOnly çerez, token ailesi + reuse, CSRF, parola değişimi, Playwright) | ✅ |
-| 14 | Arayüz yeniden tasarımı (tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik, katalog sıralaması) | ✅ canlıda · 🟡 gerçek kapaklar (#34) |
+| 14 | Arayüz yeniden tasarımı (tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik, katalog sıralaması) | ✅ (canlı, gerçek kapaklar dahil) |
 
 ## Faz 2'de ne oldu (özet)
 

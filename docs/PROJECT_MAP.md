@@ -146,6 +146,7 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `0006` | puan silinince (CASCADE dahil) kitap istatistiklerini yenileyen trigger |
 | `0007` | o trigger önce kitabı kilitlesin (eşzamanlı oyla kayıp güncelleme olmasın) |
 | `0008` | refresh token **aileleri**: `refresh_token_families` (`id`, `user_id`, `created_at`, `absolute_expires_at`, `revoked_at`) + `refresh_tokens.family_id` (NOT NULL, CASCADE) ve `refresh_tokens.used_at`; `TRUNCATE refresh_tokens` (eski token'ların ailesi yok) |
+| `0009` | demo kataloğun gerçek kapakları (veri): boş `cover_url`'leri Open Library kapak adresiyle doldurur; Down yok, `make demo-seed` de çalıştırır ([phase-14](phases/phase-14-ui-redesign.md)) |
 
 `sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
 
