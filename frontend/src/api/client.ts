@@ -131,8 +131,6 @@ async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
 let refreshing: Promise<boolean> | null = null;
 
 export function refreshSession(): Promise<boolean> {
-  // ??= yalnız boşsa atar ve doluysa sağ tarafı HİÇ çalıştırmaz: süren bir yenileme varken
-  // ikinci bir doRefresh() başlamaz.
   refreshing ??= doRefresh().finally(() => {
     refreshing = null;
   });
