@@ -131,11 +131,9 @@ async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
 let refreshing: Promise<boolean> | null = null;
 
 export function refreshSession(): Promise<boolean> {
-  if (!refreshing) {
-    refreshing = doRefresh().finally(() => {
-      refreshing = null;
-    });
-  }
+  refreshing ??= doRefresh().finally(() => {
+    refreshing = null;
+  });
   return refreshing;
 }
 
