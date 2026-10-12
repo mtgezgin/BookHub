@@ -259,4 +259,19 @@ describe("Moderation", () => {
     await act(async () => succeed());
     await flush();
   });
+
+  it("koruma liste yeniden yüklenene kadar sürer: istek dönse de satır güncellenmeden ikinci onay gitmez", async () => {
+    stub({ approve: async () => book(1, "APPROVED") });
+    const el = await render();
+    let reloaded!: () => void;
+    stub({ adminBooks: () => new Promise((res) => { reloaded = () => res(pageOf([])); }) });
+    await act(async () => button(el, "Onayla")!.click());
+    await flush();
+    await act(async () => button(el, "Onayla")?.click());
+    expect(calls.approve).toHaveLength(1);
+    expect(button(el, "Onayla")!.disabled).toBe(true);
+    await act(async () => reloaded());
+    await flush();
+    expect(button(el, "Onayla")).toBeUndefined();
+  });
 });

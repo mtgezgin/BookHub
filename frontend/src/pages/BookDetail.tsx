@@ -157,7 +157,7 @@ function BookDetailView() {
       await api.addComment(id, text);
       setText("");
       toast("Yorumun eklendi");
-      if (comments.offset === 0) comments.reload();
+      if (comments.offset === 0) void comments.reload();
       else comments.setOffset(0); // en yeni yorum ilk sayfada
     } catch (err) {
       setError(err);
@@ -173,7 +173,7 @@ function BookDetailView() {
     } catch (e) {
       setError(e);
     }
-    comments.reload();
+    void comments.reload();
   };
 
   if (!book) {

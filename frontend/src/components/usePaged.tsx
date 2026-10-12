@@ -11,6 +11,8 @@ import { Button } from "./ui/button";
  *    üzerine yazmasın (her istek bir sıra numarası alır; yalnız sonuncusu uygulanır).
  *  - showPager: offset > 0 iken de pager görünür (geri dönüş yolu hep açık).
  * `fetch` useCallback ile sabitlenmiş olmalı; `resetKey` değişince (sekme, kitap) ilk sayfaya dönülür.
+ * `reload` liste güncellenince biten bir promise döner (hatası onError'a gider, fırlatılmaz): çağıran
+ * bir işlemin sonucunun ekrana yansımasını bekleyebilsin.
  */
 export function usePaged<T>(
   fetch: (offset: number) => Promise<Page<T>>,
@@ -30,9 +32,9 @@ export function usePaged<T>(
 
   useEffect(() => setOffset(0), [resetKey]);
 
-  const reload = useCallback(() => {
+  const reload = useCallback((): Promise<void> => {
     const mine = ++seq.current;
-    fetch(offset)
+    return fetch(offset)
       .then((p) => {
         if (mine !== seq.current) return; // daha yeni bir istek var: bu cevap bayat
         if (p.items.length === 0 && offset > 0) {
@@ -46,7 +48,9 @@ export function usePaged<T>(
       });
   }, [fetch, offset]);
 
-  useEffect(reload, [reload]);
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
   const showPager = page !== null && (offset > 0 || page.total > page.limit);
   return { page, offset, setOffset, reload, showPager };

@@ -126,8 +126,10 @@ export function Home() {
 
   // Zaten seçili tür ya da sıra yeniden seçilince bir şey olmaz: update offset'i silip sayfayı başa
   // alır ve geçmişe kayıt eklerdi.
+  // Karşılaştırma ekranda görünen (normalleştirilmiş) değerle: ?sort=foo da "En yeni" sayılır.
   const select = (next: Record<string, string>) => {
-    if (Object.entries(next).every(([k, v]) => (params.get(k) ?? "") === v)) return;
+    const shown: Record<string, string> = { genre, sort };
+    if (Object.entries(next).every(([k, v]) => shown[k] === v)) return;
     update(next);
   };
 

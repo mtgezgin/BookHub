@@ -34,7 +34,9 @@ export function Moderation() {
 
   const toast = useToast();
   // Uçuştaki istek koruması: çift tıklama ikinci isteği göndermesin. Ref ikinci tıklamayı yeniden
-  // çizimden ÖNCE durdurur; state düğmeleri pasif gösterir. Hata da başarı da ikisini birlikte bırakır.
+  // çizimden ÖNCE durdurur; state düğmeleri pasif gösterir. Koruma liste yeniden yüklenene kadar
+  // sürer (yoksa satır eski düğmeleriyle dururken ikinci onay 409 alırdı); hata da başarı da ikisini
+  // birlikte bırakır.
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const act = async (fn: () => Promise<unknown>, done: string) => {
@@ -45,7 +47,7 @@ export function Moderation() {
     try {
       await fn();
       toast(done);
-      load();
+      await load();
     } catch (e) {
       setError(e); // ör. 409 invalid_transition: başka bir admin önce davrandı
     } finally {
