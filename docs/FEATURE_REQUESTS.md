@@ -1,11 +1,31 @@
 # BookHub — Özellik talepleri ve ürün geliştirme planı
 
-Tarih: **20 Eylül 2026**  
+Tarih: **20 Eylül 2026** · Son güncelleme: **17 Ekim 2026** (durum özeti; sıra artık [ROADMAP.md](ROADMAP.md)'de)  
 Durum: **Ürün önerisi / önceliklendirilecek backlog**
 
 Bu belge, mevcut kitap kataloğunu kişisel kitaplık, okuma takibi ve topluluk üzerinden keşif ürününe dönüştürmek için önerilen özellikleri somutlaştırır. Özelliklerin uygulanmış olduğunu veya bütün iş kurallarının kesinleştiğini ifade etmez. Kapsam, önceki kod incelemesi ve ürün görüşmesine dayanır; güncel uygulama durumunun yeniden denetimi değildir.
 
 Teknik hata ve güvenlik bulguları ayrı tutulur: [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md). Mevcut proje vizyonu: [PROJECT_BRIEF.md](PROJECT_BRIEF.md). Bu doküman, önceki brief'i değiştirmez; çelişen yeni ürün kuralları aşağıda açıkça işaretlenmiştir.
+
+## Durum özeti (17 Ekim 2026)
+
+Kodla karşılaştırma (origin/main, Faz 14 sonrası). 34 maddenin hiçbiri tam değil: **7'si kısmen var,
+27'si yok**. Hangi sırayla ele alınacakları: [ROADMAP.md](ROADMAP.md) (Faz 15 = Paket A).
+
+| ID | Durum | Var olan | Eksik |
+| --- | --- | --- | --- |
+| CAT-01 | kısmen | Detayda kapak (yüklenemezse üretilmiş kapak), yazar, yıl, sayfa, dil, türler, açıklama; kendi puanı topluluk ortalamasından ayrı; benzer kitaplar | Detaydan kitaplığa ekleme (LIB-01), kendi incelemesi (REV-01), yayınevi |
+| CAT-02 | karar verildi | Tasarım: [phase-16-works-editions.md](phases/phase-16-works-editions.md), [#36](https://github.com/mtgezgin/BookHub/issues/36) | Uygulama (Faz 16) |
+| MOD-02 | kısmen | Backend: tekil kayıt, düzenleme (PATCH), onay/red/arşiv/geri yayın, denetim geçmişi. Arayüz: durum sekmeleri, red diyaloğu | Arayüzde bütün alanlar, öneren ve geçmiş; onay öncesi düzeltme; zorunlu red gerekçesi; eşzamanlı düzenleme uyarısı |
+| DISC-01 | kısmen | Başlık/yazar araması, tür filtresi, "En yeni" ve "En yüksek puan" sıralaması; filtre URL'de, bayat yanıt koruması, boş sonuçta "filtreleri temizle" | Dil ve sayfa aralığı filtresi, başlığa göre sıralama, aktif filtre etiketleri |
+| DISC-02 | kısmen | Detayda ilk türe göre benzer kitaplar, gerekçe başlıkta | Ortak türlerin birlikte değerlendirilmesi, ağırlıklı puanla sıralama |
+| ACC-02 | kısmen | Mevcut parolayla değiştirme; değişince diğer bütün oturumlar kapanır (Faz 13) | "Parolamı unuttum" ve e-postayla sıfırlama |
+| UX-01 | kısmen | İskelet yükleme, boş ve hata durumları, bildirimler, çift gönderim koruması, girişten güvenli dönüş | "Yeniden dene", girişten sonra yarım kalan işlemi sürdürme, F10/F11'in kalanları |
+| UX-02 | kısmen | "İçeriğe atla", anlamlı etiketler, diyaloglarda odak yönetimi, mobil menü | 320/360/390 px doğrulaması (F13) |
+
+**Yok:** LIB-01–03, READ-01–03, STATS-01–02, CAT-03, REV-01–03, MOD-01, MOD-03, MOD-04, DISC-03,
+DISC-04, SOC-01–03, ACC-01, ACC-03, ACC-04 (altyapısı var: Faz 13'ün oturum aileleri), DATA-01,
+DATA-02, NOTIF-01.
 
 ## 1. Ürün yönü ve temel ihtiyaç
 
@@ -137,7 +157,11 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### CAT-02 — Eser ve baskı kimliği kararı
 
-- [ ] **P0 karar / P1 tam uygulama · Önerildi**
+- [ ] **P0 karar / P1 tam uygulama · Karar verildi (17 Ekim 2026) · Planlandı: Faz 16**
+- **Karar kaydı:** [phases/phase-16-works-editions.md](phases/phase-16-works-editions.md) ·
+  [#36](https://github.com/mtgezgin/BookHub/issues/36). `books` eser olarak kalır; yeni `editions`
+  tablosu, kitap başına bir varsayılan baskı; puan ve yorum eser düzeyinde; genişlet → daralt, iki PR.
+  Baskıları ilk sürümde yalnız admin ekler. Okuma kaydının baskıya bağlanması Faz 17'de.
 - **İhtiyaç:** Aynı eserin farklı dil, çeviri ve baskılarını yanlışlıkla bağımsız kitaplar gibi çoğaltmamak.
 - **Önerilen ayrım:** Eser: ortak başlık/kimlik/yazar ilişkisi. Baskı: ISBN, dil, yayınevi, çevirmen, yayın yılı, kapak ve sayfa sayısı. Bir eserin birden çok baskısı olabilir; ISBN her eserde zorunlu değildir.
 - **Önerilen ürün kuralı:** Puan ve inceleme eser düzeyinde; okuma kaydı isteğe bağlı baskıya bağlı. Baskıya özgü eleştiri incelemede bağlam olarak gösterilebilir. Bu kural uygulama öncesi karara bağlanmalıdır.
@@ -356,6 +380,9 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **Bağımlılık:** F13. Ayrı bir son rötuş olarak ertelenmez; her yeni ekranın kabul koşuludur.
 
 ## 15. Teslimat paketleri
+
+> Sıra (17 Ekim 2026, [ROADMAP](ROADMAP.md)): Paket A = Faz 15 (şimdi) · CAT-02 baskılar = Faz 16 ·
+> Paket B = Faz 17 · Paket C = Faz 18 · D ve E daha sonra.
 
 ### Paket A — Kişisel kitaplığın ilk kullanılabilir sürümü
 

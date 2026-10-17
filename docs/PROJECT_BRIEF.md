@@ -1453,3 +1453,24 @@ At the end of every phase, update [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md): replace th
 (confirm/falsify), and grow its §15 ("where TS/JS wins"). The per-phase section map lives in
 that doc's "Living-document mechanism".
 
+---
+
+## 19. After Phase 12 — where the roadmap lives now (2026-10-17)
+
+The §11 roadmap (Phases 1–12) is complete. Two more phases followed outside it:
+[Phase 13](phases/phase-13-session-hardening.md) (session hardening, from the first review) and
+[Phase 14](phases/phase-14-ui-redesign.md) (UI redesign and real covers). All of it is live.
+
+From here the work is driven by the product backlog, not by this brief:
+
+- **Goal:** a production-quality demo — the full loop *discover → add to library → read → review*,
+  live and built to production standards, without opening the site to real users (decision,
+  2026-10-17).
+- **Order and reasons:** [ROADMAP.md](ROADMAP.md) — Phase 15 personal library (backlog Package A),
+  Phase 16 works and editions ([phase-16](phases/phase-16-works-editions.md), issue #36), Phase 17
+  reading tracking and reviews, then account/contribution features.
+- **What could be built:** [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) (product) and
+  [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) (technical findings). §12's extras are superseded by
+  FEATURE_REQUESTS where they overlap (reading lists → LIB, notifications → NOTIF-01, activity feed →
+  SOC-03, book import → CAT-03).
+

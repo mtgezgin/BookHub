@@ -38,7 +38,12 @@ Faz 13 ise ilk kapsamlı incelemeden doğan "sertleştirme" fazı.
 | [11](phase-11-nginx.md) | NGINX | reverse proxy, güvenilir IP başlığı, CSP | ✅ bitti |
 | [12](phase-12-kubernetes.md) | Kubernetes | Deployment/Job/probe, pod güvenliği | ✅ bitti |
 | [13](phase-13-session-hardening.md) | Oturum sertleştirme | httpOnly çerez, token ailesi + reuse, CSRF, kilit sırası, Playwright | ✅ bitti |
-| [14](phase-14-ui-redesign.md) | Arayüz yeniden tasarımı | Tailwind, tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik | ✅ A–C; D'de sıralama ✅, kapaklar karar bekliyor |
+| [14](phase-14-ui-redesign.md) | Arayüz yeniden tasarımı | Tailwind, tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik | ✅ bitti (gerçek kapaklar dahil) |
+| 15 | Kişisel kitaplık (Paket A: LIB-01, LIB-02) | kullanıcıya ait kaynak, sahiplik kontrolü, URL'de filtre durumu | ⏭️ sırada — tasarım yapılacak |
+| [16](phase-16-works-editions.md) | Eser ve baskı (CAT-02, #36) | genişlet → daralt migration, sqlc'nin `*` açılımı, kısmi benzersiz index | 📝 tasarım incelemede |
+| 17 | Okuma takibi ve inceleme (Paket B) | — | ⏭️ ileride |
+
+Sıra ve gerekçesi: [ROADMAP.md](../ROADMAP.md).
 
 **Durum işaretleri:** ✅ bitti · 📖 detaylı (hazır) · 📝 taslak (sırası gelince birlikte
 detaylandırılacak) · ⏭️ ileride.
