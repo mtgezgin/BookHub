@@ -12,6 +12,9 @@ commit ritmi. Format: [README.md](README.md).
 5. [pre-commit vs pre-push: kontrolleri maliyete göre katmanlama](#5-pre-commit-vs-pre-push-kontrolleri-maliyete-göre-katmanlama)
 6. [VS Code eklentisi aktivasyonu ve "command not found" yarışı](#6-vs-code-eklentisi-aktivasyonu-ve-command-not-found-yarışı)
 7. [Playwright ile uçtan uca test: gerçek tarayıcı, rate limit bütçesi ve storageState tuzağı](#7-playwright-ile-uçtan-uca-test-gerçek-tarayıcı-rate-limit-bütçesi-ve-storagestate-tuzağı)
+8. [SonarCloud: bulgu, quality gate, Accepted ve MCP](#8-sonarcloud-bulgu-quality-gate-accepted-ve-mcp)
+9. [HTTPS'i yeniden imzalayan ağ: CA paketi mi, TLS'i kapatmak mı?](#9-httpsi-yeniden-imzalayan-ağ-ca-paketi-mi-tlsi-kapatmak-mı)
+10. [Backlog, roadmap ve issue: hangisi neyi çözer?](#10-backlog-roadmap-ve-issue-hangisi-neyi-çözer)
 
 ---
 
@@ -311,3 +314,118 @@ CI'da yalnız hata durumunda ve kısa saklama süresiyle yüklenir. Sır (admin 
 - [frontend/e2e/helpers.ts](../../frontend/e2e/helpers.ts) (bütçe tablosu) · [frontend/playwright.config.ts](../../frontend/playwright.config.ts) · [scripts/e2e.sh](../../scripts/e2e.sh)
 - [#5 pre-commit vs pre-push](#5-pre-commit-vs-pre-push-kontrolleri-maliyete-göre-katmanlama) — kontrolleri maliyete göre katmanlamanın aynı mantığı
 - [docs/REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F16, F10
+
+---
+
+## 8. SonarCloud: bulgu, quality gate, Accepted ve MCP
+
+**🗓️ Bağlam:** 2026-10-12. main'de "E Security Rating" görünüyordu ve "seni SonarQube'dan her
+detayı görecek şekilde nasıl bağlayabilirim?" diye sordum. Token'ı kendim alıp Keychain'e koydum,
+MCP sunucusu bağlandı; bulgular düzeltildi, gerçek sır olmayan 3 geliştirme parolası "Accepted"
+işaretlendi.
+
+**⚡ Kısa cevap:** SonarCloud her push'ta kodu statik analizden geçirir ve **bulgu** (issue) üretir.
+Notlar (A–E) bulguların en ağırından türer; **quality gate** "yeni kodda" bu notlara bakıp geçti/kaldı
+der. Gerçek bir sorun olmayan bulgu silinmez, gerekçesiyle **Accepted** işaretlenir ve sonraki
+analizlerde geri gelmez. MCP, asistanın bu verileri sırrı görmeden okumasını sağlar.
+
+**📖 Açıklama:**
+
+- **Not nasıl çıkıyor:** Security Rating E = en az bir BLOCKER güvenlik bulgusu. Bizde 5 BLOCKER
+  vardı ve hepsi "parola" uyarısıydı: CI'daki geçici veritabanı parolaları, yerel docker-compose
+  parolası, bir yorum satırındaki örnek komut ve zamanlama eşitleyicinin sabit metni. Hiçbiri gerçek
+  sır değildi, ama makine bunu bilemez.
+- **Düzeltmek mi, kabul etmek mi:**
+  - Düzeltilebilenler düzeltildi: CI veritabanı parolasız çalışıyor (`POSTGRES_HOST_AUTH_METHOD:
+    trust`), sahte hash rastgele baytlardan üretiliyor.
+  - Anlamlı olan ama "sır" olmayan geliştirme değerleri Accepted işaretlendi; gerekçe "yerel
+    geliştirme / geçici CI veritabanı parolası, gerçek sır değil".
+- **Quality gate "yeni kod"a bakar:** proje ilk analizde bütün kodu "yeni" saydığı için 21 bulgunun
+  hepsi gate'i etkiliyordu.
+- **MCP'yi bağlamak, sırrı görmeden:**
+  - Token Keychain'de durur (`sonarcloud-token`).
+  - Küçük bir başlatıcı betik (`~/.local/bin/sonarqube-mcp`) her açılışta onu okur ve Docker'a yalnız
+    ortam değişkeni olarak verir; token ne dosyada ne `~/.claude.json`'da.
+  - Sunucu salt okunur (`SONARQUBE_READ_ONLY=true`): asistan bulguları okur, durumlarını değiştiremez.
+    Durum değişikliği bir kez, açık onayla yapıldı.
+- **Rehber değil, araç:** Sonar'ın her önerisi doğru değildir. S6606'da (`??=`) öneriyi uyguladık
+  ama eklenen gereksiz yorumu kaldırdık.
+
+**🔗 İlgili:**
+- [security-and-auth.md #14 Tedarik zinciri](security-and-auth.md#14-tedarik-zinciri-npm-install-scriptleri-ve-shaya-sabitlenmiş-actions) — aynı analizden çıkan 16 bulgu
+- [security-and-auth.md #12 Git'e sızan sır](security-and-auth.md#12-gite-sızan-sır-saklamak-değil-değiştirmek-rotate) · [frontend-and-ui.md #4](frontend-and-ui.md#4--ve--ile--boş-değer-mi-yanlış-değer-mi)
+- Issue #30 (Sonar Security Rating A)
+
+---
+
+## 9. HTTPS'i yeniden imzalayan ağ: CA paketi mi, TLS'i kapatmak mı?
+
+**🗓️ Bağlam:** Bu makinenin trafiği Cloudflare Gateway'den geçiyor. Faz 14'te Playwright tarayıcısını
+indirirken Node sertifika hatası verdi; 2026-10-12'de SonarQube MCP konteyneri de bağlanamadı. Aynı
+gün `~/.claude/env`'de, bir kurulum betiğinin bıraktığı `NODE_TLS_REJECT_UNAUTHORIZED=0` satırı
+bulundu ve "satırı yoruma al" dedim.
+
+**⚡ Kısa cevap:** Gateway HTTPS bağlantısını açıp kendi sertifikasıyla yeniden imzalıyor. macOS ona
+güveniyor (CA'sı Keychain'de), ama Node ve konteynerdeki Java kendi güven listelerini kullanıyor ve
+reddediyor. Doğru çözüm o CA'yı **eklemek** (`NODE_EXTRA_CA_CERTS`, konteynere sertifika bağlamak);
+yanlış çözüm doğrulamayı **kapatmak** (`NODE_TLS_REJECT_UNAUTHORIZED=0`).
+
+**📖 Açıklama:**
+
+| | CA'yı eklemek | Doğrulamayı kapatmak |
+| --- | --- | --- |
+| Ne yapar | "Bu imzalayana da güven" | "Hiç kimseyi kontrol etme" |
+| Saldırgan araya girerse | Bağlantı reddedilir | Fark edilmez; parola ve token'lar okunur |
+| Kapsam | Yalnız bir CA | O ortamdaki **bütün** Node süreçleri (npm, Claude Code dahil) |
+
+- **Node:** profilde `NODE_EXTRA_CA_CERTS=<Gateway CA'sının PEM dosyası>`. Node yerleşik listesine
+  bunu ekler, geri kalan doğrulama aynen sürer.
+- **Konteyner:** CA dosyası `~/.config/sonarqube-mcp/certs/` altından konteynerin
+  `/usr/local/share/ca-certificates`'ine salt okunur bağlanıyor.
+- **Satır geri gelebilir:** onu yazan kurulum betiği dosyayı yeniden üretirse. Bu yüzden dosyanın
+  yedeği alındı ve satırın gereksiz olduğu betiğin sahibine bildirilmeli.
+
+**🔗 İlgili:**
+- [infra-and-devops.md #6 TCP, HTTP ve TLS](infra-and-devops.md#6-tcp-http-ve-tls-upstash-redise-neden-rediss-ile-bağlanıyoruz) — sertifika zinciri ve doğrulama
+- [#8 SonarCloud](#8-sonarcloud-bulgu-quality-gate-accepted-ve-mcp) — CA'yı konteynere bağlayan başlatıcı
+
+---
+
+## 10. Backlog, roadmap ve issue: hangisi neyi çözer?
+
+**🗓️ Bağlam:** 2026-10-17. #36'nın tasarımı bittikten sonra "şu an rastgele bir şeyler ekliyorum
+sanki" dedim ve gerekirse yeniden bir roadmap çıkarmayı istedim. Bakınca: elimde paketlere ayrılmış
+bir ürün backlog'u var ([FEATURE_REQUESTS.md](../FEATURE_REQUESTS.md), 20 Eylül), ama o günden beri
+hiç güncellenmemiş. 34 maddenin hiçbiri tam değil: 7'si kısmen var, 27'si hiç yok. Son haftalarda seçilen işler
+(Go 1.27, Sonar, kapaklar, #36) o pakete bağlanmadan, o an karşıma çıkanlardan doğmuş.
+
+**⚡ Kısa cevap:** Üçü farklı soruları cevaplar. **Backlog:** "neler yapılabilir?" (fikir deposu,
+sırasız). **Roadmap:** "hangi sırayla ve neden?" (az sayıda hedef, şimdi/sonra/daha sonra).
+**Issue:** "şu an tam olarak ne yapıyoruz?" (tek iş, kabul kriterleri). Rastgelelik hissi, issue'lar
+roadmap'ten değil doğrudan akıştan açılınca doğar.
+
+**📖 Açıklama:**
+
+| | Backlog | Roadmap | Issue |
+| --- | --- | --- | --- |
+| Soru | Ne yapılabilir? | Hangi sırayla, neden? | Şu an ne yapıyoruz? |
+| Boyut | Uzun liste | 3–5 hedef | Tek iş |
+| Değişme sıklığı | Fikir geldikçe | Bir hedef bitince | Her gün |
+| BookHub'da | FEATURE_REQUESTS, REVIEW_FEEDBACK | (yeniden kurulacak) | GitHub issue'ları |
+
+Akış şöyle olmalı:
+
+1. Yeni fikir önce **backlog'a** yazılır; issue açılmaz.
+2. Roadmap'teki **"şimdi"** maddesi bitince sıradakine bakılır.
+3. Issue yalnız o madde için açılır ve backlog kimliğine bağlanır (ör. #36 = CAT-02).
+4. Araya giren teknik işler (güvenlik bulgusu, bağımlılık güncellemesi) ayrı ve küçük tutulur; ürün
+   hedefini değiştirmez.
+
+Bir iş, hangi roadmap maddesine hizmet ettiği söylenemiyorsa ya backlog'a geri gider ya da bilinçli
+olarak "teknik iş" diye işaretlenir. #36'daki örnek: fikir değerliydi, ama backlog onu "önce karar,
+tam sistem sonra" diye sıralamıştı. Tasarımı yapmak o kararı vermek oldu; uygulamanın ne zaman
+geleceğine roadmap karar verir.
+
+**🔗 İlgili:**
+- [docs/FEATURE_REQUESTS.md](../FEATURE_REQUESTS.md) §15 teslimat paketleri · [docs/PROCESS.md](../PROCESS.md) (issue → PR → yayın)
+- [docs/phases/phase-16-works-editions.md](../phases/phase-16-works-editions.md)
