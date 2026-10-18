@@ -54,7 +54,9 @@ export function Library() {
   useEffect(() => {
     api.genres().then(setGenres).catch(() => {});
   }, []);
-  useEffect(() => setSearch(q), [q]);
+  useEffect(() => {
+    setSearch(q);
+  }, [q]);
 
   // Eski cevap koruması (Home ile aynı): filtre değişince geç gelen önceki cevap yok sayılır.
   useEffect(() => {
@@ -145,16 +147,16 @@ export function Library() {
           </div>
         )}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <div role="group" aria-label="Puanım" className="inline-flex gap-1 rounded-lg border bg-card p-1">
+          <div role="group" aria-label="Puanım" className="inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border bg-card p-1">
             {([["", "Hepsi"], ["yes", "Puanladıklarım"], ["no", "Puanlamadıklarım"]] as const).map(([v, label]) => (
-              <Button key={v} size="sm" variant={rated === v ? "default" : "ghost"} aria-pressed={rated === v} onClick={() => select("rated", v)}>
+              <Button key={v} size="sm" className="shrink-0" variant={rated === v ? "default" : "ghost"} aria-pressed={rated === v} onClick={() => select("rated", v)}>
                 {label}
               </Button>
             ))}
           </div>
-          <div role="group" aria-label="Sıralama" className="inline-flex gap-1 rounded-lg border bg-card p-1">
+          <div role="group" aria-label="Sıralama" className="inline-flex max-w-full gap-1 overflow-x-auto rounded-lg border bg-card p-1">
             {([["", "Son eklenen"], ["title", "Başlık"], ["my_rating", "Puanıma göre"]] as const).map(([v, label]) => (
-              <Button key={v} size="sm" variant={sort === v ? "default" : "ghost"} aria-pressed={sort === v} onClick={() => select("sort", v)}>
+              <Button key={v} size="sm" className="shrink-0" variant={sort === v ? "default" : "ghost"} aria-pressed={sort === v} onClick={() => select("sort", v)}>
                 {label}
               </Button>
             ))}
