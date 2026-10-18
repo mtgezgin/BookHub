@@ -27,6 +27,11 @@ Kodla karşılaştırma (origin/main, Faz 14 sonrası). 34 maddenin hiçbiri tam
 DISC-04, SOC-01–03, ACC-01, ACC-03, ACC-04 (altyapısı var: Faz 13'ün oturum aileleri), DATA-01,
 DATA-02, NOTIF-01.
 
+**Güncelleme (18 Ekim 2026, Faz 15 — [#42](https://github.com/mtgezgin/BookHub/issues/42)):** LIB-01 ve LIB-02 uygulandı,
+canlı doğrulama bekliyor. Aynı fazda SOC-02'nin "varsayılan gizli" yarısı (kitaplığı yalnız sahibi
+görür; herkese açık uç yok) ve CAT-01'in "detaydan kitaplığa ekleme" eksiği de kapandı. Arama
+Kitaplığım'da Enter ile çalışır (katalogdaki gibi yazarken değil).
+
 ## 1. Ürün yönü ve temel ihtiyaç
 
 **Ürün sözü:** Okumak istediğin kitapları bul, okumalarını takip et ve düşüncelerini paylaş.
@@ -69,7 +74,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### LIB-01 — Kitabı kişisel kitaplığa ekleme ve durum seçme
 
-- [ ] **P0 · Önerildi**
+- [ ] **P0 · Doğrulanıyor** (Faz 15, [#42](https://github.com/mtgezgin/BookHub/issues/42); kutu canlı doğrulamadan sonra)
 - **Kullanıcı ihtiyacı:** Okumak istediğim, okuduğum ve bıraktığım kitapları tek yerde tutmak.
 - **Ekran/akış:** Kitap kartı veya detay → Kitaplığıma ekle → durum seç → aynı yerde seçili durumu gör.
 - **İlk kapsam:** Okumak istiyorum, Şu an okuyorum, Okudum, Yarım bıraktım. Kitaplığımdan çıkar işlemi.
@@ -80,7 +85,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### LIB-02 — Kitaplığım ekranı ve kişisel filtreleme
 
-- [ ] **P0 · Önerildi**
+- [ ] **P0 · Doğrulanıyor** (Faz 15, [#42](https://github.com/mtgezgin/BookHub/issues/42); kutu canlı doğrulamadan sonra)
 - **Kullanıcı ihtiyacı:** Biriktirdiğim kitaplar arasında hızlıca doğru kitaba ulaşmak.
 - **Ekran/akış:** Ana navigasyon → Kitaplığım → durum sekmesi/filtre → kitap detayı.
 - **İlk kapsam:** Başlık/yazar araması; durum, tür ve kendi puanına göre filtreleme; eklenme tarihi ve başlığa göre sıralama; sayfalama. Kendi puanı olmayanlar için ayrı filtre.

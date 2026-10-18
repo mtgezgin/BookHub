@@ -25,7 +25,7 @@ Gerçek kullanıcıya açılma kararı verilirse Faz 18 (katkı ve hesap) ile ca
 
 | Sıra | Faz | Kapsam (backlog kimlikleri) | Neden bu sırada | Durum |
 | --- | --- | --- | --- | --- |
-| **Şimdi** | 15 — Kişisel kitaplık | Paket A: LIB-01, LIB-02, CAT-01'in kitaplık bölümü, SOC-02'nin "varsayılan gizli" kuralı; UX-01/02 kabul koşulu | En büyük ürün boşluğu: kullanıcının geri döneceği alan. Baskılara bağımlı değil (kitaplık kaydı kullanıcı–eser ilişkisi). | tasarım yapılacak |
+| **Şimdi** | 15 — Kişisel kitaplık | Paket A: LIB-01, LIB-02, CAT-01'in kitaplık bölümü, SOC-02'nin "varsayılan gizli" kuralı; UX-01/02 kabul koşulu | En büyük ürün boşluğu: kullanıcının geri döneceği alan. Baskılara bağımlı değil (kitaplık kaydı kullanıcı–eser ilişkisi). | [uygulandı](phases/phase-15-personal-library.md) ([#42](https://github.com/mtgezgin/BookHub/issues/42)); yayın ve canlı doğrulama bekliyor |
 | Sonra | 16 — Eser ve baskı | CAT-02 ([#36](https://github.com/mtgezgin/BookHub/issues/36)) | Okuma kaydının sayfa toplamı baskıdan gelecek (READ-01'in bağımlılığı). | [spec](phases/phase-16-works-editions.md) incelemede |
 | Sonra | 17 — Okuma takibi ve inceleme | Paket B: READ-01, READ-02, REV-01, REV-02 | Döngüyü kapatır. İnceleme geniş kullanıma açılmadan MOD-04 gerekir; demo hedefinde Faz 18'e kalır. | — |
 | Daha sonra | 18 — Katkı döngüsü ve hesap | Paket C: MOD-01, MOD-02, ACC-01–03, DATA-02 | Gerçek kullanıcının kapısı; bir e-posta sağlayıcısı gerektirir. | — |

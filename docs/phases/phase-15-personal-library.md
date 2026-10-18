@@ -1,6 +1,6 @@
 # Faz 15 — Kişisel kitaplık
 
-> Durum: 📖 tasarım onaylandı, plan yazılıyor (2026-10-18) · Issue: [#42](https://github.com/mtgezgin/BookHub/issues/42) ·
+> Durum: 🧪 uygulandı, yayın ve canlı doğrulama bekliyor (2026-10-18) · Issue: [#42](https://github.com/mtgezgin/BookHub/issues/42) ·
 > [ROADMAP](../ROADMAP.md): **Şimdi** · Backlog:
 > [FEATURE_REQUESTS](../FEATURE_REQUESTS.md) Paket A — LIB-01, LIB-02, CAT-01'in kitaplık bölümü,
 > SOC-02'nin "varsayılan gizli" kuralı · İlgili: [ratings.sql](../../backend/sql/queries/ratings.sql),
@@ -181,6 +181,20 @@ CREATE TABLE library_entries (
 5. **Canlı:**
    - Yayından sonra herkese açık sayfalar ve uçlar aynı; girişsiz `GET /api/me/library` → 401.
    - Kitap ekleme ve Kitaplığım akışını kullanıcı canlıda dener (veri yazan adım).
+
+## 📏 Uygulama notları (2026-10-18)
+
+- **`my_rating`:** `r.score::bigint` dönüşümü LEFT JOIN'in "boş olabilir" bilgisini kaybettiriyordu (sqlc
+  `int64` üretti; puansız satır okunurken patlardı). Dönüşüm kalktı; `sqlc.yaml`'a boş olabilen
+  `smallint` → `*int16` kuralı eklendi.
+- **Kitaplıktaki kitapta düğme:** bölünmüş değil tek bir menü düğmesi ("Kitaplığında: Okudum"); ana
+  kısmın kitap eklendikten sonra yapacağı anlamlı bir iş yok.
+- **Kitaplığım araması:** Enter / "Ara" ile. Katalogdaki yazarken-arama ince yarış korumaları istiyor;
+  küçük bir kişisel liste için gerekmedi.
+- **e2e'nin bulduğu, faz öncesinden kalan hata:** `useEffect(() => window.scrollTo(0, 0), [])`.
+  Chromium 156'da `scrollTo` Promise döndürüyor; React onu temizlik fonksiyonu sanıp kitap sayfasından
+  ayrılırken çağırdı ve uygulama boş ekranla çöktü. Etki artık hiçbir şey döndürmüyor; regresyon testi var.
+- **360 px:** "Puanım" düğme grubu 1 px taşıyordu; gruplar kendi içinde kaydırılıyor.
 
 ## ✅ Tamamlanma
 

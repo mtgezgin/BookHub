@@ -15,7 +15,7 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
   makinenin denetlediği kurallar (`scripts/checks.sh`: git kancaları + CI'da Kurallar) ·
   [PROCESS.md](PROCESS.md).
 - **Yol haritası (2026-10-17):** hedef "üretim kalitesinde demo"; sıra ve gerekçe
-  [ROADMAP.md](ROADMAP.md)'de. **Şimdi: Faz 15 — kişisel kitaplık** (Paket A, tasarım yapılacak) →
+  [ROADMAP.md](ROADMAP.md)'de. **Şimdi: Faz 15 — kişisel kitaplık** (Paket A, [#42](https://github.com/mtgezgin/BookHub/issues/42): uygulandı, yayın bekliyor) →
   Faz 16 eser ve baskı ([#36](https://github.com/mtgezgin/BookHub/issues/36), spec
   [incelemede](phases/phase-16-works-editions.md)) → Faz 17 okuma takibi ve inceleme.
 - **Teknik hat:** Node 26 (Dependabot #13, #29; LTS'i bekliyor), canlı izleme ve alarm (henüz yok),
@@ -150,7 +150,8 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 
 Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 
-1. **Şimdi — Faz 15, kişisel kitaplık** (FEATURE_REQUESTS Paket A: LIB-01, LIB-02). İlk adım tasarım.
+1. **Şimdi — Faz 15, kişisel kitaplık** (FEATURE_REQUESTS Paket A: LIB-01, LIB-02). Kod ve testler hazır
+   (#42, [phase-15](phases/phase-15-personal-library.md)); PR, yayın ve canlı doğrulama bekliyor.
 2. **Sonra:**
    - Faz 16, eser ve baskı (#36; spec [phase-16](phases/phase-16-works-editions.md), incelemede).
    - Faz 17, okuma takibi ve inceleme.

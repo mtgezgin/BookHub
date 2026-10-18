@@ -60,14 +60,14 @@ veri ve mevcut API bozulmadan, **genişlet → daralt** sırasıyla, iki PR'da.
 
 ## 🗺️ Bölümler
 
-- **PR 1 — genişlet:** `0010_editions.sql` (tablo + taşıma), `0011_demo_editions.sql` (demo
+- **PR 1 — genişlet:** `0011_editions.sql` (tablo + taşıma), `0012_demo_editions.sql` (demo
   baskılar), sorgular, `internal/editions`, admin uçları, detay JSON'u, kapak şeridi, testler.
-- **PR 2 — daralt:** sıradaki boş migration numarası (bugün 0012): eksik baskıları tamamla, iki eski
+- **PR 2 — daralt:** sıradaki boş migration numarası (bugün 0013): eksik baskıları tamamla, iki eski
   kolonu sil; `make demo-seed`'den 0009 çıkar. **PR 1 canlıda doğrulanmadan merge edilmez.**
 
 ## 🪜 PR 1 — adımlar
 
-### 1. Şema ve taşıma: `0010_editions.sql`
+### 1. Şema ve taşıma: `0011_editions.sql`
 
 ```sql
 CREATE TABLE editions (
@@ -93,18 +93,18 @@ SELECT id, title, language, page_count, cover_url, true FROM books;
 ```
 
 - Her kitap tam olarak bir varsayılan baskı alır; kapak ve sayfa sayısı birebir kopyalanır.
-- Dil `books.language`'den kopyalanır; demo kitaplarda bu özgün dildir ve 0011 düzeltir.
-- Down: `DROP TABLE editions;` (0010 psql ile yeniden çalıştırılmaz, Down güvenli).
+- Dil `books.language`'den kopyalanır; demo kitaplarda bu özgün dildir ve 0012 düzeltir.
+- Down: `DROP TABLE editions;` (0011 psql ile yeniden çalıştırılmaz, Down güvenli).
 - Alan doğrulaması `books`'taki gibi uygulamada; tabloya ek CHECK yok.
 
-### 2. Demo baskılar: `0011_demo_editions.sql`
+### 2. Demo baskılar: `0012_demo_editions.sql`
 
 0009'un ilkeleri: eşleşme slug + yazarla, **Down bölümü yok** (`make demo-seed` psql ile yeniden
 çalıştırır), tekrar çalıştırılabilir, kitap yoksa hiçbir satır etkilenmez.
 
 1. **Varsayılan baskıların meta verisi (53 kitap):** dil, yayınevi, çevirmen ve baskı yılı. Kaynak:
    0009'daki kapak kimliği → Open Library kapak kaydı → baskı kaydı. Bulunamayan alan olduğu gibi
-   kalır. Kapak alanına 0009'daki adresin aynısı yazılır: canlıda 0010 onu zaten kopyaladığı için
+   kalır. Kapak alanına 0009'daki adresin aynısı yazılır: canlıda 0011 onu zaten kopyaladığı için
    değer değişmez, taze kurulumda boş kapak dolar. **Sayfa sayısına dokunulmaz.** Canlı doğrulama
    kapak ve sayfayı birebir karşılaştırır. Koruma: yalnız kapağı hâlâ `''` ya da 0009'daki adres
    olan varsayılan baskı güncellenir — admin'in sonradan değiştirdiği baskıya dokunulmaz.
@@ -118,9 +118,9 @@ SELECT id, title, language, page_count, cover_url, true FROM books;
 Taze kurulum:
 
 - `demo_seed.sql`, kitap INSERT'inden sonra baskısı olmayan her kitaba kitabın adı, dili ve sayfa
-  sayısıyla bir varsayılan baskı açar (`INSERT … SELECT … WHERE NOT EXISTS`; kapak `''`, 0011
-  doldurur). Migration'lar seed'den önce koştuğu için 0010 boş tabloyu taşımıştır.
-- `make demo-seed` sırası: seed → 0009 → 0011. DEPLOYMENT.md'deki ilk kurulum adımı da 0011'i ekler.
+  sayısıyla bir varsayılan baskı açar (`INSERT … SELECT … WHERE NOT EXISTS`; kapak `''`, 0012
+  doldurur). Migration'lar seed'den önce koştuğu için 0011 boş tabloyu taşımıştır.
+- `make demo-seed` sırası: seed → 0009 → 0012. DEPLOYMENT.md'deki ilk kurulum adımı da 0012'yi ekler.
 - `perf_seed.sql` ve `mvp_smoke.sh` değişmez: baskısız kitabı `LEFT JOIN` taşır; smoke kitapları API
   ile ekler ve servis varsayılan baskıyı açar.
 
@@ -204,20 +204,23 @@ Mevcut moderasyon servisi:
    silinir. Down: kolonları geri ekler, değerleri varsayılan baskılardan kopyalar.
 2. `demo_seed.sql`: kitap INSERT'inden `page_count` çıkar; sayfa sayıları varsayılan baskıyı açan
    INSERT'e taşınır (kolon silinince eski hâli taze kurulumu kırar).
-3. sqlc yeniden üretilir; `make demo-seed`'den 0009 çıkar (yazdığı kolon yok; bilgisi 0011'de);
+3. sqlc yeniden üretilir; `make demo-seed`'den 0009 çıkar (yazdığı kolon yok; bilgisi 0012'de);
    DEPLOYMENT.md ilk kurulum, PROJECT_MAP ve STATUS güncellenir.
 4. 0009 dosyasının kendisi değiştirilmez ve silinmez (canlıya çıkmış migration).
 
 ## ⚠️ Önemli noktalar
 
 - **PR 1 kodunda iki eski kolonun adı geçmez.** Kanıtı "eski kolonlar yokmuş gibi" testi (Doğrulama 2).
-- **Yayın aralığı:** 0010 ile yeni kodun çıkışı arasındaki dakikalarda eski kodla eklenen kitabın
+- **Yayın aralığı:** 0011 ile yeni kodun çıkışı arasındaki dakikalarda eski kodla eklenen kitabın
   baskısı olmaz; yeni kod onu üretilmiş kapakla gösterir, PR 2 eski kolonlardan tamamlar. Arayüzdeki
   öneri formunda kapak alanı yok; pratik etkisi yok.
 - **PR 1 geri alınırsa** eski kod, PR 1'den sonra yapılan kapak / sayfa düzenlemelerini görmez
   (kabul edilmiş bedel). PR 2'den sonra geri dönüş yalnız yeni bir migration'la olur.
-- **Migration numaraları:** 0010 ve 0011'in `origin/main` ve `origin/release`'te boş olduğu PR
-  açılırken kontrol edilir (`scripts/checks.sh` da denetler).
+- **Migration numaraları:** 0011 ve 0012'nin `origin/main` ve `origin/release`'te boş olduğu PR
+  açılırken kontrol edilir (`scripts/checks.sh` da denetler). 0010'u Faz 15 aldı
+  (`0010_library_entries.sql`); numaralar bu yüzden bir kaydı (2026-10-18).
+- **Faz 15'in liste sorgusu:** `ListLibrary` kitap kolonlarını `sqlc.embed(b)` ile okuyor; bu PR
+  onu da varsayılan baskıya geçirir ("eski kolonlar yokmuş gibi" testi onu da kapsar).
 - **1450 kuralı** baskı yılına da uygulanır; eski eserlerin (Devlet) baskıları modern baskıdır.
 - Canlı veritabanına doğrudan erişim yok; canlı doğrulama API ve arayüzden yapılır.
 
@@ -229,7 +232,7 @@ Mevcut moderasyon servisi:
 2. **"Eski kolonlar yokmuş gibi" testi:** bir transaction'da `books.cover_url` ve `books.page_count`
    silinir, kitap okuyan ve yazan her repository fonksiyonu çalıştırılır, sonra geri alınır. Bir
    sorgu eski kolonu anıyorsa PR 1'de kırmızı.
-3. **0010 taşıma testi:** N kitap → N varsayılan baskı; kapak ve sayfa birebir aynı; puan
+3. **0011 taşıma testi:** N kitap → N varsayılan baskı; kapak ve sayfa birebir aynı; puan
    istatistikleri değişmez.
 4. **`TestDemoEditions`** (`migrations_test.go`): seed ile slug + yazar eşleşmesi iki yönde, URL
    deseni 0009'daki ile aynı, dil deseni, Down bölümü yok, her ek baskı bir demo kitaba bağlı.
