@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibraryStatus, User } from "../api/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -40,6 +40,11 @@ function statusesOf(status?: LibraryStatus) {
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach((f) => f()));
+// Menü tembel yüklenen bir parça (LibraryButton → lazy LibraryMenu): modül önceden yüklenince
+// lazy bir mikro görevde çözülür ve testler ilk render'da modül derlenmesini beklemez.
+beforeAll(async () => {
+  await import("./LibraryMenu");
+});
 beforeEach(() => {
   for (const k of Object.keys(calls)) delete calls[k];
   h.user = USER;
@@ -59,12 +64,12 @@ function FromProbe() {
   return <p data-from={from}>login</p>;
 }
 
+let rerender: () => void = () => {};
 async function render() {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
-  act(() =>
-    root.render(
+  const tree = () => (
       <ToastProvider>
         <MemoryRouter initialEntries={["/books/12"]}>
           <Routes>
@@ -72,9 +77,10 @@ async function render() {
             <Route path="/login" element={<FromProbe />} />
           </Routes>
         </MemoryRouter>
-      </ToastProvider>,
-    ),
+      </ToastProvider>
   );
+  act(() => root.render(tree()));
+  rerender = () => act(() => root.render(tree()));
   cleanup.push(() => {
     act(() => root.unmount());
     el.remove();
@@ -143,6 +149,16 @@ describe("LibraryButton", () => {
     expect(byText("Okumak istiyorum")).toBeTruthy();
   });
 
+  it("token yenilenince (aynı kullanıcı, yeni nesne) durum yeniden okunmaz", async () => {
+    stub({ libraryStatuses: statusesOf("READ") });
+    await render();
+    h.user = { ...USER };
+    rerender();
+    await flush();
+    expect(calls.libraryStatuses).toEqual([[[12]]]);
+    expect(trigger().textContent).toContain("Okudum");
+  });
+
   it("istek sürerken menü pasif", async () => {
     let finish: (v: unknown) => void = () => {};
     stub({ setLibraryStatus: () => new Promise((r) => (finish = r)) });
@@ -150,6 +166,10 @@ describe("LibraryButton", () => {
     await click(byText("Okumak istiyorum"));
     expect((byText("Okumak istiyorum") as HTMLButtonElement).disabled).toBe(true);
     expect(trigger().disabled).toBe(true);
+    // Öznitelik yetmez: Radix menüyü pointerdown ile açıyor ve tarayıcı pasif düğmede de bu
+    // olayı tetikliyor. Menü gerçekten AÇILMAMALI, yoksa ikinci bir PUT ilkiyle yarışır.
+    await openMenu();
+    expect(document.querySelector("[role=menuitemradio]")).toBeNull();
     await act(async () => finish(entry("WANT_TO_READ")));
     await flush();
     expect(trigger().disabled).toBe(false);

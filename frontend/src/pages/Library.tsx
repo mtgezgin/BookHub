@@ -51,6 +51,17 @@ export function Library() {
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
 
+  const update = useCallback(
+    (next: Record<string, string>, replace = false) =>
+      setParams((prev) => {
+        const p = new URLSearchParams(prev);
+        for (const [k, v] of Object.entries(next)) (v ? p.set(k, v) : p.delete(k));
+        if (!("offset" in next)) p.delete("offset");
+        return p;
+      }, { replace }),
+    [setParams],
+  );
+
   useEffect(() => {
     api.genres().then(setGenres).catch(() => {});
   }, []);
@@ -67,24 +78,23 @@ export function Library() {
       ...(status && { status }), ...(q && { q }), ...(genre && { genre }), ...(rated && { rated }), ...(sort && { sort }),
       limit: PAGE, offset,
     })
-      .then((p) => current && setPage(p))
+      .then((p) => {
+        if (!current) return;
+        // Sayfa boşaldıysa (ör. son kitap kendi sayfasından çıkarıldı, sonra "geri"): boş bir sayfada
+        // durmak yerine son GERÇEK sayfaya git; replace: geri tuşu yine bu boş adrese düşmesin.
+        if (p.items.length === 0 && p.total > 0 && offset > 0) {
+          const last = Math.floor((p.total - 1) / PAGE) * PAGE;
+          update({ offset: last > 0 ? String(last) : "" }, true);
+          return;
+        }
+        setPage(p);
+      })
       .catch((e) => current && setError(e))
       .finally(() => current && setLoading(false));
     return () => {
       current = false;
     };
-  }, [status, q, genre, rated, sort, offset, reload]);
-
-  const update = useCallback(
-    (next: Record<string, string>) =>
-      setParams((prev) => {
-        const p = new URLSearchParams(prev);
-        for (const [k, v] of Object.entries(next)) (v ? p.set(k, v) : p.delete(k));
-        if (!("offset" in next)) p.delete("offset");
-        return p;
-      }),
-    [setParams],
-  );
+  }, [status, q, genre, rated, sort, offset, reload, update]);
   // Zaten seçili değer yeniden seçilince bir şey olmaz (sayfa başa dönmez, geçmişe kayıt eklenmez).
   const select = (key: string, value: string) => {
     if ((params.get(key) ?? "") === value) return;
@@ -178,7 +188,7 @@ export function Library() {
         </div>
       )}
 
-      {page && page.items.length === 0 && (
+      {page && page.total === 0 && (
         filtered ? (
           <EmptyState
             icon={SearchX}

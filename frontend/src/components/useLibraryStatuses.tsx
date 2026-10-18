@@ -12,11 +12,13 @@ import { useAuth } from "../auth/AuthContext";
  */
 export function useLibraryStatuses(bookIds: number[]): Record<number, LibraryStatus> {
   const { user } = useAuth();
+  // Kimliğe bağlı: sessiz token yenilemesi yeni bir kullanıcı nesnesi getirir, aynı okur için yeniden sorulmaz.
+  const userId = user?.id;
   const key = [...new Set(bookIds)].sort((a, b) => a - b).join(",");
   const [statuses, setStatuses] = useState<Record<number, LibraryStatus>>({});
 
   useEffect(() => {
-    if (!user || key === "") {
+    if (userId === undefined || key === "") {
       setStatuses({});
       return;
     }
@@ -29,7 +31,7 @@ export function useLibraryStatuses(bookIds: number[]): Record<number, LibrarySta
     return () => {
       current = false;
     };
-  }, [user, key]);
+  }, [userId, key]);
 
   return statuses;
 }

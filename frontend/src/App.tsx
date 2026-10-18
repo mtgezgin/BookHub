@@ -12,12 +12,13 @@ import { Account } from "./pages/Account";
 import { Login, Register } from "./pages/Auth";
 import { BookDetail } from "./pages/BookDetail";
 import { Home } from "./pages/Home";
-import { Library } from "./pages/Library";
 import { Suggest } from "./pages/Suggest";
 
 // Moderasyon yalnız admin içindir ve Radix Dialog'u (odak hapsi, kaydırma kilidi…) getirir:
 // ayrı bir parça olarak, sayfa açılınca yüklenir → diğer ziyaretçiler o kodu hiç indirmez.
 const Moderation = lazy(() => import("./pages/admin/Moderation").then((m) => ({ default: m.Moderation })));
+// Kitaplığım da yalnız giriş yapmış okura gerekiyor ve Radix diyaloğunu getiriyor: aynı gerekçeyle ayrı parça.
+const Library = lazy(() => import("./pages/Library").then((m) => ({ default: m.Library })));
 
 /**
  * Rota koruması YALNIZCA kullanıcı deneyimi içindir (girişsiz kullanıcıyı login'e yönlendirir).
@@ -87,7 +88,7 @@ export function App() {
           <Route path="/books/:id" element={<BookDetail />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/library" element={<RequireRole><Library /></RequireRole>} />
+          <Route path="/library" element={<RequireRole><Suspense fallback={<p className="text-muted-foreground">Yükleniyor…</p>}><Library /></Suspense></RequireRole>} />
           <Route path="/suggest" element={<RequireRole><Suggest /></RequireRole>} />
           <Route path="/account" element={<RequireRole><Account /></RequireRole>} />
           <Route path="/admin" element={<RequireRole role="ADMIN"><Suspense fallback={<p className="text-muted-foreground">Yükleniyor…</p>}><Moderation /></Suspense></RequireRole>} />

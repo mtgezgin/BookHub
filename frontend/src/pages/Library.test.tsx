@@ -141,6 +141,15 @@ describe("Library", () => {
     expect(buttonIn(card, "Çıkar")).toBeTruthy();
   });
 
+  it("geri tuşuyla boşalmış bir sayfaya gelince son gerçek sayfaya döner", async () => {
+    // Örn. 2. sayfadaki tek kitap, kitabın kendi sayfasından çıkarıldı; sonra "geri".
+    reply = (p) => (p.offset === 12 ? pageOf([], 12, 12) : pageOf([itemOf(1)], 12, 0));
+    const { el, params } = await render("/library?offset=12");
+    expect(params().has("offset")).toBe(false);
+    expect(el.querySelector('[aria-label="Kitaplığım"]')!.textContent).toContain("Kitap 1");
+    expect(el.textContent).not.toContain("Kitaplığın boş");
+  });
+
   it("son sayfadaki son kitap çıkınca önceki sayfa", async () => {
     reply = (p) => (p.offset === 12 ? pageOf([itemOf(13, { in_catalog: false })], 13, 12) : pageOf([itemOf(1)], 12, 0));
     const { el, params } = await render("/library?offset=12");

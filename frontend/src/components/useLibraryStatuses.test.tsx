@@ -68,6 +68,13 @@ describe("useLibraryStatuses", () => {
     expect(el.textContent).toBe("4:- 3:READ 4:-");
   });
 
+  it("token yenilenince (aynı kullanıcı, yeni nesne) yeniden sormaz", () => {
+    const { rerender } = mount([3]);
+    h.user = { ...USER };
+    rerender([3]);
+    expect(calls).toEqual([[3]]);
+  });
+
   it("kimlikler değişince yeni istek; bayat yanıt yok sayılır", async () => {
     const { el, rerender } = mount([3]);
     rerender([5]);
