@@ -134,7 +134,7 @@ type ListFilter struct {
 // List, filtreye uyan onaylı kitapların bir SAYFASINI ve filtreye uyan TOPLAM sayıyı
 // döner (varsayılan en yeniden eskiye). Boş sonuç hata değildir; ErrNotFound çevirisi yoktur.
 func (r *Repository) List(ctx context.Context, f ListFilter) ([]db.Book, int64, error) {
-	genre, query := optional(f.Genre), optional(escapeLike(f.Query))
+	genre, query := optional(f.Genre), optional(EscapeLike(f.Query))
 
 	var (
 		list []db.Book
@@ -171,10 +171,10 @@ func optional(s string) *string {
 	return &s
 }
 
-// escapeLike, kullanıcının aradığı metindeki LIKE jokerlerini (%, _) ve kaçış karakterini
+// EscapeLike, kullanıcının aradığı metindeki LIKE jokerlerini (%, _) ve kaçış karakterini
 // (\) kaçışlar. Güvenlik açığı değil (sorgu zaten parametreli) ama anlam hatası: "%50"
 // araması "50 ile biten her şey" demek olmamalı.
-func escapeLike(s string) string {
+func EscapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 

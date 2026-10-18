@@ -83,6 +83,12 @@ sql:
             go_type:
               type: "int64"
               pointer: true
+          # NULL olabilen smallint (Faz 15: LEFT JOIN'den gelen "puanım") → *int16; nil = puan yok.
+          - db_type: "pg_catalog.int2"
+            nullable: true
+            go_type:
+              type: "int16"
+              pointer: true
           # jsonb → json.RawMessage: DB'deki JSON, cevaba yeniden kodlanmadan AYNEN gömülür
           # ([]byte olsaydı encoding/json onu base64 string'e çevirirdi).
           - db_type: "jsonb"

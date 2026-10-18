@@ -3,11 +3,13 @@ package library_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/mtgezgin/bookhub/backend/internal/books"
+	"github.com/mtgezgin/bookhub/backend/internal/db"
 	"github.com/mtgezgin/bookhub/backend/internal/library"
 	"github.com/mtgezgin/bookhub/backend/internal/testdb"
 )
@@ -141,6 +143,170 @@ func TestLibraryRealDB(t *testing.T) {
 		}
 		if err := repo.Remove(ctx, alice, book); err != nil {
 			t.Errorf("arşivlenmiş kitap çıkarılabilmeli: %v", err)
+		}
+	})
+}
+
+func createTitledBook(t *testing.T, pool *pgxpool.Pool, title string) int64 {
+	t.Helper()
+	var id int64
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO books (title, slug, author, status) VALUES ($1, $2, 'Yazar', 'APPROVED') RETURNING id`,
+		title, testdb.Unique("titled")).Scan(&id)
+	if err != nil {
+		t.Fatalf("kitap açılamadı: %v", err)
+	}
+	t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM books WHERE id = $1", id) })
+	return id
+}
+
+func titles(rows []db.ListLibraryRow) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.Book.Title
+	}
+	return out
+}
+
+func ids(rows []db.ListLibraryRow) []int64 {
+	out := make([]int64, len(rows))
+	for i, r := range rows {
+		out[i] = r.Book.ID
+	}
+	return out
+}
+
+func mustPut(t *testing.T, repo *library.Repository, userID, bookID int64, status string) {
+	t.Helper()
+	if _, err := repo.Put(context.Background(), userID, bookID, status); err != nil {
+		t.Fatalf("kitaplığa eklenemedi: %v", err)
+	}
+}
+
+func mustList(t *testing.T, repo *library.Repository, userID int64, f library.ListFilter) ([]db.ListLibraryRow, int64) {
+	t.Helper()
+	if f.Limit == 0 {
+		f.Limit = 20
+	}
+	rows, total, err := repo.List(context.Background(), userID, f)
+	if err != nil {
+		t.Fatalf("liste: %v", err)
+	}
+	return rows, total
+}
+
+func TestLibraryListRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	repo := library.NewRepository(pool)
+
+	t.Run("başlık Türkçe alfabeyle sıralanır", func(t *testing.T) {
+		alice := createUser(t, pool)
+		for _, title := range []string{"Şato", "Dune", "İnce", "Cesur", "Sapiens", "Ilık", "Çalıkuşu"} {
+			mustPut(t, repo, alice, createTitledBook(t, pool, title), library.StatusRead)
+		}
+		rows, total := mustList(t, repo, alice, library.ListFilter{Sort: library.SortTitle})
+		want := []string{"Cesur", "Çalıkuşu", "Dune", "Ilık", "İnce", "Sapiens", "Şato"}
+		if total != 7 || !slices.Equal(titles(rows), want) {
+			t.Errorf("başlık sırası = %v (toplam %d), istenen %v", titles(rows), total, want)
+		}
+	})
+
+	t.Run("varsayılan sıra en yeni eklenen önce", func(t *testing.T) {
+		alice := createUser(t, pool)
+		first, second, third := createBook(t, pool, books.StatusApproved), createBook(t, pool, books.StatusApproved), createBook(t, pool, books.StatusApproved)
+		for _, b := range []int64{first, second, third} {
+			mustPut(t, repo, alice, b, library.StatusWantToRead)
+		}
+		rows, _ := mustList(t, repo, alice, library.ListFilter{})
+		if want := []int64{third, second, first}; !slices.Equal(ids(rows), want) {
+			t.Errorf("sıra = %v, istenen %v", ids(rows), want)
+		}
+	})
+
+	t.Run("puanıma göre, puansızlar sonda", func(t *testing.T) {
+		alice := createUser(t, pool)
+		seven, nine, unrated := createBook(t, pool, books.StatusApproved), createBook(t, pool, books.StatusApproved), createBook(t, pool, books.StatusApproved)
+		for _, b := range []int64{unrated, seven, nine} {
+			mustPut(t, repo, alice, b, library.StatusRead)
+		}
+		testdb.Exec(t, pool, `INSERT INTO ratings (user_id, book_id, score) VALUES ($1, $2, 7), ($1, $3, 9)`, alice, seven, nine)
+		rows, _ := mustList(t, repo, alice, library.ListFilter{Sort: library.SortMyRating})
+		if want := []int64{nine, seven, unrated}; !slices.Equal(ids(rows), want) {
+			t.Errorf("sıra = %v, istenen %v", ids(rows), want)
+		}
+	})
+
+	t.Run("durum, tür ve puan filtreleri; sayı eşleşir", func(t *testing.T) {
+		alice, bob := createUser(t, pool), createUser(t, pool)
+		read, reading, other := createTitledBook(t, pool, "Vakıf"), createTitledBook(t, pool, "Dune Mesihi"), createBook(t, pool, books.StatusApproved)
+		mustPut(t, repo, alice, read, library.StatusRead)
+		mustPut(t, repo, alice, reading, library.StatusReading)
+		mustPut(t, repo, bob, other, library.StatusRead)
+		slug := testdb.Unique("tur")
+		var genreID int64
+		if err := pool.QueryRow(context.Background(), `INSERT INTO genres (name, slug) VALUES ($1, $1) RETURNING id`, slug).Scan(&genreID); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM genres WHERE id = $1", genreID) })
+		testdb.Exec(t, pool, `INSERT INTO book_genres (book_id, genre_id) VALUES ($1, $2)`, reading, genreID)
+		testdb.Exec(t, pool, `INSERT INTO ratings (user_id, book_id, score) VALUES ($1, $2, 8)`, alice, read)
+
+		cases := []struct {
+			name string
+			f    library.ListFilter
+			want []int64
+		}{
+			{"hepsi (yalnız kendi kaydı)", library.ListFilter{}, []int64{reading, read}},
+			{"durum", library.ListFilter{Status: library.StatusRead}, []int64{read}},
+			{"tür", library.ListFilter{Genre: slug}, []int64{reading}},
+			{"puanladıklarım", library.ListFilter{Rated: library.RatedYes}, []int64{read}},
+			{"puanlamadıklarım", library.ListFilter{Rated: library.RatedNo}, []int64{reading}},
+			{"arama", library.ListFilter{Query: "mesih"}, []int64{reading}},
+		}
+		for _, c := range cases {
+			rows, total := mustList(t, repo, alice, c.f)
+			if !slices.Equal(ids(rows), c.want) || total != int64(len(c.want)) {
+				t.Errorf("%s: %v (toplam %d), istenen %v", c.name, ids(rows), total, c.want)
+			}
+		}
+		rows, _ := mustList(t, repo, alice, library.ListFilter{Status: library.StatusRead})
+		if len(rows) != 1 || rows[0].MyRating == nil || *rows[0].MyRating != 8 {
+			t.Errorf("puanım alanı 8 olmalı: %+v", rows)
+		}
+	})
+
+	t.Run("sayfalama toplamı değiştirmez", func(t *testing.T) {
+		alice := createUser(t, pool)
+		for range 3 {
+			mustPut(t, repo, alice, createBook(t, pool, books.StatusApproved), library.StatusRead)
+		}
+		rows, total := mustList(t, repo, alice, library.ListFilter{Limit: 2, Offset: 2})
+		if len(rows) != 1 || total != 3 {
+			t.Errorf("ikinci sayfa: %d öğe, toplam %d; istenen 1 ve 3", len(rows), total)
+		}
+	})
+
+	t.Run("yüzde işareti joker değil", func(t *testing.T) {
+		alice := createUser(t, pool)
+		mustPut(t, repo, alice, createTitledBook(t, pool, "Martin Eden"), library.StatusRead)
+		for _, q := range []string{"%", "_"} {
+			if _, total := mustList(t, repo, alice, library.ListFilter{Query: q}); total != 0 {
+				t.Errorf("q=%q: toplam %d, istenen 0", q, total)
+			}
+		}
+	})
+
+	t.Run("arşivlenen kitap in_catalog=false ile listede", func(t *testing.T) {
+		alice, book := createUser(t, pool), createBook(t, pool, books.StatusApproved)
+		mustPut(t, repo, alice, book, library.StatusRead)
+		rows, _ := mustList(t, repo, alice, library.ListFilter{})
+		if len(rows) != 1 || !rows[0].InCatalog {
+			t.Fatalf("yayındaki kitap in_catalog=true olmalı: %+v", rows)
+		}
+		testdb.Exec(t, pool, `UPDATE books SET status = 'ARCHIVED' WHERE id = $1`, book)
+		rows, total := mustList(t, repo, alice, library.ListFilter{})
+		if total != 1 || rows[0].InCatalog || rows[0].Status != library.StatusRead {
+			t.Errorf("arşivlenen kitap listede kalmalı ve in_catalog=false olmalı: %+v", rows)
 		}
 	})
 }

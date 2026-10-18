@@ -91,8 +91,9 @@ CREATE TABLE library_entries (
 - **Çıkar:** `DELETE … WHERE user_id = $1 AND book_id = $2`; etkilenen satır sayısına bakılmaz (idempotent).
 - **Toplu durum:** `SELECT book_id, status … WHERE user_id = $1 AND book_id = ANY($2::bigint[])`.
 - **Liste ve sayı:** `library_entries` + `books` (+ `LEFT JOIN ratings` aynı kullanıcı ve kitap için),
-  `books` kolonları **açık listeyle** (`*` değil). Filtreler: durum, `q` (başlık/yazar `ILIKE`,
-  `escapeLike`), tür (`EXISTS` + slug), `rated` (`EXISTS` / `NOT EXISTS` ratings). Sıralama tek
+  `books` kolonları `sqlc.embed(b)` ile (üretilen kodda tek tek ad olarak açılır; sonuç `db.Book`,
+  mevcut `toBookResponse` aynen kullanılır). Filtreler: durum, `q` (başlık/yazar `ILIKE`,
+  `books.EscapeLike`), tür (`EXISTS` + slug), `rated` (puan var mı yok mu). Sıralama tek
   sorguda `CASE` ile:
   - `added`: `le.created_at DESC`
   - `title`: `b.title COLLATE "tr-x-icu"` artan
@@ -153,8 +154,8 @@ CREATE TABLE library_entries (
   plan aşamasında doğrulanır (Supabase sorgusunu kullanıcı çalıştırır:
   `SELECT collname FROM pg_collation WHERE collname = 'tr-x-icu'`). Yoksa plan, sıralama kararını
   yeniden açar; sessizce ikili (byte) sıraya düşülmez.
-- **Faz 16 ile etkileşim:** liste sorgusu `books.cover_url` ve `books.page_count`'u açık listeyle
-  okuyor; Faz 16'nın genişletme PR'ı bu sorguyu da varsayılan baskıya geçirecek ("eski kolonlar
+- **Faz 16 ile etkileşim:** liste sorgusu `sqlc.embed(b)` ile `books.cover_url` ve
+  `books.page_count`'u da okuyor; Faz 16'nın genişletme PR'ı bu sorguyu da varsayılan baskıya geçirecek ("eski kolonlar
   yokmuş gibi" testi onu da kapsar).
 - **Migration numarası:** `0010`; PR açılırken `origin/main` ve `origin/release`'te boş olduğu
   kontrol edilir (`scripts/checks.sh` da denetler).

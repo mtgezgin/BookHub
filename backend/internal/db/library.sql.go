@@ -7,7 +7,46 @@ package db
 
 import (
 	"context"
+	"time"
 )
+
+const countLibrary = `-- name: CountLibrary :one
+SELECT count(*) FROM library_entries le
+JOIN books b ON b.id = le.book_id
+LEFT JOIN ratings r ON r.user_id = le.user_id AND r.book_id = le.book_id
+WHERE le.user_id = $1
+  AND ($2::text IS NULL OR le.status = $2)
+  AND ($3::text IS NULL OR EXISTS (
+        SELECT 1 FROM book_genres bg
+        JOIN genres g ON g.id = bg.genre_id
+        WHERE bg.book_id = b.id AND g.slug = $3))
+  AND ($4::text IS NULL
+       OR b.title  ILIKE '%' || $4 || '%'
+       OR b.author ILIKE '%' || $4 || '%')
+  AND ($5::text IS NULL OR ($5 = 'yes') = (r.user_id IS NOT NULL))
+`
+
+type CountLibraryParams struct {
+	UserID int64   `json:"user_id"`
+	Status *string `json:"status"`
+	Genre  *string `json:"genre"`
+	Query  *string `json:"query"`
+	Rated  *string `json:"rated"`
+}
+
+// ListLibrary ile AYNI süzgeç (sayfadan bağımsız toplam).
+func (q *Queries) CountLibrary(ctx context.Context, arg CountLibraryParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countLibrary,
+		arg.UserID,
+		arg.Status,
+		arg.Genre,
+		arg.Query,
+		arg.Rated,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const deleteLibraryEntry = `-- name: DeleteLibraryEntry :exec
 DELETE FROM library_entries WHERE user_id = $1 AND book_id = $2
@@ -22,6 +61,106 @@ type DeleteLibraryEntryParams struct {
 func (q *Queries) DeleteLibraryEntry(ctx context.Context, arg DeleteLibraryEntryParams) error {
 	_, err := q.db.Exec(ctx, deleteLibraryEntry, arg.UserID, arg.BookID)
 	return err
+}
+
+const listLibrary = `-- name: ListLibrary :many
+SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count, le.status, le.created_at AS added_at, r.score AS my_rating,
+       (b.status = 'APPROVED')::boolean AS in_catalog
+FROM library_entries le
+JOIN books b ON b.id = le.book_id
+LEFT JOIN ratings r ON r.user_id = le.user_id AND r.book_id = le.book_id
+WHERE le.user_id = $1
+  AND ($2::text IS NULL OR le.status = $2)
+  AND ($3::text IS NULL OR EXISTS (
+        SELECT 1 FROM book_genres bg
+        JOIN genres g ON g.id = bg.genre_id
+        WHERE bg.book_id = b.id AND g.slug = $3))
+  AND ($4::text IS NULL
+       OR b.title  ILIKE '%' || $4 || '%'
+       OR b.author ILIKE '%' || $4 || '%')
+  AND ($5::text IS NULL OR ($5 = 'yes') = (r.user_id IS NOT NULL))
+ORDER BY
+  CASE WHEN $6::text = 'title' THEN b.title COLLATE "tr-x-icu" END ASC,
+  CASE WHEN $6::text = 'my_rating' THEN r.score END DESC NULLS LAST,
+  le.created_at DESC, le.book_id DESC
+LIMIT $8 OFFSET $7
+`
+
+type ListLibraryParams struct {
+	UserID int64   `json:"user_id"`
+	Status *string `json:"status"`
+	Genre  *string `json:"genre"`
+	Query  *string `json:"query"`
+	Rated  *string `json:"rated"`
+	Sort   string  `json:"sort"`
+	Offset int32   `json:"offset"`
+	Limit  int32   `json:"limit"`
+}
+
+type ListLibraryRow struct {
+	Book      Book      `json:"book"`
+	Status    string    `json:"status"`
+	AddedAt   time.Time `json:"added_at"`
+	MyRating  *int16    `json:"my_rating"`
+	InCatalog bool      `json:"in_catalog"`
+}
+
+// Kitaplığım listesi. Filtre deseni ListBooks'un aynısı (`param IS NULL OR …`: boş filtre
+// devre dışı). Kitap yayından kalkmış olsa da kayıt listede kalır; in_catalog bunu söyler.
+// sqlc ORDER BY'ı parametre olarak alamaz (sıralama kolonu bir değer değil, sorgunun yapısı):
+// üç sıralama CASE ile seçilir, seçilmeyen CASE NULL üretir ve sırayı etkilemez. En sondaki
+// book_id eşitlikleri kırar → sayfalar arasında kitap kaybolmaz ya da tekrarlanmaz.
+// r.score dönüşümsüz kalır: LEFT JOIN'in "boş olabilir" bilgisi korunur (sqlc.yaml → *int16, nil = puanım yok).
+func (q *Queries) ListLibrary(ctx context.Context, arg ListLibraryParams) ([]ListLibraryRow, error) {
+	rows, err := q.db.Query(ctx, listLibrary,
+		arg.UserID,
+		arg.Status,
+		arg.Genre,
+		arg.Query,
+		arg.Rated,
+		arg.Sort,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLibraryRow
+	for rows.Next() {
+		var i ListLibraryRow
+		if err := rows.Scan(
+			&i.Book.ID,
+			&i.Book.Title,
+			&i.Book.Slug,
+			&i.Book.Author,
+			&i.Book.Description,
+			&i.Book.CoverUrl,
+			&i.Book.PublicationYear,
+			&i.Book.PageCount,
+			&i.Book.Language,
+			&i.Book.Status,
+			&i.Book.CreatedAt,
+			&i.Book.UpdatedAt,
+			&i.Book.SubmittedBy,
+			&i.Book.RejectionReason,
+			&i.Book.ModeratedBy,
+			&i.Book.ModeratedAt,
+			&i.Book.AverageRating,
+			&i.Book.RatingCount,
+			&i.Status,
+			&i.AddedAt,
+			&i.MyRating,
+			&i.InCatalog,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listLibraryStatuses = `-- name: ListLibraryStatuses :many

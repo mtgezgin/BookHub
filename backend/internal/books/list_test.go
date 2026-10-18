@@ -10,8 +10,8 @@ func TestEscapeLike(t *testing.T) {
 		{`c:\yol`, `c:\\yol`},
 	}
 	for _, tt := range tests {
-		if got := escapeLike(tt.in); got != tt.want {
-			t.Errorf("escapeLike(%q) = %q, istenen %q", tt.in, got, tt.want)
+		if got := EscapeLike(tt.in); got != tt.want {
+			t.Errorf("EscapeLike(%q) = %q, istenen %q", tt.in, got, tt.want)
 		}
 	}
 }

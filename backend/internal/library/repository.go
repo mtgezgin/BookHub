@@ -35,6 +35,25 @@ func ValidStatus(s string) bool {
 	return false
 }
 
+// "Puanım" süzgecinin değerleri; boş = hepsi.
+const (
+	RatedYes = "yes"
+	RatedNo  = "no"
+)
+
+// Sıralama seçenekleri; boş = SortAdded.
+const (
+	SortAdded    = "added"
+	SortTitle    = "title"
+	SortMyRating = "my_rating"
+)
+
+// ListFilter, Kitaplığım süzgeci. Değerler handler'da doğrulanmış gelir; boş string = süzgeç yok.
+type ListFilter struct {
+	Status, Query, Genre, Rated, Sort string
+	Limit, Offset                     int32
+}
+
 // Repository, kitaplık verisine erişimin tek kapısı.
 type Repository struct {
 	conn db.DBTX
@@ -65,6 +84,38 @@ func (r *Repository) Remove(ctx context.Context, userID, bookID int64) error {
 		return fmt.Errorf("kitaplık kaydı silinemedi: %w", err)
 	}
 	return nil
+}
+
+// List, kullanıcının kitaplığını süzer, sıralar ve sayfalar; ikinci dönüş sayfadan bağımsız toplam.
+func (r *Repository) List(ctx context.Context, userID int64, f ListFilter) ([]db.ListLibraryRow, int64, error) {
+	status, genre, rated := optional(f.Status), optional(f.Genre), optional(f.Rated)
+	query := optional(books.EscapeLike(f.Query))
+	sort := f.Sort
+	if sort == "" {
+		sort = SortAdded
+	}
+	rows, err := r.q.ListLibrary(ctx, db.ListLibraryParams{
+		UserID: userID, Status: status, Genre: genre, Query: query, Rated: rated,
+		Sort: sort, Limit: f.Limit, Offset: f.Offset,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("kitaplık listesi sorgusu: %w", err)
+	}
+	total, err := r.q.CountLibrary(ctx, db.CountLibraryParams{
+		UserID: userID, Status: status, Genre: genre, Query: query, Rated: rated,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("kitaplık sayma sorgusu: %w", err)
+	}
+	return rows, total, nil
+}
+
+// optional, boş string'i NULL'a çevirir: SQL'deki `param IS NULL OR …` süzgeci kapatır.
+func optional(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // Statuses, verilen kitaplardan kullanıcının kitaplığında olanların durumunu döner.

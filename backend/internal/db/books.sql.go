@@ -221,7 +221,7 @@ type ListBooksParams struct {
 // birleştirerek SQL kurmaya (injection kapısı) hiç gerek kalmaz.
 //
 // Arama ILIKE ile (büyük/küçük harf duyarsız). `%` ve `_` istemci girdisinde joker
-// olmasın diye Go tarafında kaçışlanıyor (bkz. books.escapeLike).
+// olmasın diye Go tarafında kaçışlanıyor (bkz. books.EscapeLike).
 //
 // Sıralamada id ikincil anahtar: aynı created_at'e sahip iki kitap sayfalar arasında
 // yer değiştirmesin (kararlı sayfalama). Partial index (created_at DESC) WHERE
