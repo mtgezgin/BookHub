@@ -102,6 +102,25 @@ func TestLibraryRealDB(t *testing.T) {
 		}
 	})
 
+	t.Run("başkası yazamaz: bob'un ekleme ve silmesi alice'in kaydına dokunmaz", func(t *testing.T) {
+		alice, bob, book := createUser(t, pool), createUser(t, pool), createBook(t, pool, books.StatusApproved)
+		if _, err := repo.Put(ctx, alice, book, library.StatusRead); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repo.Put(ctx, bob, book, library.StatusAbandoned); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.Remove(ctx, bob, book); err != nil {
+			t.Fatal(err)
+		}
+		if m, err := repo.Statuses(ctx, alice, []int64{book}); err != nil || m[book] != library.StatusRead {
+			t.Errorf("alice'in kaydı READ kalmalı: %v %v", m, err)
+		}
+		if n := countEntries(t, pool, bob, book); n != 0 {
+			t.Errorf("bob'un kendi kaydı silinmeli, sayı = %d", n)
+		}
+	})
+
 	t.Run("boş kimlik listesi boş sonuç", func(t *testing.T) {
 		m, err := repo.Statuses(ctx, createUser(t, pool), nil)
 		if err != nil || m == nil || len(m) != 0 {
