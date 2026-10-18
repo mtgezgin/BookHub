@@ -202,10 +202,23 @@ describe("LibraryButton", () => {
     expect(trigger().textContent).toContain("Okudum");
   });
 
-  it("durum okunamazsa Okumak istiyorum yine etkin", async () => {
-    stub({ libraryStatuses: async () => { throw new ApiError(500, "internal", "x"); } });
+  // Durum bilinmiyorken "Okumak istiyorum" gösterilseydi tek tıklama kayıtlı bir "Okudum"un üstüne
+  // yazardı (PUT, ON CONFLICT ile durumu değiştirir). Bilinmeyen durum, ekleme değil tekrar dene demek.
+  it("durum okunamazsa ekleme yok, tekrar dene var; tekrar başarılıysa gerçek durum görünür", async () => {
+    let fail = true;
+    stub({
+      libraryStatuses: async () => {
+        if (fail) throw new ApiError(500, "internal", "x");
+        return { statuses: { "12": "READ" } };
+      },
+    });
     await render();
     expect(calls.libraryStatuses).toEqual([[[12]]]);
-    expect((byText("Okumak istiyorum") as HTMLButtonElement).disabled).toBe(false);
+    expect(byText("Okumak istiyorum")).toBeUndefined();
+    fail = false;
+    await click(byText("Kitaplık durumu yüklenemedi, tekrar dene"));
+    expect(calls.libraryStatuses).toEqual([[[12]], [[12]]]);
+    expect(trigger().textContent).toContain("Okudum");
+    expect(calls.setLibraryStatus).toBeUndefined();
   });
 });

@@ -26,6 +26,8 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   // Kimliğe bağlı, nesneye değil: her sessiz token yenilemesi YENİ bir kullanıcı nesnesi getirir;
   // nesneye bağlı olsaydı durum yeniden okunur ve yeniden denenen PUT'la yarışıp eskisini yazabilirdi.
   const userId = user?.id;
@@ -34,16 +36,18 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
     if (userId === undefined) return;
     let current = true;
     setLoaded(false);
+    setFailed(false);
     setStatus(null);
-    // Okuma başarısızsa durum bilinmiyor sayılır; eklemek yine denenebilir (PUT idempotent).
+    // Okuma başarısızsa durum BİLİNMİYOR: "Okumak istiyorum" gösterilmez, çünkü PUT kayıtlı bir durumun
+    // (ör. Okudum) üstüne yazar. Onun yerine tekrar dene.
     api.libraryStatuses([bookId]).then(
       (r) => current && setStatus(r.statuses[String(bookId)] ?? null),
-      () => {},
+      () => current && setFailed(true),
     ).finally(() => current && setLoaded(true));
     return () => {
       current = false;
     };
-  }, [userId, bookId]);
+  }, [userId, bookId, attempt]);
 
   async function change(next: LibraryStatus) {
     if (next === status) return;
@@ -92,6 +96,14 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
 
   // disabled Trigger'a da verilir: Radix menüyü pointerdown ile açar ve yalnız KENDİ prop'una bakar;
   // tarayıcı pasif düğmede de pointerdown tetiklediği için düğmenin disabled'ı tek başına yetmez.
+  if (failed) {
+    return (
+      <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>
+        Kitaplık durumu yüklenemedi, tekrar dene
+      </Button>
+    );
+  }
+
   return (
     <>
       {status ? (
