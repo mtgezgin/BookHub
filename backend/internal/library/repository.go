@@ -94,20 +94,31 @@ func (r *Repository) List(ctx context.Context, userID int64, f ListFilter) ([]db
 	if sort == "" {
 		sort = SortAdded
 	}
-	rows, err := r.q.ListLibrary(ctx, db.ListLibraryParams{
+	params := db.ListLibraryParams{
 		UserID: userID, Status: status, Genre: genre, Query: query, Rated: rated,
 		Sort: sort, Limit: f.Limit, Offset: f.Offset,
-	})
+	}
+	rows, err := r.q.ListLibrary(ctx, params)
 	if err != nil {
 		return nil, 0, fmt.Errorf("kitaplık listesi sorgusu: %w", err)
 	}
-	total, err := r.q.CountLibrary(ctx, db.CountLibraryParams{
-		UserID: userID, Status: status, Genre: genre, Query: query, Rated: rated,
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("kitaplık sayma sorgusu: %w", err)
+	if len(rows) > 0 {
+		return rows, rows[0].Total, nil
 	}
-	return rows, total, nil
+	if f.Offset == 0 {
+		return rows, 0, nil
+	}
+	// Sayfa sonun ötesinde: satır yok, toplamı taşıyan satır da yok. İlk satırı isteyip toplamı ondan al
+	// (arayüz boşalmış bir sayfadan son gerçek sayfaya bu toplamla döner).
+	params.Limit, params.Offset = 1, 0
+	first, err := r.q.ListLibrary(ctx, params)
+	if err != nil {
+		return nil, 0, fmt.Errorf("kitaplık toplamı sorgusu: %w", err)
+	}
+	if len(first) == 0 {
+		return rows, 0, nil
+	}
+	return rows, first[0].Total, nil
 }
 
 // optional, boş string'i NULL'a çevirir: SQL'deki `param IS NULL OR …` süzgeci kapatır.

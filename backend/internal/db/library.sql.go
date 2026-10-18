@@ -10,44 +10,6 @@ import (
 	"time"
 )
 
-const countLibrary = `-- name: CountLibrary :one
-SELECT count(*) FROM library_entries le
-JOIN books b ON b.id = le.book_id
-LEFT JOIN ratings r ON r.user_id = le.user_id AND r.book_id = le.book_id
-WHERE le.user_id = $1
-  AND ($2::text IS NULL OR le.status = $2)
-  AND ($3::text IS NULL OR EXISTS (
-        SELECT 1 FROM book_genres bg
-        JOIN genres g ON g.id = bg.genre_id
-        WHERE bg.book_id = b.id AND g.slug = $3))
-  AND ($4::text IS NULL
-       OR b.title  ILIKE '%' || $4 || '%'
-       OR b.author ILIKE '%' || $4 || '%')
-  AND ($5::text IS NULL OR ($5 = 'yes') = (r.user_id IS NOT NULL))
-`
-
-type CountLibraryParams struct {
-	UserID int64   `json:"user_id"`
-	Status *string `json:"status"`
-	Genre  *string `json:"genre"`
-	Query  *string `json:"query"`
-	Rated  *string `json:"rated"`
-}
-
-// ListLibrary ile AYNI süzgeç (sayfadan bağımsız toplam).
-func (q *Queries) CountLibrary(ctx context.Context, arg CountLibraryParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countLibrary,
-		arg.UserID,
-		arg.Status,
-		arg.Genre,
-		arg.Query,
-		arg.Rated,
-	)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const deleteLibraryEntry = `-- name: DeleteLibraryEntry :exec
 DELETE FROM library_entries WHERE user_id = $1 AND book_id = $2
 `
@@ -65,7 +27,8 @@ func (q *Queries) DeleteLibraryEntry(ctx context.Context, arg DeleteLibraryEntry
 
 const listLibrary = `-- name: ListLibrary :many
 SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count, le.status, le.created_at AS added_at, r.score AS my_rating,
-       (b.status = 'APPROVED')::boolean AS in_catalog
+       (b.status = 'APPROVED')::boolean AS in_catalog,
+       count(*) OVER () AS total
 FROM library_entries le
 JOIN books b ON b.id = le.book_id
 LEFT JOIN ratings r ON r.user_id = le.user_id AND r.book_id = le.book_id
@@ -103,6 +66,7 @@ type ListLibraryRow struct {
 	AddedAt   time.Time `json:"added_at"`
 	MyRating  *int16    `json:"my_rating"`
 	InCatalog bool      `json:"in_catalog"`
+	Total     int64     `json:"total"`
 }
 
 // Kitaplığım listesi. Filtre deseni ListBooks'un aynısı (`param IS NULL OR …`: boş filtre
@@ -110,6 +74,9 @@ type ListLibraryRow struct {
 // sqlc ORDER BY'ı parametre olarak alamaz (sıralama kolonu bir değer değil, sorgunun yapısı):
 // üç sıralama CASE ile seçilir, seçilmeyen CASE NULL üretir ve sırayı etkilemez. En sondaki
 // book_id eşitlikleri kırar → sayfalar arasında kitap kaybolmaz ya da tekrarlanmaz.
+// total: pencere fonksiyonu, LIMIT'ten ÖNCE süzülmüş satırları sayar → ayrı bir sayma sorgusu (ve aynı
+// WHERE'in ikinci kopyası) gerekmez. Sayfa sonun ötesindeyse satır, dolayısıyla toplam da dönmez;
+// repository o durumda ilk satırı ister.
 // r.score dönüşümsüz kalır: LEFT JOIN'in "boş olabilir" bilgisi korunur (sqlc.yaml → *int16, nil = puanım yok).
 func (q *Queries) ListLibrary(ctx context.Context, arg ListLibraryParams) ([]ListLibraryRow, error) {
 	rows, err := q.db.Query(ctx, listLibrary,
@@ -152,6 +119,7 @@ func (q *Queries) ListLibrary(ctx context.Context, arg ListLibraryParams) ([]Lis
 			&i.AddedAt,
 			&i.MyRating,
 			&i.InCatalog,
+			&i.Total,
 		); err != nil {
 			return nil, err
 		}
