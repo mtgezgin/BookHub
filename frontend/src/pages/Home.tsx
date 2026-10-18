@@ -7,9 +7,11 @@ import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
 import { EmptyState } from "../components/EmptyState";
+import { LibraryBadge } from "../components/LibraryBadge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
+import { useLibraryStatuses } from "../components/useLibraryStatuses";
 import { Pager } from "../components/usePaged";
 import { formatScore } from "../lib/format";
 import { cn } from "../lib/utils";
@@ -147,6 +149,8 @@ export function Home() {
   const filtered = q !== "" || genre !== "";
   // Puan sırasında şerit, listenin başıyla aynı şeyi gösterirdi.
   const showTop = !filtered && sort === "" && offset === 0 && top !== null && top.items.length > 0;
+  // Izgara ve şerit için TEK istek: kimlikler birleşir, tekrarları kanca ayıklar.
+  const statuses = useLibraryStatuses([...(page?.items ?? []), ...(showTop && top ? top.items : [])].map((b) => b.id));
 
   return (
     <div>
@@ -200,6 +204,7 @@ export function Home() {
                     <span aria-hidden="true" className="absolute -top-2 -left-2 grid size-8 place-items-center rounded-full bg-primary font-serif text-sm font-semibold text-primary-foreground shadow">
                       {i + 1}
                     </span>
+                    {statuses[b.id] && <LibraryBadge status={statuses[b.id]} className="absolute bottom-2 left-2" />}
                   </div>
                   <span className="mt-2 line-clamp-2 block text-sm font-medium group-hover:underline">{b.title}</span>
                 </Link>
@@ -249,7 +254,7 @@ export function Home() {
             </EmptyState>
           ) : (
             <ul aria-label="Kitaplar" aria-busy={loading} className={cn(GRID, "transition-opacity", loading && "opacity-60")}>
-              {page.items.map((b) => <li key={b.id}><BookCard book={b} headingLevel="h3" /></li>)}
+              {page.items.map((b) => <li key={b.id}><BookCard book={b} headingLevel="h3" status={statuses[b.id]} /></li>)}
             </ul>
           )}
           {(offset > 0 || page.total > PAGE) && (

@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Book, Page, TopRated } from "../api/types";
+import type { Book, Page, TopRated, User } from "../api/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -10,6 +10,8 @@ vi.mock("../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/client")>()),
   api: {},
 }));
+const h = vi.hoisted(() => ({ user: null as unknown }));
+vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ user: h.user, ready: true }) }));
 
 import { api, ApiError } from "../api/client";
 import { Home } from "./Home";
@@ -36,6 +38,7 @@ afterEach(() => cleanup.splice(0).forEach((f) => f()));
 beforeEach(() => {
   for (const k of Object.keys(calls)) delete calls[k];
   total = 30;
+  h.user = null;
   stub({
     genres: async () => [{ id: 1, name: "Roman", slug: "roman" }],
     topRated: async (): Promise<TopRated> => ({ items: [{ ...bookOf(1), weighted_score: 8.1 }], m: 10, c: 7 }),
@@ -489,5 +492,26 @@ describe("Home", () => {
 
     expect(el.querySelector("[role=alert]")).toBeNull();
     expect(el.querySelector(LIST)!.textContent).toContain("Kitap 7");
+  });
+
+  it("giriş yapmış okurun kitaplığındaki kitaplar kartta ve şeritte durumuyla görünür", async () => {
+    h.user = { id: 7, email: "ali@example.com", display_name: "Ali", role: "USER", created_at: "" } satisfies User;
+    stub({
+      topRated: async (): Promise<TopRated> => ({ items: [{ ...bookOf(3), rating_count: 12, weighted_score: 8.1 }], m: 10, c: 7 }),
+      books: async () => ({ items: [bookOf(3), bookOf(4)], total: 2, limit: 12, offset: 0 }),
+      libraryStatuses: async () => ({ statuses: { "3": "READ" } }),
+    });
+    const { el } = await render("/");
+    const cards = Array.from(el.querySelectorAll(`${LIST} > li`));
+    expect(cards.find((c) => c.textContent!.includes("Kitap 3"))!.textContent).toContain("Okudum");
+    expect(cards.find((c) => c.textContent!.includes("Kitap 4"))!.textContent).not.toContain("Okudum");
+    expect(el.querySelector("section[aria-labelledby=top-heading] li")!.textContent).toContain("Okudum");
+    expect(calls.libraryStatuses!.at(-1)).toEqual([[3, 4]]);
+  });
+
+  it("giriş yoksa kitaplık durumu sorulmaz", async () => {
+    stub({ libraryStatuses: async () => ({ statuses: {} }) });
+    await render("/");
+    expect(calls.libraryStatuses).toBeUndefined();
   });
 });

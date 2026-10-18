@@ -10,6 +10,7 @@ import { ErrorBox, PageTitle, Rating } from "../components/common";
 import { LibraryButton } from "../components/LibraryButton";
 import { NotFound } from "../components/NotFound";
 import { useToast } from "../components/toast";
+import { useLibraryStatuses } from "../components/useLibraryStatuses";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -114,6 +115,7 @@ function BookDetailView() {
       current = false;
     };
   }, [bookId, firstGenre]);
+  const similarStatuses = useLibraryStatuses((similar ?? []).map((b) => b.id));
 
   const fetchComments = useCallback((offset: number) => api.comments(id, offset), [id]);
   const comments = usePaged(fetchComments, String(id), setError);
@@ -307,7 +309,7 @@ function BookDetailView() {
         <section aria-labelledby="similar-heading" className="mx-auto mt-16 max-w-5xl border-t pt-10">
           <h2 id="similar-heading" className="text-2xl font-semibold">{book.genres[0].name} türünden başka kitaplar</h2>
           <ul className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-6">
-            {similar.map((b) => <li key={b.id}><BookCard book={b} headingLevel="h3" /></li>)}
+            {similar.map((b) => <li key={b.id}><BookCard book={b} headingLevel="h3" status={similarStatuses[b.id]} /></li>)}
           </ul>
         </section>
       )}
