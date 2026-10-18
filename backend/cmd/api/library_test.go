@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"strconv"
@@ -226,4 +227,27 @@ func TestListLibrary(t *testing.T) {
 			t.Errorf("status %d gövde %s", rec.Code, rec.Body)
 		}
 	})
+}
+
+func TestLibraryStoreErrors(t *testing.T) {
+	dbErr := errors.New("db")
+	tests := []struct {
+		name, method, url, body string
+		books                   fakeBooks
+		fake                    *fakeLibrary
+	}{
+		{"silme depo hatası", http.MethodDelete, "/api/me/library/5", "", fakeBooks{}, &fakeLibrary{err: dbErr}},
+		{"ekleme depo hatası 404 değil", http.MethodPut, "/api/me/library/5", `{"status":"READ"}`, fakeBooks{}, &fakeLibrary{err: dbErr}},
+		{"durum sorgusu depo hatası", http.MethodGet, "/api/me/library/statuses?book_ids=3", "", fakeBooks{}, &fakeLibrary{err: dbErr}},
+		{"liste depo hatası", http.MethodGet, "/api/me/library", "", fakeBooks{}, &fakeLibrary{err: dbErr}},
+		{"liste tür yüklemesi hatası", http.MethodGet, "/api/me/library", "", fakeBooks{genreErr: dbErr}, &fakeLibrary{total: 1, rows: []db.ListLibraryRow{{Book: db.Book{ID: 1, Title: "Dune"}, Status: "READ"}}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(t, userRouter(deps{library: tt.fake, books: tt.books}), tt.method, tt.url, tt.body)
+			if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
+				t.Errorf("500 internal bekleniyordu: %d %s", rec.Code, rec.Body)
+			}
+		})
+	}
 }

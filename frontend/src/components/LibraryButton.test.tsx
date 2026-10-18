@@ -19,7 +19,7 @@ vi.mock("../api/client", async (importOriginal) => ({
 const h = vi.hoisted(() => ({ user: null as unknown }));
 vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ user: h.user, ready: true }) }));
 
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import { LibraryButton } from "./LibraryButton";
 import { ToastProvider } from "./toast";
 
@@ -54,6 +54,9 @@ beforeEach(() => {
     removeFromLibrary: async () => undefined,
   });
 });
+
+const errorToast = () =>
+  document.querySelector("section[aria-label=Bildirimler] .text-destructive")?.textContent;
 
 const flush = async () => {
   for (let i = 0; i < 4; i++) await act(async () => {});
@@ -173,5 +176,36 @@ describe("LibraryButton", () => {
     await act(async () => finish(entry("WANT_TO_READ")));
     await flush();
     expect(trigger().disabled).toBe(false);
+  });
+
+  it("ekleme başarısızsa hata bildirimi, bölünmüş düğme kalır", async () => {
+    stub({ setLibraryStatus: async () => { throw new ApiError(500, "internal", "Sunucu hatası oluştu"); } });
+    await render();
+    await click(byText("Okumak istiyorum"));
+    expect(errorToast()).toContain("Sunucu hatası oluştu");
+    expect(byText("Okumak istiyorum")).toBeTruthy();
+    expect(trigger().textContent).not.toContain("Kitaplığında");
+  });
+
+  it("çıkarma başarısızsa hata bildirimi, Kitaplığında düğmesi kalır", async () => {
+    stub({
+      libraryStatuses: statusesOf("READ"),
+      removeFromLibrary: async () => { throw new ApiError(500, "internal", "Çıkarılamadı"); },
+    });
+    await render();
+    await openMenu();
+    await click(byText("Kitaplığımdan çıkar"));
+    await click(byText("Çıkar"));
+    expect(calls.removeFromLibrary).toEqual([[12]]);
+    expect(errorToast()).toContain("Çıkarılamadı");
+    expect(trigger().textContent).toContain("Kitaplığında");
+    expect(trigger().textContent).toContain("Okudum");
+  });
+
+  it("durum okunamazsa Okumak istiyorum yine etkin", async () => {
+    stub({ libraryStatuses: async () => { throw new ApiError(500, "internal", "x"); } });
+    await render();
+    expect(calls.libraryStatuses).toEqual([[[12]]]);
+    expect((byText("Okumak istiyorum") as HTMLButtonElement).disabled).toBe(false);
   });
 });

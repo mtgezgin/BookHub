@@ -407,6 +407,19 @@ describe("BookDetail — aynı türden kitaplar", () => {
     expect(alertText(el)).toBeNull();
     expect(el.querySelector(SIMILAR)).toBeNull();
   });
+  it("giriş yapmış okurda benzer kitabın kartında kitaplık durumu", async () => {
+    stub({
+      book: async (id: number) => withGenre(id),
+      books: async () => ({ items: [1, 2, 3].map(withGenre), total: 3, limit: 7, offset: 0 }),
+      libraryStatuses: async () => ({ statuses: { "3": "READ" } }),
+    });
+    const { el } = await render();
+    expect(calls.libraryStatuses).toContainEqual([[2, 3]]);
+    const cards = Array.from(el.querySelectorAll<HTMLElement>(`${SIMILAR} li`));
+    const card = (id: number) => cards.find((c) => c.querySelector(`a[href="/books/${id}"]`));
+    expect(card(3)!.textContent).toContain("Okudum");
+    expect(card(2)!.textContent).not.toContain("Okudum");
+  });
 });
 
 describe("BookDetail — yorum deneyimi", () => {

@@ -83,4 +83,25 @@ describe("useLibraryStatuses", () => {
     await act(async () => replies[0]({ statuses: { "3": "READ" } }));
     expect(el.textContent).toBe("5:READING");
   });
+
+  it("okuma başarısızsa rozet yok, yakalanmamış ret yok", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    cleanup.push(() => process.off("unhandledRejection", unhandled));
+    (api as unknown as Record<string, unknown>).libraryStatuses = () => Promise.reject(new Error("db"));
+    const { el } = mount([3]);
+    await act(async () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(el.textContent).toBe("3:-");
+    expect(unhandled).not.toHaveBeenCalled();
+  });
+
+  it("çıkış yapılınca durumlar temizlenir", async () => {
+    const { el, rerender } = mount([3]);
+    await act(async () => replies[0]({ statuses: { "3": "READ" } }));
+    expect(el.textContent).toBe("3:READ");
+    h.user = null;
+    rerender([3]);
+    expect(el.textContent).toBe("3:-");
+  });
 });

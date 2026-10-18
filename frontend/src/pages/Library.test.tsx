@@ -11,7 +11,8 @@ vi.mock("../api/client", async (importOriginal) => ({
   api: {},
 }));
 
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
+import { ToastProvider } from "../components/toast";
 import { Library } from "./Library";
 
 const calls: Record<string, unknown[][]> = {};
@@ -61,12 +62,14 @@ async function render(path: string) {
   const root = createRoot(el);
   act(() =>
     root.render(
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/library" element={<><Library /><Probe /></>} />
-          <Route path="/" element={<p>katalog</p>} />
-        </Routes>
-      </MemoryRouter>,
+      <ToastProvider>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/library" element={<><Library /><Probe /></>} />
+            <Route path="/" element={<p>katalog</p>} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>,
     ),
   );
   cleanup.push(() => {
@@ -80,6 +83,12 @@ async function render(path: string) {
 const buttonIn = (root: ParentNode, text: string) =>
   Array.from(root.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent?.trim() === text);
 const group = (el: HTMLElement, label: string) => el.querySelector<HTMLElement>(`[role=group][aria-label="${label}"]`)!;
+const errorToast = () =>
+  document.querySelector("section[aria-label=Bildirimler] .text-destructive")?.textContent;
+async function removeFirst(el: HTMLElement) {
+  await click(buttonIn(el.querySelector('[aria-label="Kitaplığım"] li')!, "Çıkar"));
+  await click(buttonIn(document.querySelector<HTMLElement>("[role=dialog]")!, "Çıkar"));
+}
 async function click(target: HTMLElement | undefined) {
   expect(target, "tıklanacak öğe bulunamadı").toBeTruthy();
   await act(async () => target!.click());
@@ -160,5 +169,66 @@ describe("Library", () => {
     expect(calls.removeFromLibrary).toEqual([[13]]);
     expect(params().has("offset")).toBe(false);
     expect(calls.library!.at(-1)).toEqual([{ limit: 12, offset: 0 }]);
+  });
+
+  it("liste yüklenemezse hata kutusu, liste yok", async () => {
+    stub({ library: () => Promise.reject(new ApiError(500, "internal", "Kitaplık yüklenemedi")) });
+    const { el } = await render("/library");
+    expect(el.querySelector("[role=alert]")?.textContent).toBe("Kitaplık yüklenemedi");
+    expect(el.querySelector('[aria-label="Kitaplığım"]')).toBeNull();
+  });
+
+  it("çıkarma başarısızsa hata bildirimi, kitap kalır, yeniden yüklenmez", async () => {
+    reply = () => pageOf([itemOf(5, { in_catalog: false })]);
+    stub({ removeFromLibrary: () => Promise.reject(new ApiError(500, "internal", "Çıkarılamadı")) });
+    const { el, params } = await render("/library?status=READ");
+    await removeFirst(el);
+    expect(calls.removeFromLibrary).toEqual([[5]]);
+    expect(errorToast()).toContain("Çıkarılamadı");
+    expect(el.querySelector('[aria-label="Kitaplığım"]')!.textContent).toContain("Kitap 5");
+    expect(calls.library).toHaveLength(1);
+    expect(params().toString()).toBe("status=READ");
+  });
+
+  it("ilk sayfada çıkarınca aynı filtreyle yeniden yüklenir, adres değişmez", async () => {
+    reply = () => pageOf([itemOf(5, { in_catalog: false }), itemOf(6, { in_catalog: false })]);
+    const { el, params } = await render("/library?status=READ");
+    await removeFirst(el);
+    expect(calls.removeFromLibrary).toEqual([[5]]);
+    expect(calls.library).toEqual([
+      [{ status: "READ", limit: 12, offset: 0 }],
+      [{ status: "READ", limit: 12, offset: 0 }],
+    ]);
+    expect(params().toString()).toBe("status=READ");
+  });
+
+  it("arama kırpılarak adrese yazılır, sayfa başa döner", async () => {
+    reply = () => pageOf([itemOf(13)], 13, 12);
+    const { el, params } = await render("/library?offset=12");
+    const input = el.querySelector<HTMLInputElement>("input[type=search]")!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, " dune ");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect(params().get("q")).toBe("dune");
+    expect(params().has("offset")).toBe(false);
+    expect(calls.library!.at(-1)).toEqual([{ q: "dune", limit: 12, offset: 0 }]);
+  });
+
+  it("Puanladıklarım rated=yes gönderir", async () => {
+    const { el, params } = await render("/library");
+    await click(buttonIn(group(el, "Puanım"), "Puanladıklarım"));
+    expect(params().get("rated")).toBe("yes");
+    expect(calls.library!.at(-1)).toEqual([{ rated: "yes", limit: 12, offset: 0 }]);
+  });
+
+  it("adresteki tanınmayan değerler API'ye gitmez", async () => {
+    const { el } = await render("/library?status=DONE&rated=maybe&sort=year");
+    expect(calls.library).toEqual([[{ limit: 12, offset: 0 }]]);
+    expect(buttonIn(group(el, "Durum"), "Tümü")!.getAttribute("aria-pressed")).toBe("true");
   });
 });
