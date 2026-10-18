@@ -89,7 +89,11 @@ function BookDetailView() {
   const [similar, setSimilar] = useState<Book[] | null>(null);
   const [error, setError] = useState<unknown>(null);
 
-  useEffect(() => window.scrollTo(0, 0), []);
+  // Süslü parantez şart: yeni Chromium'da scrollTo bir Promise döndürüyor; etki onu döndürseydi
+  // React ayrılırken Promise'i temizlik fonksiyonu sanıp çağırır, uygulama boş ekranla çökerdi.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   // Kitap + puan özeti ve yorumlar AYRI yüklenir: yorum sayfası değişince kitabı yeniden
   // çekmeye gerek yok. Hatalar yutulmaz; yeni bir yükleme eski hata mesajını temizler.

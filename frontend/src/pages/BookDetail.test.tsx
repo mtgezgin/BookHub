@@ -336,6 +336,18 @@ describe("BookDetail — yükleme ve şablon", () => {
     expect(el.querySelector("h1")!.textContent).toBe("Kitap 2");
   });
 
+  // Chromium 156'da window.scrollTo() bir Promise döndürüyor. Etki onu döndürseydi React
+  // ayrılırken Promise'i temizlik fonksiyonu sanıp çağırır, uygulama boş ekranla çökerdi.
+  it("scrollTo Promise döndüren tarayıcıda sayfadan ayrılmak çökmez", async () => {
+    scrollTo.mockReturnValue(Promise.resolve());
+    const { el, nav } = await render();
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap 1");
+    await act(async () => nav.go!("/login"));
+    await flush();
+    expect(el.textContent).toContain("login");
+    scrollTo.mockReturnValue(undefined);
+  });
+
   it("rating_count 0 iken histogram gizli, oy varken görünür", async () => {
     const { el } = await render();
     expect(el.querySelector('[aria-label="Puan dağılımı"]')).toBeNull();
