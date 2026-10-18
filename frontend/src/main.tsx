@@ -8,6 +8,12 @@ import { ToastProvider } from "./components/toast";
 import "@fontsource-variable/fraunces";
 import "@fontsource-variable/inter";
 import "./styles.css";
+import { reloadOnceForStaleChunk } from "./lib/chunkReload";
+
+// Vite, dinamik bir import (tembel parça) yüklenemeyince bu olayı yayar; preventDefault hatayı yutar.
+window.addEventListener("vite:preloadError", (event) => {
+  if (reloadOnceForStaleChunk(sessionStorage, Date.now(), () => window.location.reload())) event.preventDefault();
+});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
