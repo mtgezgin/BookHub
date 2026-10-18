@@ -24,6 +24,7 @@ type deps struct {
 	moderation moderationService
 	comments   commentService
 	ratings    ratingService
+	library    libraryStore
 	// ratingMinVotes: ağırlıklı puandaki m (RATING_MIN_VOTES); katalogun ?sort=rating sırası için.
 	ratingMinVotes int64
 	auth           authService
@@ -82,6 +83,17 @@ func newRouter(d deps) http.Handler {
 		r.Get("/api/books/{id}/rating", handleMyRating(d.ratings))
 		r.Put("/api/books/{id}/rating", handleRateBook(d.ratings))
 		r.Delete("/api/books/{id}/rating", handleRemoveRating(d.ratings))
+	})
+
+	// Kişisel kitaplık (Faz 15). "me" = token'daki kullanıcı; adreste kullanıcı kimliği HİÇ
+	// yok, başkasının kitaplığını istemek ifade bile edilemez. Kitaplık gizli: herkese açık uç yok.
+	// Statik "statuses" segmenti yalnız GET'te; {id} yalnız PUT/DELETE'te → çakışmazlar.
+	r.Group(func(r chi.Router) {
+		r.Use(requireAuth(d.tokens))
+		r.Get("/api/me/library", handleListLibrary(d.library, d.books))
+		r.Get("/api/me/library/statuses", handleLibraryStatuses(d.library))
+		r.Put("/api/me/library/{id}", handlePutLibraryEntry(d.library))
+		r.Delete("/api/me/library/{id}", handleRemoveLibraryEntry(d.library))
 	})
 
 	limiter := d.limiter
