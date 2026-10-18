@@ -131,11 +131,11 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `audit` | denetim kaydı yazıcısı (append-only tablo) |
 | `comments` | yorum servisi (yumuşak silme + denetim) |
 | `ratings` | puan servisi (kilit + upsert + türetme), `WeightedScore` (saf), `CachedService` (Redis) |
-| `library` | kişisel kitaplık repository'si (Faz 15, service yok): `Put` (yalnız APPROVED kitap, `ON CONFLICT`), `Remove`, `Statuses` (toplu), `List` (süzgeç + `CASE` ile sıralama, başlık `tr-x-icu`) |
+| `library` | kişisel kitaplık repository'si (Faz 15, service yok): `Put` (yalnız APPROVED kitap, `ON CONFLICT`), `Remove`, `Statuses` (toplu), `List` (süzgeç + `CASE` ile sıralama, başlık `tr-x-icu`, toplam aynı sorguda `count(*) OVER ()`) |
 | `cache` | `Cache` arayüzü: Redis / Noop |
 | `ratelimit` | sabit pencere: Memory / Redis / Unlimited |
 | `slug` | NFD ile Türkçe/aksanlı → URL slug'ı, `Truncate` |
-| `testdb` | entegrasyon testlerinin ortak DB kurulumu |
+| `testdb` | entegrasyon testlerinin ortak DB kurulumu; `CreateUser` / `CreateBook` test verisi yardımcıları |
 
 ### `backend/migrations/` ve `backend/sql/queries/`
 
@@ -181,8 +181,8 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
 | `src/pages/` | Home (katalog + en iyiler), BookDetail, **Library** ("Kitaplığım", Faz 15), Auth, Suggest, **Account** ("Hesabım": parola değiştirme, Faz 13), admin/Moderation |
 | `src/styles.css` | Tailwind + **tasarım token'ları** (açık/koyu tema, OKLCH); değeri değişince `node scripts/check-contrast.mjs` — [Faz 14](phases/phase-14-ui-redesign.md) |
 | `src/components/ui/` | shadcn/ui yaklaşımıyla repoya kopyalanmış temel bileşenler (Button, Input, Card, Badge, Alert, Skeleton, Label, Dialog) |
-| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `BookCard`, `EmptyState`, `NotFound`, `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged`, `LibraryButton` (kitap sayfasındaki kontrol; giriş yoksa bağlantı) + `LibraryMenu` (tembel parça: bölünmüş düğme, menü, onay), `LibraryBadge` + `useLibraryStatuses` (kart rozeti, tek toplu istek), `ui/dropdown-menu.tsx` (Radix menüsü), `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
-| `src/lib/` | `cn()` (sınıf birleştirme), `format.ts` (Türkçe puan, dil adı, göreli zaman, baş harf), `theme.ts` (açık/koyu tema) |
+| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `BookCard`, `EmptyState`, `NotFound`, `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged`, `LibraryButton` (kitap sayfasındaki kontrol; giriş yoksa bağlantı) + `LibraryMenu` (tembel parça: bölünmüş düğme, menü, onay), `LibraryBadge` + `useLibraryStatuses` (kart rozeti, tek toplu istek), `filters.tsx` (katalog ve Kitaplığım'ın ortak `Chip`, `GRID`, `useParamUpdater`), `ui/dropdown-menu.tsx` (Radix menüsü), `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
+| `src/lib/` | `cn()` (sınıf birleştirme), `format.ts` (Türkçe puan, dil adı, göreli zaman, baş harf), `theme.ts` (açık/koyu tema), `chunkReload.ts` (yayından sonra eski parça yüklenemezse bir kez yeniden yükleme; `main.tsx`'teki `vite:preloadError` dinleyicisi) |
 | `public/theme-init.js` | temayı ilk boyamadan önce uygular (CSP satır içi betiğe izin vermediği için ayrı dosya) |
 | `e2e/` | Playwright senaryoları (`catalog`, `auth-flow`, `reuse`, `tabs`, `cross-origin`, `rating-comment`, `moderation`) + `env.ts`, `helpers.ts` (**rate limit bütçesi tablosu**), `global-setup.ts` |
 | `playwright.config.ts` | yalnız chromium, `baseURL` = `E2E_BASE_URL`, `trace: retain-on-failure`, CI'da 1 yeniden deneme |

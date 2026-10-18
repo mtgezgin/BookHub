@@ -99,6 +99,8 @@ CREATE TABLE library_entries (
   - `title`: `b.title COLLATE "tr-x-icu"` artan
   - `my_rating`: `r.score DESC NULLS LAST`, sonra `le.created_at DESC`
   - her durumda son anahtar `le.book_id` (kararlı sayfalama).
+  - Toplam aynı sorguda: `count(*) OVER ()` (ayrı bir sayma sorgusu, dolayısıyla `WHERE`'in ikinci kopyası
+    yok). Sayfa sonun ötesindeyse satır dönmez; repository o zaman toplamı ilk satırdan okur.
 - Liste öğelerinin türleri mevcut toplu tür sorgusuyla tek seferde gelir.
 
 ### 3. API: `backend/cmd/api/library.go` (`requireAuth` grubunda)
@@ -212,6 +214,20 @@ Son incelemenin (taze bir inceleyici, bütün dal) bulduğu ve kapatılanlar:
   ayrı parçalar; Radix diyaloğu paylaşılan `dialog` parçasında (12,6 kB).
 - **Yazma sahipliği testi:** bob'un PUT/DELETE'i alice'in kaydına dokunmuyor; silme sorgusu `user_id`'yi
   yok sayacak şekilde bozulunca test kırmızı yandı (mutasyonla doğrulandı).
+
+PR #43'teki code-review tavsiyeleri ve SonarCloud kalite kapısı (tekrarlanan satır %3,6 > %3) sonrası:
+
+- **Durum okunamazsa ekleme yok:** okuma başarısızken "Okumak istiyorum" gösterilseydi tek tıklama kayıtlı
+  bir durumun üstüne yazardı (PUT, `ON CONFLICT` ile değiştirir). Artık "Kitaplık durumu yüklenemedi, tekrar
+  dene" düğmesi çıkıyor.
+- **Eski parça:** yayın eski `assets/*` dosyalarını silince, önceden açık sekmede tembel parça yüklenemiyor
+  ve uygulama boşalıyordu. `vite:preloadError` olayında sayfa bir kez yeniden yükleniyor (10 sn'de en çok
+  bir kez; `lib/chunkReload.ts`). Vite 8 olayı parçanın kendisi düştüğünde de yayıyor (paket incelendi).
+- **Menü + diyalog iptali:** "Vazgeç"ten sonra sayfanın tıklanabilir kaldığı e2e'de doğrulandı; kurulu
+  Radix sürümünde kilitlenme yok.
+- **Tekrar azaltma:** `createUser`/`createBook` test yardımcıları `testdb`'ye taşındı (library, ratings,
+  comments ortak kullanıyor); sayma sorgusu kalktı; `Chip`, `GRID` ve adres güncelleyici
+  `components/filters.tsx`'te.
 
 ## ✅ Tamamlanma
 
