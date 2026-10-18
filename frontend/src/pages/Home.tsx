@@ -1,5 +1,5 @@
 import { Search, SearchX } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Book, Genre, Page, TopRated } from "../api/types";
@@ -7,6 +7,7 @@ import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
 import { EmptyState } from "../components/EmptyState";
+import { Chip, GRID, useParamUpdater } from "../components/filters";
 import { LibraryBadge } from "../components/LibraryBadge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -17,17 +18,7 @@ import { formatScore } from "../lib/format";
 import { cn } from "../lib/utils";
 
 const PAGE = 12;
-// 12'lik sayfa her sütun sayısında satırları tam doldurur (2, 3, 4, 6).
-export const GRID = "grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6";
 const SEARCH_DELAY_MS = 300;
-
-export function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <Button size="sm" variant={active ? "default" : "outline"} aria-pressed={active} className="shrink-0 rounded-full" onClick={onClick}>
-      {children}
-    </Button>
-  );
-}
 
 export function Home() {
   const [params, setParams] = useSearchParams();
@@ -75,19 +66,8 @@ export function Home() {
     };
   }, [q, genre, offset, sort]);
 
-  // Dikkat: react-router 7'de `prev`, setParams'ın OLUŞTUĞU render'daki URL'dir; en güncel URL
-  // değil. Gecikmeli çağrılar bu yüzden aşağıdaki `latest` üzerinden son render'ın update'ini
-  // kullanır.
-  const update = useCallback(
-    (next: Record<string, string>, replace = false) =>
-      setParams((prev) => {
-        const p = new URLSearchParams(prev);
-        for (const [k, v] of Object.entries(next)) (v ? p.set(k, v) : p.delete(k));
-        if (!("offset" in next)) p.delete("offset");
-        return p;
-      }, { replace }),
-    [setParams],
-  );
+  // Gecikmeli çağrılar aşağıdaki `latest` üzerinden son render'ın update'ini kullanır (bkz. useParamUpdater).
+  const update = useParamUpdater(setParams);
 
   // Zamanlayıcı kurulduktan sonraki 300 ms'de tür, sıra ya da sayfa seçilmiş, Enter'a basılmış
   // olabilir. Kurulduğu anın q/update'ini kullanırsa o seçimi eski URL ile ezer.

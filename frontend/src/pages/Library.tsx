@@ -1,5 +1,5 @@
 import { BookMarked, Search, SearchX } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Genre, LibraryItem, LibraryStatus, Page } from "../api/types";
@@ -7,6 +7,7 @@ import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
 import { EmptyState } from "../components/EmptyState";
+import { Chip, GRID, useParamUpdater } from "../components/filters";
 import { useToast } from "../components/toast";
 import { Button, buttonVariants } from "../components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../components/ui/dialog";
@@ -15,7 +16,6 @@ import { Skeleton } from "../components/ui/skeleton";
 import { Pager } from "../components/usePaged";
 import { LIBRARY_STATUSES, libraryStatusLabel } from "../lib/format";
 import { cn } from "../lib/utils";
-import { Chip, GRID } from "./Home";
 
 const PAGE = 12;
 type Rated = "" | "yes" | "no";
@@ -51,16 +51,7 @@ export function Library() {
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
 
-  const update = useCallback(
-    (next: Record<string, string>, replace = false) =>
-      setParams((prev) => {
-        const p = new URLSearchParams(prev);
-        for (const [k, v] of Object.entries(next)) (v ? p.set(k, v) : p.delete(k));
-        if (!("offset" in next)) p.delete("offset");
-        return p;
-      }, { replace }),
-    [setParams],
-  );
+  const update = useParamUpdater(setParams);
 
   useEffect(() => {
     api.genres().then(setGenres).catch(() => {});
