@@ -8,45 +8,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
 	"github.com/mtgezgin/bookhub/backend/internal/testdb"
 )
 
-func createUser(t *testing.T, pool *pgxpool.Pool) int64 {
-	t.Helper()
-	var id int64
-	err := pool.QueryRow(context.Background(),
-		`INSERT INTO users (email, display_name, password_hash) VALUES ($1, 'Okur', 'x') RETURNING id`,
-		testdb.Unique("rater")+"@example.com").Scan(&id)
-	if err != nil {
-		t.Fatalf("kullanıcı açılamadı: %v", err)
-	}
-	t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM users WHERE id = $1", id) })
-	return id
-}
-
-func createBook(t *testing.T, pool *pgxpool.Pool, status string) int64 {
-	t.Helper()
-	slug := testdb.Unique("rated")
-	var id int64
-	err := pool.QueryRow(context.Background(),
-		`INSERT INTO books (title, slug, author, status) VALUES ($1, $1, 'Yazar', $2) RETURNING id`, slug, status).Scan(&id)
-	if err != nil {
-		t.Fatalf("kitap açılamadı: %v", err)
-	}
-	t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM books WHERE id = $1", id) })
-	return id
-}
-
 func TestRateLifecycleRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	s := NewService(pool, DefaultMinVotes)
 	ctx := context.Background()
-	book := createBook(t, pool, books.StatusApproved)
-	u1, u2 := createUser(t, pool), createUser(t, pool)
+	book := testdb.CreateBook(t, pool, "", books.StatusApproved)
+	u1, u2 := testdb.CreateUser(t, pool, "Okur"), testdb.CreateUser(t, pool, "Okur")
 
 	r, err := s.Rate(ctx, u1, book, 8)
 	if err != nil || !r.Created || r.Stats.Count != 1 || *r.Stats.Average != 8 {
@@ -90,18 +62,18 @@ func TestRateRulesRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	s := NewService(pool, DefaultMinVotes)
 	ctx := context.Background()
-	user := createUser(t, pool)
+	user := testdb.CreateUser(t, pool, "Okur")
 
 	for _, bad := range []int{0, 11, -3} {
-		if _, err := s.Rate(ctx, user, createBook(t, pool, books.StatusApproved), bad); !errors.Is(err, ErrInvalidScore) {
+		if _, err := s.Rate(ctx, user, testdb.CreateBook(t, pool, "", books.StatusApproved), bad); !errors.Is(err, ErrInvalidScore) {
 			t.Errorf("puan %d reddedilmeli: %v", bad, err)
 		}
 	}
 	// Onaylı olmayan kitaba puan verilemez (varlığı da sızmaz: "yok").
-	if _, err := s.Rate(ctx, user, createBook(t, pool, books.StatusPending), 7); !errors.Is(err, books.ErrNotFound) {
+	if _, err := s.Rate(ctx, user, testdb.CreateBook(t, pool, "", books.StatusPending), 7); !errors.Is(err, books.ErrNotFound) {
 		t.Errorf("PENDING kitap ErrNotFound vermeli: %v", err)
 	}
-	if _, err := s.Mine(ctx, user, createBook(t, pool, books.StatusApproved)); !errors.Is(err, ErrNotRated) {
+	if _, err := s.Mine(ctx, user, testdb.CreateBook(t, pool, "", books.StatusApproved)); !errors.Is(err, ErrNotRated) {
 		t.Errorf("puansız Mine ErrNotRated vermeli: %v", err)
 	}
 }
@@ -114,12 +86,12 @@ func TestConcurrentRatingsRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	s := NewService(pool, DefaultMinVotes)
 	ctx := context.Background()
-	book := createBook(t, pool, books.StatusApproved)
+	book := testdb.CreateBook(t, pool, "", books.StatusApproved)
 
 	const n = 25
 	users := make([]int64, n)
 	for i := range users {
-		users[i] = createUser(t, pool)
+		users[i] = testdb.CreateUser(t, pool, "Okur")
 	}
 
 	var (
@@ -179,16 +151,16 @@ func TestTopRatedRealDB(t *testing.T) {
 	rateN := func(book int64, n, score int) {
 		t.Helper()
 		for range n {
-			if _, err := s.Rate(ctx, createUser(t, pool), book, score); err != nil {
+			if _, err := s.Rate(ctx, testdb.CreateUser(t, pool, "Okur"), book, score); err != nil {
 				t.Fatalf("Rate: %v", err)
 			}
 		}
 	}
-	lucky := createBook(t, pool, books.StatusApproved)  // 1 oy, 10
-	steady := createBook(t, pool, books.StatusApproved) // 30 oy, 9
+	lucky := testdb.CreateBook(t, pool, "", books.StatusApproved)  // 1 oy, 10
+	steady := testdb.CreateBook(t, pool, "", books.StatusApproved) // 30 oy, 9
 	rateN(lucky, 1, 10)
 	rateN(steady, 30, 9)
-	rateN(createBook(t, pool, books.StatusApproved), 40, 5) // arka plan: C'yi gerçekçi seviyeye çeker
+	rateN(testdb.CreateBook(t, pool, "", books.StatusApproved), 40, 5) // arka plan: C'yi gerçekçi seviyeye çeker
 
 	top, err := s.TopRated(ctx, 50)
 	if err != nil {
@@ -225,7 +197,7 @@ func TestCachedInvalidationRealDB(t *testing.T) {
 	c := newMemCache()
 	s := NewCached(NewService(pool, DefaultMinVotes), c)
 	ctx := context.Background()
-	user := createUser(t, pool)
+	user := testdb.CreateUser(t, pool, "Okur")
 
 	if _, err := s.TopRated(ctx, 5); err != nil {
 		t.Fatalf("TopRated: %v", err)
@@ -234,14 +206,14 @@ func TestCachedInvalidationRealDB(t *testing.T) {
 		t.Fatal("ilk okuma cache'e yazmalı")
 	}
 
-	if _, err := s.Rate(ctx, user, createBook(t, pool, books.StatusPending), 7); err == nil {
+	if _, err := s.Rate(ctx, user, testdb.CreateBook(t, pool, "", books.StatusPending), 7); err == nil {
 		t.Fatal("onaysız kitaba puan reddedilmeli")
 	}
 	if _, ok := c.data[TopRatedCacheKey]; !ok {
 		t.Error("BAŞARISIZ yazım cache'i silmemeli")
 	}
 
-	if _, err := s.Rate(ctx, user, createBook(t, pool, books.StatusApproved), 7); err != nil {
+	if _, err := s.Rate(ctx, user, testdb.CreateBook(t, pool, "", books.StatusApproved), 7); err != nil {
 		t.Fatalf("Rate: %v", err)
 	}
 	if _, ok := c.data[TopRatedCacheKey]; ok {
@@ -256,8 +228,8 @@ func TestUserDeletionRefreshesStatsRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	s := NewService(pool, DefaultMinVotes)
 	ctx := context.Background()
-	book := createBook(t, pool, books.StatusApproved)
-	stays, leaves := createUser(t, pool), createUser(t, pool)
+	book := testdb.CreateBook(t, pool, "", books.StatusApproved)
+	stays, leaves := testdb.CreateUser(t, pool, "Okur"), testdb.CreateUser(t, pool, "Okur")
 
 	if _, err := s.Rate(ctx, stays, book, 8); err != nil {
 		t.Fatalf("Rate: %v", err)
@@ -290,8 +262,8 @@ func TestDeleteTriggerWaitsForBookLockRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	s := NewService(pool, DefaultMinVotes)
 	ctx := context.Background()
-	book := createBook(t, pool, books.StatusApproved)
-	rater, leaver := createUser(t, pool), createUser(t, pool)
+	book := testdb.CreateBook(t, pool, "", books.StatusApproved)
+	rater, leaver := testdb.CreateUser(t, pool, "Okur"), testdb.CreateUser(t, pool, "Okur")
 	if _, err := s.Rate(ctx, leaver, book, 5); err != nil {
 		t.Fatalf("Rate: %v", err)
 	}
@@ -345,8 +317,8 @@ func TestCachedRemoveInvalidationRealDB(t *testing.T) {
 	c := newMemCache()
 	s := NewCached(NewService(pool, DefaultMinVotes), c)
 	ctx := context.Background()
-	user := createUser(t, pool)
-	book := createBook(t, pool, books.StatusApproved)
+	user := testdb.CreateUser(t, pool, "Okur")
+	book := testdb.CreateBook(t, pool, "", books.StatusApproved)
 
 	if _, err := s.Rate(ctx, user, book, 7); err != nil {
 		t.Fatalf("Rate: %v", err)
@@ -374,11 +346,11 @@ func TestNonApprovedBookRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	s := NewService(pool, DefaultMinVotes)
 	ctx := context.Background()
-	user := createUser(t, pool)
+	user := testdb.CreateUser(t, pool, "Okur")
 
 	cases := map[string]int64{
-		"PENDING":  createBook(t, pool, books.StatusPending),
-		"ARCHIVED": createBook(t, pool, books.StatusArchived),
+		"PENDING":  testdb.CreateBook(t, pool, "", books.StatusPending),
+		"ARCHIVED": testdb.CreateBook(t, pool, "", books.StatusArchived),
 		"yok":      math.MaxInt64,
 	}
 	for name, id := range cases {
@@ -403,8 +375,8 @@ func TestNonApprovedBookRealDB(t *testing.T) {
 func TestListBooksByRatingMatchesWeightedScoreRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	token := testdb.Unique("agirlik")
-	lucky := createBook(t, pool, books.StatusApproved)  // 1 oy, ortalama 10
-	steady := createBook(t, pool, books.StatusApproved) // 10 oy, ortalama 7
+	lucky := testdb.CreateBook(t, pool, "", books.StatusApproved)  // 1 oy, ortalama 10
+	steady := testdb.CreateBook(t, pool, "", books.StatusApproved) // 10 oy, ortalama 7
 	for _, r := range []struct {
 		id    int64
 		count int

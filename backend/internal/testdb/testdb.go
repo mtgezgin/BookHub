@@ -66,3 +66,36 @@ func Exec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 		t.Errorf("yardımcı sorgu başarısız (%s): %v", sql, err)
 	}
 }
+
+// CreateUser, benzersiz e-postalı bir test kullanıcısı açar (giriş yapamaz: parola özeti geçersiz)
+// ve test bitince siler. Paketler bunu kopyalıyordu; kopyalar ayrışmasın diye burada tek kaynak.
+func CreateUser(t *testing.T, pool *pgxpool.Pool, displayName string) int64 {
+	t.Helper()
+	var id int64
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO users (email, display_name, password_hash) VALUES ($1, $2, 'x') RETURNING id`,
+		Unique("user")+"@example.com", displayName).Scan(&id)
+	if err != nil {
+		t.Fatalf("kullanıcı açılamadı: %v", err)
+	}
+	t.Cleanup(func() { Exec(t, pool, "DELETE FROM users WHERE id = $1", id) })
+	return id
+}
+
+// CreateBook, benzersiz slug'lı bir kitap açar ve test bitince siler. Başlık boşsa slug başlık olur.
+func CreateBook(t *testing.T, pool *pgxpool.Pool, title, status string) int64 {
+	t.Helper()
+	slug := Unique("book")
+	if title == "" {
+		title = slug
+	}
+	var id int64
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO books (title, slug, author, status) VALUES ($1, $2, 'Yazar', $3) RETURNING id`,
+		title, slug, status).Scan(&id)
+	if err != nil {
+		t.Fatalf("kitap açılamadı: %v", err)
+	}
+	t.Cleanup(func() { Exec(t, pool, "DELETE FROM books WHERE id = $1", id) })
+	return id
+}
