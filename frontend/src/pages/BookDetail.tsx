@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle, Rating } from "../components/common";
+import { LibraryButton } from "../components/LibraryButton";
 import { NotFound } from "../components/NotFound";
 import { useToast } from "../components/toast";
 import { Badge } from "../components/ui/badge";
@@ -212,6 +213,9 @@ function BookDetailView() {
               ))}
             </div>
           )}
+          <div>
+            <LibraryButton bookId={book.id} />
+          </div>
         </header>
 
         <section aria-labelledby="rating-heading" className="self-start [grid-area:rating]">

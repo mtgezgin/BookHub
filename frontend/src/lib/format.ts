@@ -1,5 +1,7 @@
 // Türkçe biçimler. toFixed() ondalık NOKTA yazar ("8.1"); Türkçede virgül ("8,1").
 
+import type { LibraryStatus } from "../api/types";
+
 const scoreFormats = new Map<number, Intl.NumberFormat>();
 
 export function formatScore(value: number, digits = 1): string {
@@ -21,6 +23,20 @@ export function languageName(code: string): string {
   } catch {
     return code;
   }
+}
+
+/** Kitaplık durumlarının arayüzdeki sırası (sekmeler ve menü). */
+export const LIBRARY_STATUSES: LibraryStatus[] = ["WANT_TO_READ", "READING", "READ", "ABANDONED"];
+
+const libraryLabels: Record<LibraryStatus, string> = {
+  WANT_TO_READ: "Okumak istiyorum",
+  READING: "Şu an okuyorum",
+  READ: "Okudum",
+  ABANDONED: "Yarım bıraktım",
+};
+
+export function libraryStatusLabel(status: LibraryStatus): string {
+  return libraryLabels[status];
 }
 
 const relative = new Intl.RelativeTimeFormat("tr", { numeric: "auto" });

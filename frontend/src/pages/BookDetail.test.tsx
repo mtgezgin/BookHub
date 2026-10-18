@@ -59,6 +59,7 @@ beforeEach(() => {
     comments: async (_id: number, offset: number) => ({ items: [comment(offset + 1, { id: 7, display_name: "Ali" })], total: 1, limit: 10, offset }),
     myRating: notRated,
     books: async () => ({ items: [], total: 0, limit: 7, offset: 0 }),
+    libraryStatuses: async () => ({ statuses: {} }),
   });
 });
 

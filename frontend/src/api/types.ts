@@ -86,6 +86,25 @@ export interface MyRating {
   updated_at: string;
 }
 
+/** Kişisel kitaplık durumu (backend/internal/library); arayüzdeki adı: lib/format.ts. */
+export type LibraryStatus = "WANT_TO_READ" | "READING" | "READ" | "ABANDONED";
+
+export interface LibraryEntry {
+  book_id: number;
+  status: LibraryStatus;
+  added_at: string;
+  updated_at: string;
+}
+
+/** Kitaplığım öğesi: kitap + kişisel bilgiler. in_catalog=false → kitap yayından kaldırılmış. */
+export interface LibraryItem {
+  book: Book;
+  status: LibraryStatus;
+  added_at: string;
+  my_rating: number | null;
+  in_catalog: boolean;
+}
+
 export interface NewBook {
   title: string;
   author: string;

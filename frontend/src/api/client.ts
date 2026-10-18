@@ -18,8 +18,8 @@
 // yalnızca UZUN ÖMÜRLÜ sırrın saldırganın sunucusuna KOPYALANMASINI engeller.
 
 import type {
-  AdminBook, Book, BookStatus, Comment, Genre, MyRating, NewBook, Page,
-  RatingSummary, Session, TopRated, User,
+  AdminBook, Book, BookStatus, Comment, Genre, LibraryEntry, LibraryItem, LibraryStatus, MyRating,
+  NewBook, Page, RatingSummary, Session, TopRated, User,
 } from "./types";
 
 /** HINT: "bu tarayıcıda oturum açık olmalı" ipucu. Sır DEĞİL (bkz. dosya başı). */
@@ -364,6 +364,16 @@ export const api = {
   myRating: (id: number) => request<MyRating>("GET", `/api/books/${id}/rating`),
   rate: (id: number, score: number) => request<{ score: number }>("PUT", `/api/books/${id}/rating`, { score }),
   removeRating: (id: number) => request<unknown>("DELETE", `/api/books/${id}/rating`),
+
+  // Kişisel kitaplık (giriş ister; kullanıcı adreste değil token'da)
+  library: (p: {
+    status?: LibraryStatus; q?: string; genre?: string; rated?: "yes" | "no";
+    sort?: "added" | "title" | "my_rating"; limit?: number; offset?: number;
+  }) => request<Page<LibraryItem>>("GET", `/api/me/library${qs(p)}`),
+  libraryStatuses: (ids: number[]) =>
+    request<{ statuses: Record<string, LibraryStatus> }>("GET", `/api/me/library/statuses${qs({ book_ids: ids.join(",") })}`),
+  setLibraryStatus: (id: number, status: LibraryStatus) => request<LibraryEntry>("PUT", `/api/me/library/${id}`, { status }),
+  removeFromLibrary: (id: number) => request<unknown>("DELETE", `/api/me/library/${id}`),
 
   // Admin
   adminBooks: (status: BookStatus, offset = 0) =>
