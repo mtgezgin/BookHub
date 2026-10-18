@@ -90,6 +90,14 @@ test("kitabı ekle, durumunu değiştir, rozeti gör, Kitaplığım'da süz ve �
   await expect(page.getByRole("heading", { name: BOOK, level: 1 })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
+  // Vazgeç sonrası sayfa tıklanabilir kalmalı: menüden açılan modal diyalog, kapanınca body'de
+  // pointer-events: none bırakmamalı (Radix menü + diyalog etkileşimi). Ardından gerçekten çıkar.
+  await inLibrary(page).click();
+  await page.getByRole("menuitem", { name: "Kitaplığımdan çıkar" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Vazgeç" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(inLibrary(page)).toHaveAccessibleName("Kitaplığında: Okudum");
+
   // Çıkar: kitap sayfasında, onayla. Dar ekranda Kitaplığım kullanıcı menüsünde.
   await removeFromLibrary(page);
   await openAccountMenu(page);
