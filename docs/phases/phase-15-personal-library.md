@@ -196,6 +196,23 @@ CREATE TABLE library_entries (
   ayrılırken çağırdı ve uygulama boş ekranla çöktü. Etki artık hiçbir şey döndürmüyor; regresyon testi var.
 - **360 px:** "Puanım" düğme grubu 1 px taşıyordu; gruplar kendi içinde kaydırılıyor.
 
+Son incelemenin (taze bir inceleyici, bütün dal) bulduğu ve kapatılanlar:
+
+- **İstek sürerken menü gerçekten açılıyordu.** Düğmenin `disabled`'ı yetmiyor: Radix menüyü
+  `pointerdown` ile açıyor ve yalnız tetikleyicinin kendi `disabled` prop'una bakıyor; Chromium pasif
+  düğmede de `pointerdown` tetikliyor. İki PUT yarışıp ekranda son seçim olmayan durum kalabiliyordu.
+  Tetikleyiciler artık `disabled` alıyor; test menüyü gerçekten açmayı deniyor.
+- **Etkiler kullanıcı kimliğine bağlı** (`user?.id`): her sessiz token yenilemesi yeni bir kullanıcı
+  nesnesi getiriyor; nesneye bağlı etki durumu yeniden okuyup yeniden denenen PUT'la yarışıyordu.
+- **Boşalmış sayfa:** son kitap kendi sayfasından çıkarılıp "geri" ile dönülünce Kitaplığım boş bir
+  sayfada "Kitaplığın boş" diyordu. Artık son gerçek sayfaya gidiliyor; boş kitaplık ekranı toplama bakıyor.
+- **Paket boyutu:** Radix menüsü ve diyaloğu ana pakete girmişti (Faz 14 Moderasyon'u tam bunu önlemek
+  için tembel yüklemişti). Ana JS gzip: Faz 15 öncesi 107,9 kB → tembel yüklemeden 139,4 kB →
+  **108,8 kB**. Giriş yapmış okura ait menü `LibraryMenu` (18,9 kB gzip) ve Kitaplığım sayfası (2,9 kB)
+  ayrı parçalar; Radix diyaloğu paylaşılan `dialog` parçasında (12,6 kB).
+- **Yazma sahipliği testi:** bob'un PUT/DELETE'i alice'in kaydına dokunmuyor; silme sorgusu `user_id`'yi
+  yok sayacak şekilde bozulunca test kırmızı yandı (mutasyonla doğrulandı).
+
 ## ✅ Tamamlanma
 
 - Faz 15 issue'su açılmış (Ready'den önce kapsam ve kabul kriterleri), PR'ı `Refs` ile bağlı.
