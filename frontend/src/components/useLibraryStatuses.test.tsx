@@ -96,6 +96,24 @@ describe("useLibraryStatuses", () => {
     expect(unhandled).not.toHaveBeenCalled();
   });
 
+  it("yeni kimliklerin okuması başarısızsa önceki rozetler kalmaz", async () => {
+    const { el, rerender } = mount([3]);
+    await act(async () => replies[0]({ statuses: { "3": "READ" } }));
+    (api as unknown as Record<string, unknown>).libraryStatuses = () => Promise.reject(new Error("db"));
+    rerender([3, 5]);
+    await act(async () => {});
+    expect(el.textContent).toBe("3:- 5:-");
+  });
+
+  it("kullanıcı değişince önceki kullanıcının durumları gösterilmez", async () => {
+    const { el, rerender } = mount([3]);
+    await act(async () => replies[0]({ statuses: { "3": "READ" } }));
+    h.user = { ...USER, id: 8 };
+    rerender([3]);
+    expect(calls).toEqual([[3], [3]]);
+    expect(el.textContent).toBe("3:-");
+  });
+
   it("çıkış yapılınca durumlar temizlenir", async () => {
     const { el, rerender } = mount([3]);
     await act(async () => replies[0]({ statuses: { "3": "READ" } }));

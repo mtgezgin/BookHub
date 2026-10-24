@@ -3,35 +3,40 @@ import { api } from "../api/client";
 import type { LibraryStatus } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 
+type Owned = { owner?: number; statuses: Record<number, LibraryStatus> };
+const EMPTY: Owned = { statuses: {} };
+
 /**
  * Ekrandaki kitapların kitaplık durumları — kitap başına bir istek değil, TEK istek (N+1 yok).
  * Kişisel veri katalog cevabına gömülmez: katalog ve "en sevilenler" herkes için aynı kalır
  * (ortak önbellek), durum ayrı uçtan gelir. Giriş yoksa ya da liste boşsa istek atılmaz.
  * Anahtar sıralı ve tekrarsız kimliklerden kurulur: aynı kitaplar başka sırayla gelince yeniden sormaz.
  * Okuma başarısızsa kartlar rozetsiz kalır (süs bilgi; sayfayı bozmaz).
+ * Kimlikler değişince yeni cevap gelene kadar öncekiler gösterilir (sayfa değişirken rozetler yanıp sönmesin).
  */
 export function useLibraryStatuses(bookIds: number[]): Record<number, LibraryStatus> {
   const { user } = useAuth();
   // Kimliğe bağlı: sessiz token yenilemesi yeni bir kullanıcı nesnesi getirir, aynı okur için yeniden sorulmaz.
   const userId = user?.id;
   const key = [...new Set(bookIds)].sort((a, b) => a - b).join(",");
-  const [statuses, setStatuses] = useState<Record<number, LibraryStatus>>({});
+  // Durumlar kime ait olduklarıyla saklanır: kullanıcı değişince yeni cevap beklenmeden gizlenir.
+  const [state, setState] = useState<Owned>(EMPTY);
 
   useEffect(() => {
     if (userId === undefined || key === "") {
-      setStatuses({});
+      setState(EMPTY);
       return;
     }
     let current = true;
     api.libraryStatuses(key.split(",").map(Number)).then(
       // JSON nesne anahtarları zaten metin: statuses[3] ile statuses["3"] aynı alanı okur.
-      (r) => current && setStatuses(r.statuses),
-      () => {},
+      (r) => current && setState({ owner: userId, statuses: r.statuses }),
+      () => current && setState(EMPTY),
     );
     return () => {
       current = false;
     };
   }, [userId, key]);
 
-  return statuses;
+  return state.owner === userId ? state.statuses : EMPTY.statuses;
 }
