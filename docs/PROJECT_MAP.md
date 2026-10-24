@@ -3,6 +3,7 @@
 > **Bu dosya "NE" sorusunun cevabı:** hangi dosya ne işe yarar, bir istek nereden nereye gider,
 > hangi araç niye var. Uzun aradan sonra dönünce burayı oku.
 > **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
+> "Hangi sırayla?" sorusunun cevabı: **[ROADMAP.md](ROADMAP.md)**.
 >
 > Son güncelleme: 2026-10-05 — canlıya çıkış (2026-10-04) ve yayın süreci. 13 fazın tamamı
 > 2026-09-20'de bitti (Faz 13: oturum sertleştirme).
@@ -250,4 +251,5 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
 - Kullanıcı silme ucu yok (hesap yalnızca veritabanından silinebiliyor).
 - Canlıda izleme ve alarm yok (sağlık kontrolü, uptime, hata izleme) — [DEPLOYMENT.md](DEPLOYMENT.md) §5.
 - Küme içi Postgres yalnız demo içindir; prod'da yönetilen veritabanı.
-- Ürün tarafındaki istekler ayrı bir listede: [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md).
+- Ürün tarafındaki istekler ayrı bir listede: [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md); sırası
+  [ROADMAP.md](ROADMAP.md)'de.

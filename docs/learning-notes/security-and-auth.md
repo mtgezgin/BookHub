@@ -17,6 +17,8 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 10. [CSRF katmanları: SameSite=Strict, CrossOriginProtection ve login-CSRF](#10-csrf-katmanları-samesitestrict-crossoriginprotection-ve-login-csrf)
 11. [Parola değiştirmek neden "her yerden çıkış" demektir](#11-parola-değiştirmek-neden-her-yerden-çıkış-demektir)
 12. [Git'e sızan sır: saklamak değil değiştirmek (rotate)](#12-gite-sızan-sır-saklamak-değil-değiştirmek-rotate)
+13. [bcrypt cost ve küçük CPU: canlıda giriş neden 3–4 saniye?](#13-bcrypt-cost-ve-küçük-cpu-canlıda-giriş-neden-34-saniye)
+14. [Tedarik zinciri: npm install script'leri ve SHA'ya sabitlenmiş Actions](#14-tedarik-zinciri-npm-install-scriptleri-ve-shaya-sabitlenmiş-actions)
 
 ---
 
@@ -689,3 +691,77 @@ Bu konu dilden bağımsız; TS/JS projelerinde de birebir aynı.
 - [#1 Sır (secret) nedir](#1-sır-secret-nedir--dev-credentialı-repoya-yazmak-neden-güvenli-olabilir) — dev değeri ile gerçek sırrın farkı
 - [CLAUDE.md](../../CLAUDE.md) "Güvenlik" bölümü — "Sır commit'lenmez", sırların Keychain'den doğrudan aktarılması
 - [.env.example](../../.env.example) · [docker-compose.yml](../../docker-compose.yml) — Sonar'ın işaretlediği dev DSN'leri
+
+---
+
+## 13. bcrypt cost ve küçük CPU: canlıda giriş neden 3–4 saniye?
+
+**🗓️ Bağlam:** 2026-10-12. Bir kontrol raporunda "canlıda giriş yaklaşık 4 saniye sürüyor" bulgusu
+vardı; "buna bakalım" dedim. Ölçüm yapıldı, seçenekler konuşuldu ve "olduğu gibi kalsın, dokümante
+et" kararı verdim (#32).
+
+**⚡ Kısa cevap:** Sürenin ~3,3 saniyesi bcrypt (cost 12), ~0,45 saniyesi ağ. bcrypt **bilerek**
+yavaştır ve süresi CPU'ya bağlıdır; canlıdaki API'nin payı 0.1 vCPU, yani bir çekirdeğin onda biri.
+Kodla düzelmez: cost'u düşürmek güvenliği düşürür. Tek çare daha büyük bir plan; şimdilik
+değiştirmedik.
+
+**📖 Açıklama:**
+
+- **Cost ne demek:** her +1 hesaplamayı **ikiye katlar**. Cost 12 normal bir çekirdekte ~250 ms.
+  Amaç, veritabanı sızarsa saldırganın her parola tahmininin de bu kadar pahalı olması.
+- **0.1 vCPU ne demek:** Northflank'ın ücretsiz planı (`nf-compute-10`) süreç başına bir çekirdeğin
+  zamanının yalnız %10'unu verir. 250 ms'lik iş ~10 kat uzar.
+- **Yerel ölçümle plan karşılığı:** `nf-compute-20` (0.2 vCPU) ≈ 2 sn, `nf-compute-50` (0.5 vCPU)
+  ≈ 1 sn. İkisi de ücretli.
+- **Neden cost düşmüyor:** [CLAUDE.md](../../CLAUDE.md) kuralı cost ≥ 12. Cost 10 dört kat hızlı
+  olurdu, ama sızıntı durumunda dört kat ucuz kırılırdı. Giriş günde birkaç kez yapılır; 3 saniye can
+  sıkar ama bir güvenlik açığı değildir.
+- **Bilinmeyen e-posta da aynı süreyi bekler:** kullanıcı yoksa da sahte bir hash'le karşılaştırma
+  yapılır (#6 user enumeration). Bu yüzden "hızlı hata = hesap yok" sinyali verilmez.
+
+**JS/TS'te de aynı:** `bcrypt`/`argon2` paketleri de CPU'ya bağlıdır; Node'da üstüne event loop'u
+bloklamasın diye iş parçacığı havuzunda çalışırlar. Go'da her istek kendi goroutine'inde, ama CPU
+payı yine aynı.
+
+**🔗 İlgili:**
+- [#4 Parola hash'leme](#4-parola-hashleme-neden-bcrypt-cost-ne-demek-72-bayt-tuzağı) · [#6 User enumeration](#6-user-enumeration-generic-mesaj-yetmez-süre-de-eşit-olmalı)
+- [docs/DEPLOYMENT.md](../DEPLOYMENT.md) §5 "Bilinen sınırlar" — ölçüm ve karar · [backend/internal/auth/password.go](../../backend/internal/auth/password.go) (`bcryptCost`)
+
+---
+
+## 14. Tedarik zinciri: npm install script'leri ve SHA'ya sabitlenmiş Actions
+
+**🗓️ Bağlam:** 2026-10-12. SonarQube'u bağladıktan sonra main'in "E Security Rating"inin arkasında
+21 bulgu çıktı. 5'i "parola" uyarısıydı ve hiçbiri gerçek sır değildi; 16'sı tedarik zinciri
+sertleştirmesiydi (S6505, S8543, S7637). "Issue + PR" ile hepsini kapattık, not A'ya çıktı.
+
+**⚡ Kısa cevap:** Tedarik zinciri saldırısı, senin kodun değil **bağımlılığının** (npm paketi, GitHub
+Action) ele geçirilmesidir. Üç kapı kapattık: npm paketlerinin kurulumda kod çalıştırmasını
+kapattık (`--ignore-scripts`), `npx`'in internetten paket indirmesini kaldırdık, üçüncü taraf
+Action'ı değiştirilebilir bir etikete değil **commit SHA'sına** sabitledik.
+
+**📖 Açıklama:**
+
+| Kapı | Risk | Ne yaptık |
+| --- | --- | --- |
+| npm install script'leri | `npm ci` her paketin `postinstall`'ını çalıştırır; ele geçirilmiş bir paket CI'da ve Docker derlemesinde kod çalıştırır | `npm ci --ignore-scripts` + `frontend/.npmrc`'de `ignore-scripts=true` |
+| `npx` | Paket kurulu değilse sorgusuz indirir ve çalıştırır; sürüm sabit değil | CI'da `npx vite build` / `npx playwright …` yerine projenin kendi betikleri: `npm run build`, `npm run e2e:browsers`, Docker'da `npm run bundle` |
+| Action etiketi | `@v9` bir **etiket**; sahibi (ya da hesabı ele geçiren) onu başka koda taşıyabilir | Üçüncü taraf `golangci-lint-action@ba0d7d2…  # v9.3.0` (SHA değişmez) |
+
+- **Neden build hâlâ çalışıyor:** Vite 8'in paketleyicisi Rolldown, yerel ikili dosyasını platform
+  paketleri olarak (`@rolldown/binding-darwin-arm64` gibi, `optionalDependencies`) getirir;
+  postinstall'a ihtiyaç duymaz. Playwright'ın tarayıcısı zaten ayrı ve açık bir adımda indiriliyor.
+- **SHA'yı kim güncelliyor:** Dependabot SHA'lı satırları da günceller; yorumdaki `# v9.3.0`
+  hangi sürüm olduğunu insanlara söyler. GitHub'ın kendi `actions/*` eylemleri etiketle kaldı
+  (Sonar yalnız üçüncü tarafları işaretledi); #28 onları `v4` → `v7` taşıdı.
+- **Aynı PR'ın diğer iki küçük düzeltmesi:** zamanlama eşitleyici sahte hash artık sabit bir metinden
+  değil rastgele baytlardan üretiliyor (`rand.Text()`); e2e test verisinde `Math.random` yerine
+  `crypto.randomUUID`.
+
+**JS/TS'te daha önemli:** Go modülleri kurulumda kod çalıştırmaz; npm'de bu varsayılan davranış. Bu
+yüzden bu kapıların ikisi doğrudan frontend tarafına ait.
+
+**🔗 İlgili:**
+- [.github/workflows/ci.yml](../../.github/workflows/ci.yml) · [frontend/Dockerfile](../../frontend/Dockerfile) · [frontend/package.json](../../frontend/package.json) (`bundle`, `e2e:browsers`)
+- [tooling-and-workflow.md #8 SonarCloud](tooling-and-workflow.md#8-sonarcloud-bulgu-quality-gate-accepted-ve-mcp)
+- [infra-and-devops.md](infra-and-devops.md) #5 Trivy — imaj tarafındaki karşılığı

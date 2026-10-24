@@ -8,6 +8,8 @@ arayüz testleri. Format: [README.md](README.md).
 1. [Tasarım token'ları ve utility-first CSS (Tailwind)](#1-tasarım-tokenları-ve-utility-first-css-tailwind)
 2. [shadcn/ui: paket değil, repoya kopyalanan bileşen](#2-shadcnui-paket-değil-repoya-kopyalanan-bileşen)
 3. [Erişilebilirlik ve rol tabanlı test (bütün kartı tıklanır yapmak dahil)](#3-erişilebilirlik-ve-rol-tabanlı-test-bütün-kartı-tıklanır-yapmak-dahil)
+4. [?? ve ??= ile ||: boş değer mi, yanlış değer mi?](#4--ve--ile--boş-değer-mi-yanlış-değer-mi)
+5. [Dış kaynaktan kapak: lisans, bağlantı ve referrerPolicy](#5-dış-kaynaktan-kapak-lisans-bağlantı-ve-referrerpolicy)
 
 ---
 
@@ -140,3 +142,94 @@ kütüphane yok, birim testlerindeki düz DOM sorguları rol ve `aria-*` öznite
 - [frontend/e2e/helpers.ts](../../frontend/e2e/helpers.ts) (`topbar`) · [frontend/src/components/BookCard.tsx](../../frontend/src/components/BookCard.tsx) (stretched link)
 - [tooling-and-workflow.md #7 Playwright](tooling-and-workflow.md#7-playwright-ile-uçtan-uca-test-gerçek-tarayıcı-rate-limit-bütçesi-ve-storagestate-tuzağı)
 - [docs/phases/phase-14-ui-redesign.md](../phases/phase-14-ui-redesign.md) (ölçümler)
+
+---
+
+## 4. ?? ve ??= ile ||: boş değer mi, yanlış değer mi?
+
+**🗓️ Bağlam:** 2026-10-13. SonarCloud `client.ts`'teki token yenileme kodunda `typescript:S6606`
+("Nullish coalescing should be preferred") bulgusu verdi; "yalnız bunu düzelt" dedim. Düzeltmede
+`??=`'nin ne yaptığını anlatan iki satırlık bir yorum da eklenmişti; "mantıksızsa yapmayalım" diye
+sordum ve yorumu kaldırdık.
+
+**⚡ Kısa cevap:** `||` sol taraf **herhangi bir yanlış değer** (`0`, `""`, `false`, `NaN`, `null`,
+`undefined`) olduğunda sağa geçer. `??` yalnız **`null` ya da `undefined`** olduğunda geçer. `a ??= b`
+ise "a boşsa b'yi ata; doluysa b'yi hiç çalıştırma" demektir.
+
+**📖 Açıklama:**
+
+| İfade | `x = 0` | `x = ""` | `x = null` |
+| --- | --- | --- | --- |
+| `x \|\| 5` | 5 | 5 | 5 |
+| `x ?? 5` | 0 | "" | 5 |
+
+Fark, `0` ya da boş metin gibi **geçerli ama yanlış (falsy)** değerlerde ortaya çıkar. Sayfa
+sayısı `0`, puan `0`, arama metni `""` gibi değerlerde `||` sessizce varsayılana kayar; çoğu zaman
+istenen bu değildir.
+
+Bizim kodumuz (tek uçuşlu yenileme):
+
+```ts
+// önce
+if (!refreshing) {
+  refreshing = doRefresh().finally(() => { refreshing = null; });
+}
+// sonra
+refreshing ??= doRefresh().finally(() => { refreshing = null; });
+```
+
+`refreshing` ya bir `Promise` ya da `null` olduğu için davranış aynı; `??=` yalnız niyeti daha açık
+söylüyor: "yalnız boşken başlat". Önemli ayrıntı: sağ taraf **kısa devre** ile çalışır; doluyken
+`doRefresh()` hiç çağrılmaz, ikinci bir yenileme başlamaz.
+
+**Yorum neden kalktı:** yorum, operatörün kendisinin söylediğini tekrar ediyordu. Kod kuralımız:
+yorum yalnız kodun gösteremediği bir kısıt için yazılır. "Neden tek uçuş" bilgisi zaten fonksiyonun
+üstünde ve learning-notes'ta var.
+
+**Go'da:** `??` yok. Her tipin bir **zero value**'su var (`0`, `""`, `nil`) ve "yokluk" çoğu zaman
+açık bir `if v == nil` ya da `v, ok := m[k]` ile kontrol edilir. Daha uzun, ama falsy karmaşası da yok.
+
+**🔗 İlgili:**
+- [frontend/src/api/client.ts](../../frontend/src/api/client.ts) (`refreshSession`) · commit'ler `ef5a14b`, `8d4bc88`
+- [go-language.md #8 Zero value](go-language.md#8-zero-value-nedir-nasıl-belirlenir)
+- [tooling-and-workflow.md #8 SonarCloud](tooling-and-workflow.md#8-sonarcloud-bulgu-quality-gate-accepted-ve-mcp)
+
+---
+
+## 5. Dış kaynaktan kapak: lisans, bağlantı ve referrerPolicy
+
+**🗓️ Bağlam:** 2026-10-12, Faz 14'ün son adımı: demo kitaplara gerçek kapak. Kaynak olarak
+"kopyasını repoya koymak" ile "Open Library'ye bağlantı" seçenekleri konuşulurken "lisans riski"
+dendi; "Ben burada kitap değerlendirme platformu yapmaya çalışıyorum, neden lisans riski var?" diye
+sordum. Sonra Tutunamayanlar'ın kapağının yanlış (iç sayfa) olduğunu ekran görüntüsüyle yakaladım.
+
+**⚡ Kısa cevap:** Kitap kapağı kendi başına telifli bir eserdir (tasarımcı/yayınevi). Bir
+değerlendirme sitesinde kapağı "bu yorum bu kitapla ilgili" demek için **göstermek** yaygın ve
+düşük risklidir. Risk, kapağı **kopyalayıp** kendi repomuzdan ya da imajımızdan yeniden dağıtmaktır.
+Biz bağlantı veriyoruz: kapak Open Library'de duruyor, biz yalnız `<img src>` ile gösteriyoruz.
+(Hukuki görüş değil; genel tablo.)
+
+**📖 Açıklama:**
+
+| | Bağlantı (seçtiğimiz) | Kopya saklamak |
+| --- | --- | --- |
+| Görseli kim tutuyor | Open Library (kapak servisini tam bu iş için sunuyor) | Biz; repo ve imajla dağıtıyoruz |
+| Servis düşerse | Üretilmiş kapak gösterilir | Etkilenmez |
+| Ek sorun | — | Herkese açık repo, görselleri klonlayan herkese dağıtır |
+
+Bağlantının küçük ayrıntıları ([BookCover.tsx](../../frontend/src/components/BookCover.tsx)):
+
+- **Kapak kimliğiyle adres** (`/b/id/<id>-L.jpg`): ISBN ya da başlıkla aramak yerine sabit kimlik;
+  Open Library'nin hız sınırına girmiyor.
+- **`?default=false`:** kimlik bir gün kalkarsa Open Library boş bir yer tutucu değil **404** döner;
+  `<img>`'nin `onError`'u tetiklenir ve arayüz kendi üretilmiş kapağına düşer.
+- **`referrerPolicy="no-referrer"`:** tarayıcı görseli isterken normalde `Referer` başlığında hangi
+  sayfadan geldiğini (kitap adresimizi) gönderir. Bu ayarla göndermez: üçüncü tarafa ziyaretçinin
+  hangi kitaba baktığını sızdırmayız.
+- **Gözle doğrulama şart:** Open Library'deki taramalar bazen kapak değil iç sayfa ya da başka bir
+  kitap. 53 kapağın hepsi bir kontrol sayfasında tek tek bakılarak seçildi; 5'i değiştirildi.
+
+**🔗 İlgili:**
+- [backend/migrations/0009_demo_book_covers.sql](../../backend/migrations/0009_demo_book_covers.sql) — kural: Türkçe baskı varsa o, yoksa özgün
+- [database.md #14 Eser ve baskı modeli](database.md#14-eser-ve-baskı-modeli-kısmi-benzersiz-index-ile-tek-varsayılan) — bu sorudan doğan #36
+- [frontend/nginx/security-headers.conf](../../frontend/nginx/security-headers.conf) — CSP `img-src 'self' https: data:`: HTTPS kapak adresleri ek ayar gerektirmedi

@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-10-12):** **14 fazın tamamı ✅** (Faz 14 arayüz yeniden tasarımı ve gerçek kapaklar canlıda) — MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-10-17):** yol haritası yeniden kuruldu ([ROADMAP.md](ROADMAP.md)) · **14 fazın tamamı ✅** (Faz 14 arayüz yeniden tasarımı ve gerçek kapaklar canlıda) — MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React frontend, CI/CD, NGINX,
 Kubernetes) + **Faz 13 oturum sertleştirme** (httpOnly refresh çerezi, token aileleri + reuse
 tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
@@ -14,9 +14,12 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
   dalı + Deploy iş akışı; main'e her merge = yayın), [CLAUDE.md](../CLAUDE.md) kuralları,
   makinenin denetlediği kurallar (`scripts/checks.sh`: git kancaları + CI'da Kurallar) ·
   [PROCESS.md](PROCESS.md).
-- **Açık maddeler:** eser/baskı ayrımı ve çeviriler ([#36](https://github.com/mtgezgin/BookHub/issues/36),
-  sıradaki özellik), canlı izleme ve alarm (henüz yok), [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular,
-  Node 26 (Dependabot #13, #29; LTS'i bekliyor).
+- **Yol haritası (2026-10-17):** hedef "üretim kalitesinde demo"; sıra ve gerekçe
+  [ROADMAP.md](ROADMAP.md)'de. **Şimdi: Faz 15 — kişisel kitaplık** (Paket A, tasarım yapılacak) →
+  Faz 16 eser ve baskı ([#36](https://github.com/mtgezgin/BookHub/issues/36), spec
+  [incelemede](phases/phase-16-works-editions.md)) → Faz 17 okuma takibi ve inceleme.
+- **Teknik hat:** Node 26 (Dependabot #13, #29; LTS'i bekliyor), canlı izleme ve alarm (henüz yok),
+  [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular (ilgili fazın içinde kapanır).
 
 > **Faz 14 — arayüz yeniden tasarımı (canlıda 2026-10-12):** A tasarım temeli · B ana sayfa +
 > detay · C formlar, gezinme, tema, moderasyon diyaloğu · D katalog sıralaması (`?sort=rating`) —
@@ -143,14 +146,22 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
   işi (`make scan` ile aynı kural), pod'larda `automountServiceAccountToken: false`.
 - **Smoke 25/25** (Faz 13 kontrolleri dahil).
 
-## Sıradaki (opsiyonel)
+## Sıradaki
 
-1. **Canlı backlog'lar:** [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) (inceleme bulguları; açık olanlar
-   F03, F04, F06–F09, F11–F15, F17 + F10/F16'nın kalan yarıları; F05 risk kabul edildi) ve [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)
-   (ürün fikirleri — senin sahipliğinde).
-2. Canlı izleme: Northflank sağlık kontrolleri, uptime izleyici, hata izleme — [PROCESS.md](PROCESS.md) §7.
-3. Bilinen borçlar: [PROJECT_MAP.md](PROJECT_MAP.md) §7.
-4. Brief §12 ekstraları (okuma listeleri, raporlar, öneri sistemi…).
+Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
+
+1. **Şimdi — Faz 15, kişisel kitaplık** (FEATURE_REQUESTS Paket A: LIB-01, LIB-02). İlk adım tasarım.
+2. **Sonra:**
+   - Faz 16, eser ve baskı (#36; spec [phase-16](phases/phase-16-works-editions.md), incelemede).
+   - Faz 17, okuma takibi ve inceleme.
+3. **Teknik hat (araya, küçük):**
+   - Node 26.
+   - Canlı izleme ([PROCESS.md](PROCESS.md) §7).
+   - [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) bulguları: açık olanlar F03, F04, F06–F09, F11–F15, F17
+     ve F10/F16'nın kalan yarıları; F05 risk kabul edildi.
+   - Bilinen borçlar: [PROJECT_MAP.md](PROJECT_MAP.md) §7.
+4. **Kural:** yeni fikir önce [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)'e yazılır. Issue yalnız
+   "Şimdi" fazı için açılır ([ROADMAP § Kurallar](ROADMAP.md#kurallar)).
 
 ## Ortam / gerçekler
 
@@ -176,8 +187,9 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 
 ## Doküman haritası
 
+- [ROADMAP.md](ROADMAP.md) — "hangi sırayla ve neden?" (Faz 15+ ve teknik hat).
 - [PROJECT_MAP.md](PROJECT_MAP.md) — "neyin ne olduğu" (dosya dosya, istek yolculuğu, araçlar).
-- [PROJECT_BRIEF.md](PROJECT_BRIEF.md) — ürün + roadmap (§11) + kararlar (§18).
+- [PROJECT_BRIEF.md](PROJECT_BRIEF.md) — ürün + ilk roadmap (§11, Faz 1–12) + kararlar (§18, §19).
 - [phases/](phases/) — faz rehberleri · [GO_CONVENTIONS.md](GO_CONVENTIONS.md) · [WHY_GO_VS_TS.md](WHY_GO_VS_TS.md)
 - [learning-notes/](learning-notes/) — sorulan kavramların kalıcı notları (`/not` skill'i ekler).
 - **Canlı backlog'lar:** [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) — inceleme bulguları + çözüm

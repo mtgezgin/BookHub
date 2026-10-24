@@ -17,6 +17,8 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 10. [Satır kilidi türleri: FOR UPDATE, FOR NO KEY UPDATE, FOR KEY SHARE, FOR SHARE](#10-satır-kilidi-türleri-for-update-for-no-key-update-for-key-share-for-share)
 11. [SELECT ... FOR UPDATE SKIP LOCKED: beklemek yerine atlamak](#11-select--for-update-skip-locked-beklemek-yerine-atlamak)
 12. [COMMIT'ten sonra başarısız olabilecek adım bırakma](#12-committen-sonra-başarısız-olabilecek-adım-bırakma)
+13. [Genişlet ve daralt: bir kolonu silmek neden iki yayın ister?](#13-genişlet-ve-daralt-bir-kolonu-silmek-neden-iki-yayın-ister)
+14. [Eser ve baskı modeli: kısmi benzersiz index ile tek varsayılan](#14-eser-ve-baskı-modeli-kısmi-benzersiz-index-ile-tek-varsayılan)
 
 ---
 
@@ -598,3 +600,119 @@ değişmezini de etkilemez.
 - [#7 Kayıp güncelleme](#7-kayıp-güncelleme-lost-update-neden-kilit-neden-türetilmiş-veri) — transaction sınırının diğer yüzü
 - [docs/REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F02 · [docs/phases/phase-13-session-hardening.md](../phases/phase-13-session-hardening.md)
 - [backend/internal/auth/repository.go](../../backend/internal/auth/repository.go) (`Rotation.User`, `RotateRefreshToken`)
+
+---
+
+## 13. Genişlet ve daralt: bir kolonu silmek neden iki yayın ister?
+
+**🗓️ Bağlam:** 2026-10-17, #36'nın (eser/baskı) tasarımında. Kapak ve sayfa sayısı `books`'tan
+yeni `editions` tablosuna taşınacak, eski iki kolon sonra silinecekti. İlk önerim "yeni kod
+baskısı olmayan kitapta eski kolona düşsün, değişiklikleri iki yere yazsın" idi. sqlc'nin ürettiği
+koda bakınca bunun, kolonları silen migration koştuğu anda canlıyı kıracağı ortaya çıktı;
+tasarımı birlikte düzelttik.
+
+**⚡ Kısa cevap:** Deploy önce migration'ı uygular, yeni kod birkaç dakika sonra çıkar. Yani her
+migration **o an çalışan eski kodla** uyumlu olmalı. Bir kolonu silmek bu yüzden iki yayındır:
+önce kolonun adını hiç anmayan kod canlıya çıkar, sonra ayrı bir yayında kolon silinir. sqlc
+`SELECT *`'ı kolon adlarına açtığı için "o alanı kullanmıyorum" demek yetmez.
+
+**📖 Açıklama:**
+
+Zaman çizelgesi (daraltma yayını):
+
+| An | Veritabanı | Çalışan kod |
+| --- | --- | --- |
+| 1 | kolon var | eski kod (önceki yayın) |
+| 2 | migration kolonu siler | **hâlâ eski kod** |
+| 3 | kolon yok | yeni kod çıkar |
+
+2. anda eski kodun gönderdiği her sorgu silinen kolonu anıyorsa hata verir. Çözüm "genişlet →
+daralt" (expand / contract):
+
+1. **Genişlet:** yeni yapıyı ekle (tablo, kolon), veriyi taşı, kodu yeni yapıya geçir. Eski yapı
+   hâlâ duruyor; eski kod da yeni kod da çalışabilir.
+2. **Daralt:** genişletme yayını canlıda doğrulandıktan **sonra**, ayrı bir PR'da eski yapıyı sil.
+
+**sqlc tuzağı:** `books.sql`'de `SELECT * FROM books` yazarız, ama üretilen Go kodunda
+(`internal/db/books.sql.go`) sorgu metni şöyledir:
+
+```sql
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, ... FROM books
+```
+
+Yıldız, **kod üretilirken** açılır ve tek tek ad olarak binary'ye girer. `cover_url`'i hiçbir
+handler okumasa bile sorgu onu ister; kolon silinince Postgres `column "cover_url" does not exist`
+der. Bu yüzden genişletme PR'ında kitap sorguları `*` yerine açık kolon listesine geçiyor ve silinecek
+iki kolon listede yok.
+
+**Kanıtlamak için test:** bir transaction açıp iki kolonu `ALTER TABLE … DROP COLUMN` ile silmek,
+kitap okuyan/yazan her repository fonksiyonunu çalıştırmak ve sonunda rollback etmek. Bir sorgu
+eski kolonu anıyorsa CI'da kırmızı yanar; hata canlıda değil, PR'da yakalanır. (Postgres'te DDL de
+transaction içinde geri alınabilir; MySQL'de bu mümkün değil.)
+
+**Bedeli:** genişletme yayını geri alınırsa eski kod, aradaki düzenlemeleri göremez (eski kolonlar
+güncellenmedi). Bu bilinçli kabul edilir; o yüzden daraltma ancak genişletme canlıda doğrulanınca
+gelir.
+
+**JS/TS'te de aynı:** Prisma da şemadaki bütün alanları açıkça seçer; kolon silmek orada da iki
+adımdır. Sorun dile değil, "migration koddan önce koşar" gerçeğine ait.
+
+**🔗 İlgili:**
+- [docs/phases/phase-16-works-editions.md](../phases/phase-16-works-editions.md) — tasarım, PR 1 / PR 2
+- [CLAUDE.md](../../CLAUDE.md) "Veritabanı ve migration" — "önce genişlet → yayınla → sonra daralt" kuralı
+- [#1 goose ve migration kavramı](#1-goose-ve-migration-kavramı-şema-için-git) · [#2 sqlc nedir](#2-sqlc-nedir-sqli-sen-yaz-goyu-makine-yazsın)
+- [infra-and-devops.md](infra-and-devops.md) #12 — Deploy'un migration'ı koddan önce uygulaması
+
+---
+
+## 14. Eser ve baskı modeli: kısmi benzersiz index ile tek varsayılan
+
+**🗓️ Bağlam:** 2026-10-12'de kapakları eklerken "Türkçe baskı mı, özgün baskı mı?" sorusu çıktı;
+çeviri eklemek istediğimi söyledim ve #36 açıldı. 2026-10-17'de tasarımında `books` tablosunun aslında
+iki şeyi karıştırdığını ve "kitap başına tek varsayılan baskı" kuralını nasıl garanti edeceğimizi
+konuştuk.
+
+**⚡ Kısa cevap:** Eser (work) soyut içeriktir, baskı (edition) elde tutulan kitaptır; puan ve
+yorum esere, kapak/çevirmen/sayfa baskıya aittir. "Her eserin en çok bir varsayılan baskısı" kuralını
+uygulama kodu değil, `UNIQUE (book_id) WHERE is_primary` gibi bir **kısmi benzersiz index**
+garanti eder.
+
+**📖 Açıklama:**
+
+| Seviye | Örnek | Ona ait olanlar |
+| --- | --- | --- |
+| Eser | Suç ve Ceza, Dostoyevski, 1866, Rusça | puan, yorum, tür, `/books/:id` adresi |
+| Baskı | İş Bankası, çev. …, 2019, 687 sayfa | dil, çevirmen, yayınevi, yıl, ISBN, sayfa, kapak |
+
+BookHub'da bugün tek `books` tablosu iki seviyeyi karıştırıyor: `publication_year` ve `language`
+eserin (ilk yayın, özgün dil), `cover_url` ve `page_count` ise Türkçe baskının. Örnek: 1984'ün dili
+`en`, kapağı Türkçe baskının.
+
+**Neden `books` eser olarak kaldı:** puanlar, yorumlar, tür bağları, adresler ve denetim kayıtları
+hep `books.id`'ye bağlı. Yeni bir `works` tablosu açıp bunların hepsini taşımak, kazancına göre çok
+riskli. Yeni tablo yalnız baskılar için: `editions.book_id → books.id`.
+
+**Kısmi benzersiz index:**
+
+```sql
+CREATE UNIQUE INDEX editions_one_primary_idx ON editions (book_id) WHERE is_primary;
+```
+
+Benzersizlik yalnız `is_primary = true` satırlara uygulanır: bir kitabın istediği kadar baskısı
+olabilir, ama ikinci bir `is_primary = true` satırı reddedilir (`23505`).
+
+**Neden uygulamada kontrol etmek yetmez:** "önce varsayılan var mı bak, yoksa ekle" iki adımdır. Aynı
+anda gelen iki istek ikisi de "yok" görüp ikisi de ekleyebilir (bkz. #7 kayıp güncelleme). Index bu
+yarışı veritabanında kapatır.
+
+**Sıra tuzağı:** varsayılanı değiştirirken önce eskisini `false` yapmak, sonra yenisini `true`
+yapmak gerekir (aynı transaction'da). Tersi sırada bir an iki varsayılan olur ve index reddeder.
+
+**JS/TS'te:** Prisma şemasında kısmi index doğrudan yazılamıyor; elle bir SQL migration eklemek
+gerekiyor. Burada SQL'i zaten biz yazdığımız için tek satır.
+
+**🔗 İlgili:**
+- [docs/phases/phase-16-works-editions.md](../phases/phase-16-works-editions.md) · issue [#36](https://github.com/mtgezgin/BookHub/issues/36)
+- [docs/FEATURE_REQUESTS.md](../FEATURE_REQUESTS.md) CAT-02 — aynı ayrımın ürün tarafı
+- [#3 Natural key vs surrogate key](#3-natural-key-vs-surrogate-key-isbn-neden-pk-olmaz) — ISBN'in neden kimlik olmadığı
+- [#7 Kayıp güncelleme](#7-kayıp-güncelleme-lost-update-neden-kilit-neden-türetilmiş-veri)
