@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-10-17):** yol haritası yeniden kuruldu ([ROADMAP.md](ROADMAP.md)) · **14 fazın tamamı ✅** (Faz 14 arayüz yeniden tasarımı ve gerçek kapaklar canlıda) — MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-10-24):** Faz 15 kişisel kitaplık PR'da ([#43](https://github.com/mtgezgin/BookHub/pull/43), birleşmeden önceki adımlar: [Sıradaki](#sıradaki)) · yol haritası `main`'de (#41) · **14 fazın tamamı ✅** (Faz 14 arayüz yeniden tasarımı ve gerçek kapaklar canlıda) — MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React frontend, CI/CD, NGINX,
 Kubernetes) + **Faz 13 oturum sertleştirme** (httpOnly refresh çerezi, token aileleri + reuse
 tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
@@ -15,7 +15,7 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
   makinenin denetlediği kurallar (`scripts/checks.sh`: git kancaları + CI'da Kurallar) ·
   [PROCESS.md](PROCESS.md).
 - **Yol haritası (2026-10-17):** hedef "üretim kalitesinde demo"; sıra ve gerekçe
-  [ROADMAP.md](ROADMAP.md)'de. **Şimdi: Faz 15 — kişisel kitaplık** (Paket A, [#42](https://github.com/mtgezgin/BookHub/issues/42): uygulandı, yayın bekliyor) →
+  [ROADMAP.md](ROADMAP.md)'de. **Şimdi: Faz 15 — kişisel kitaplık** (Paket A, [#42](https://github.com/mtgezgin/BookHub/issues/42): uygulandı, PR [#43](https://github.com/mtgezgin/BookHub/pull/43) birleşmeyi bekliyor) →
   Faz 16 eser ve baskı ([#36](https://github.com/mtgezgin/BookHub/issues/36), spec
   [incelemede](phases/phase-16-works-editions.md)) → Faz 17 okuma takibi ve inceleme.
 - **Teknik hat:** Node 26 (Dependabot #13, #29; LTS'i bekliyor), canlı izleme ve alarm (henüz yok),
@@ -53,6 +53,7 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 | 12 | Kubernetes (kind'da doğrulandı) | ✅ |
 | 13 | Oturum sertleştirme (httpOnly çerez, token ailesi + reuse, CSRF, parola değişimi, Playwright) | ✅ |
 | 14 | Arayüz yeniden tasarımı (tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik, katalog sıralaması) | ✅ (canlı, gerçek kapaklar dahil) |
+| 15 | Kişisel kitaplık (durum, Kitaplığım sayfası, kart rozetleri; migration 0010) | 🧪 PR #43, birleşme ve canlı doğrulama bekliyor |
 
 ## Faz 2'de ne oldu (özet)
 
@@ -151,7 +152,20 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 
 1. **Şimdi — Faz 15, kişisel kitaplık** (FEATURE_REQUESTS Paket A: LIB-01, LIB-02). Kod ve testler hazır
-   (#42, [phase-15](phases/phase-15-personal-library.md)); PR, yayın ve canlı doğrulama bekliyor.
+   (#42, [phase-15](phases/phase-15-personal-library.md)), PR [#43](https://github.com/mtgezgin/BookHub/pull/43) açık.
+   Birleşmeden önce:
+   - Takip commit'leri (review düzeltmeleri F1/F2, Sonar tekrar oranı için ortaklaştırma) #43'e push edilir.
+     Push kapısındaki code-review için oturumda Zoe girişi gerekir (`/mcp` → `zoe` → Authenticate).
+   - #43'te CI yeşil, SonarCloud kalite kapısı geçer (tekrar oranı ≤ %3; önceki push'ta %3.6'ydı).
+   - Supabase'de `SELECT collname FROM pg_collation WHERE collname = 'tr-x-icu';` bir satır döner.
+     Dönmezse migration 0010'daki koruma Deploy'u durdurur; birleşmeden önce çözülmeli.
+
+   Birleşip yayınlandıktan sonra (kodla geriye uyumlu tek migration: 0010, yeni tablo):
+   - Herkese açık uçlar aynı kalır; girişsiz `GET /api/me/library` 401 döner.
+   - Kitap sayfasından çıkınca sayfa boşalmaz (Chromium 156'da `scrollTo` Promise döndürüyor; düzeltme
+     `4679e0d` #43'le çıkıyor, canlıda o zamana kadar açık).
+   - Kullanıcı ekleme, durum değiştirme, çıkarma ve süzgeçleri canlıda dener.
+   - Sonra ROADMAP'te "Şimdi" Faz 16'ya geçer, FEATURE_REQUESTS kutuları işaretlenir, #42 elle kapanır.
 2. **Sonra:**
    - Faz 16, eser ve baskı (#36; spec [phase-16](phases/phase-16-works-editions.md), incelemede).
    - Faz 17, okuma takibi ve inceleme.

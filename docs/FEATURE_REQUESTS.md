@@ -28,7 +28,7 @@ DISC-04, SOC-01–03, ACC-01, ACC-03, ACC-04 (altyapısı var: Faz 13'ün oturum
 DATA-02, NOTIF-01.
 
 **Güncelleme (18 Ekim 2026, Faz 15 — [#42](https://github.com/mtgezgin/BookHub/issues/42)):** LIB-01 ve LIB-02 uygulandı,
-canlı doğrulama bekliyor. Aynı fazda SOC-02'nin "varsayılan gizli" yarısı (kitaplığı yalnız sahibi
+PR [#43](https://github.com/mtgezgin/BookHub/pull/43)'te; birleşme ve canlı doğrulama bekliyor (24 Ekim). Aynı fazda SOC-02'nin "varsayılan gizli" yarısı (kitaplığı yalnız sahibi
 görür; herkese açık uç yok) ve CAT-01'in "detaydan kitaplığa ekleme" eksiği de kapandı. Arama
 Kitaplığım'da Enter ile çalışır (katalogdaki gibi yazarken değil).
 
