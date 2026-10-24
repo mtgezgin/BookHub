@@ -229,6 +229,25 @@ PR #43'teki code-review tavsiyeleri ve SonarCloud kalite kapısı (tekrarlanan s
   comments ortak kullanıyor); sayma sorgusu kalktı; `Chip`, `GRID` ve adres güncelleyici
   `components/filters.tsx`'te.
 
+Takip push'unun (`232c611`) incelemesi engelleyici bulmadı; 10 tavsiyeden birleşmeden önce kapatılanlar
+(2026-10-24):
+
+- **Elle değiştirilmiş adres (N1):** Kitaplığım yalnız `status`/`rated`/`sort`'u süzüyordu; `?genre=Bilim Kurgu`,
+  100 karakterden uzun `q` ya da `offset` > 10 000 API'den 400 alıp hata kutusu gösteriyordu. Katalog da aynı
+  durumdaydı. Süzgeçler sunucunun sınırlarıyla `filters.tsx`'te (`asGenre`, `asQuery`, `asOffset`) ve iki
+  sayfa da onları kullanıyor.
+- **Bayat rozet (A4):** yeni kimliklerin okuması başarısız olunca önceki rozetler kalıyordu; kullanıcı
+  değişince de önceki kullanıcının durumları yeni cevap gelene kadar görünüyordu. Durumlar artık sahibiyle
+  saklanıyor, başarısız okuma onları temizliyor. Kimlik değişiminde sıfırlanmıyor: katalogda anahtar iki kez
+  değiştiği (N2) için rozetler yanıp sönerdi.
+- **Yorumlar (R1, R4):** `LibraryMenu`'deki tetikleyici yorumu kendi JSX'inin üstüne taşındı; `main.tsx`'teki
+  "preventDefault hatayı yutar" düzeltildi (Vite import'u `undefined` ile çözüyor, ekran bir an boş kalıyor).
+
+Ertelenenler (davranış doğru, maliyet küçük): katalogda iki durum isteği (N2) ve kitap sayfasında iki istek
+(N9); `handleLibraryStatuses`'taki gereksiz harita kopyası (A8); `optional`'ın `books`'takiyle aynı olması (N5);
+`List`'in `Limit` 0'da toplamı 0 vermesi, canlıda `parsePage` yüzünden olamaz (R2); site verisi engelliyken
+`sessionStorage` okumasının yakalanmamış hata atması, kullanıcı sonucu aynı (R3).
+
 ## ✅ Tamamlanma
 
 - Faz 15 issue'su açılmış (Ready'den önce kapsam ve kabul kriterleri), PR'ı `Refs` ile bağlı.

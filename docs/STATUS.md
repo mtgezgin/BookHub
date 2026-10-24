@@ -154,11 +154,14 @@ Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 1. **Şimdi — Faz 15, kişisel kitaplık** (FEATURE_REQUESTS Paket A: LIB-01, LIB-02). Kod ve testler hazır
    (#42, [phase-15](phases/phase-15-personal-library.md)), PR [#43](https://github.com/mtgezgin/BookHub/pull/43) açık.
    Birleşmeden önce:
-   - Takip commit'leri (review düzeltmeleri F1/F2, Sonar tekrar oranı için ortaklaştırma) #43'e push edilir.
-     Push kapısındaki code-review için oturumda Zoe girişi gerekir (`/mcp` → `zoe` → Authenticate).
-   - #43'te CI yeşil, SonarCloud kalite kapısı geçer (tekrar oranı ≤ %3; önceki push'ta %3.6'ydı).
-   - Supabase'de `SELECT collname FROM pg_collation WHERE collname = 'tr-x-icu';` bir satır döner.
-     Dönmezse migration 0010'daki koruma Deploy'u durdurur; birleşmeden önce çözülmeli.
+   - ✅ Takip commit'leri #43'e push edildi (`232c611`, 2026-10-24); SonarCloud kalite kapısı geçti (tekrar
+     oranı %0.9).
+   - ✅ Supabase'de `tr-x-icu` collation'ı var (2026-10-24, SQL Editor'de tek satır döndü): migration 0010'daki
+     koruma Deploy'u durdurmaz.
+   - Trivy kırmızı: imajlardaki Go 1.27.2 ve nginx 1.30.5 açıkları ([#47](https://github.com/mtgezgin/BookHub/issues/47));
+     `main`'i de etkiliyor. Düzeltme ayrı bir PR'la önce `main`'e girer, sonra `main` #43'e birleştirilir.
+   - Son incelemenin iki davranış tavsiyesi (N1 elle değiştirilmiş adres, A4 bayat rozet) kapatılır
+     ([phase-15](phases/phase-15-personal-library.md) "Uygulama notları").
 
    Birleşip yayınlandıktan sonra (kodla geriye uyumlu tek migration: 0010, yeni tablo):
    - Herkese açık uçlar aynı kalır; girişsiz `GET /api/me/library` 401 döner.
