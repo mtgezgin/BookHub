@@ -104,6 +104,17 @@ describe("Library", () => {
     expect(el.querySelector<HTMLInputElement>("input[type=search]")!.value).toBe("dune");
   });
 
+  it("elle değiştirilmiş adres: sunucunun reddedeceği tür, arama ve sayfa API'ye gitmez", async () => {
+    const { el } = await render(`/library?genre=Bilim%20Kurgu&q=${"a".repeat(101)}&offset=99999999`);
+    expect(calls.library!.at(-1)).toEqual([{ limit: 12, offset: 0 }]);
+    expect(el.querySelector('[aria-label="Kitaplığım"] li')).not.toBeNull();
+  });
+
+  it("sınırdaki tür, arama ve sayfa olduğu gibi gider", async () => {
+    await render(`/library?genre=bilim-kurgu&q=${"ç".repeat(100)}&offset=10000`);
+    expect(calls.library!.at(-1)).toEqual([{ genre: "bilim-kurgu", q: "ç".repeat(100), limit: 12, offset: 10000 }]);
+  });
+
   it("filtre değişince ilk sayfa", async () => {
     reply = () => pageOf([itemOf(13)], 13, 12);
     const { el, params } = await render("/library?offset=12");

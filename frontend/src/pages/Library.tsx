@@ -7,7 +7,7 @@ import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
 import { EmptyState } from "../components/EmptyState";
-import { Chip, GRID, useParamUpdater } from "../components/filters";
+import { asGenre, asOffset, asQuery, Chip, GRID, useParamUpdater } from "../components/filters";
 import { useToast } from "../components/toast";
 import { Button, buttonVariants } from "../components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../components/ui/dialog";
@@ -34,12 +34,11 @@ const asSort = (v: string | null): Sort => (v === "title" || v === "my_rating" ?
 export function Library() {
   const [params, setParams] = useSearchParams();
   const status = asStatus(params.get("status"));
-  const q = params.get("q") ?? "";
-  const genre = params.get("genre") ?? "";
+  const q = asQuery(params.get("q"));
+  const genre = asGenre(params.get("genre"));
   const rated = asRated(params.get("rated"));
   const sort = asSort(params.get("sort"));
-  const parsed = parseInt(params.get("offset") ?? "0", 10);
-  const offset = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  const offset = asOffset(params.get("offset"));
 
   const toast = useToast();
   const [page, setPage] = useState<Page<LibraryItem> | null>(null);

@@ -7,7 +7,7 @@ import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
 import { EmptyState } from "../components/EmptyState";
-import { Chip, GRID, useParamUpdater } from "../components/filters";
+import { asGenre, asOffset, asQuery, Chip, GRID, useParamUpdater } from "../components/filters";
 import { LibraryBadge } from "../components/LibraryBadge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -22,13 +22,12 @@ const SEARCH_DELAY_MS = 300;
 
 export function Home() {
   const [params, setParams] = useSearchParams();
-  const q = params.get("q") ?? "";
-  const genre = params.get("genre") ?? "";
+  // Elle değiştirilmiş adres (/?offset=abc, /?genre=Bilim Kurgu) API'ye gitmez: bkz. filters.tsx.
+  const q = asQuery(params.get("q"));
+  const genre = asGenre(params.get("genre"));
   // Yalnız iki sıra var; tanınmayan değer varsayılana (en yeni) düşer.
   const sort = params.get("sort") === "rating" ? "rating" : "";
-  // URL elle değiştirilebilir (/?offset=abc): geçersiz/negatif değer 0 sayılır (NaN API'ye gitmesin).
-  const parsed = parseInt(params.get("offset") ?? "0", 10);
-  const offset = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  const offset = asOffset(params.get("offset"));
 
   const [page, setPage] = useState<Page<Book> | null>(null);
   const [genres, setGenres] = useState<Genre[]>([]);

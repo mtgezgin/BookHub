@@ -96,6 +96,12 @@ describe("Home", () => {
     expect(calls.books).toEqual([[{ q: "", genre: "", limit: 12, offset: 0 }]]);
   });
 
+  it("elle değiştirilmiş adres: sunucunun reddedeceği tür, arama ve sayfa API'ye gitmez", async () => {
+    const { el } = await render(`/?genre=Bilim%20Kurgu&q=${"a".repeat(101)}&offset=99999999`);
+    expect(calls.books).toEqual([[{ q: "", genre: "", limit: 12, offset: 0 }]]);
+    expect(el.querySelector(LIST)).not.toBeNull();
+  });
+
   it("arama değişince offset URL'den düşer", async () => {
     const { el, params } = await render("/?q=eski&offset=24");
     setValue(el.querySelector<HTMLInputElement>("input[type=search]")!, "yeni");
