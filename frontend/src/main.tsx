@@ -10,7 +10,9 @@ import "@fontsource-variable/inter";
 import "./styles.css";
 import { reloadOnceForStaleChunk } from "./lib/chunkReload";
 
-// Vite, dinamik bir import (tembel parça) yüklenemeyince bu olayı yayar; preventDefault hatayı yutar.
+// Vite, dinamik bir import (tembel parça) yüklenemeyince bu olayı yayar. preventDefault yalnız Vite'ın hatayı
+// fırlatmasını durdurur: import undefined ile çözülür ve tembel bileşen yine hata verir. Sayfa o sırada zaten
+// yeniden yüklendiği için ekran yalnız bir an boş kalır.
 window.addEventListener("vite:preloadError", (event) => {
   if (reloadOnceForStaleChunk(sessionStorage, Date.now(), () => window.location.reload())) event.preventDefault();
 });

@@ -94,8 +94,6 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
     </DropdownMenuContent>
   );
 
-  // disabled Trigger'a da verilir: Radix menüyü pointerdown ile açar ve yalnız KENDİ prop'una bakar;
-  // tarayıcı pasif düğmede de pointerdown tetiklediği için düğmenin disabled'ı tek başına yetmez.
   if (failed) {
     return (
       <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>
@@ -104,6 +102,8 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
     );
   }
 
+  // disabled Trigger'a da verilir: Radix menüyü pointerdown ile açar ve yalnız KENDİ prop'una bakar;
+  // tarayıcı pasif düğmede de pointerdown tetiklediği için düğmenin disabled'ı tek başına yetmez.
   return (
     <>
       {status ? (
