@@ -165,7 +165,7 @@ Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 
 ## Ortam / gerçekler
 
-- **Go toolchain 1.27.1** (Homebrew) · `go.mod`: `go 1.27.2` (Docker derleme imajıyla aynı yama) · module `github.com/mtgezgin/bookhub/backend`.
+- **Go toolchain 1.27.1** (Homebrew) · `go.mod`: `go 1.27.3` (Docker derleme imajıyla aynı yama; 1.27.2 CVE-2026-111943 yüzünden bırakıldı, #47) · module `github.com/mtgezgin/bookhub/backend`.
 - CLI'lar `~/go/bin`: goose v3.27.2, sqlc v1.31.1. golangci-lint v2.14.0 Homebrew'dan (CI'da da v2.14.0
   pinli); `~/go/bin`'deki eski v1.64.8 PATH'te arkada kalıyor.
 - Docker Desktop + `docker compose up -d` → Postgres 16 (`127.0.0.1:5432`) + Redis 7 (`127.0.0.1:6380` — 6379 başka projenin). Veri named volume'da.
