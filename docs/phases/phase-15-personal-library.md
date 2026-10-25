@@ -1,7 +1,7 @@
 # Faz 15 — Kişisel kitaplık
 
-> Durum: 🧪 uygulandı, yayın ve canlı doğrulama bekliyor (2026-10-18) · Issue: [#42](https://github.com/mtgezgin/BookHub/issues/42) ·
-> [ROADMAP](../ROADMAP.md): **Şimdi** · Backlog:
+> Durum: ✅ canlıda (2026-10-25; uygulama 2026-10-18) · Issue: [#42](https://github.com/mtgezgin/BookHub/issues/42) ·
+> [ROADMAP](../ROADMAP.md): tamamlandı · Backlog:
 > [FEATURE_REQUESTS](../FEATURE_REQUESTS.md) Paket A — LIB-01, LIB-02, CAT-01'in kitaplık bölümü,
 > SOC-02'nin "varsayılan gizli" kuralı · İlgili: [ratings.sql](../../backend/sql/queries/ratings.sql),
 > [BookDetail.tsx](../../frontend/src/pages/BookDetail.tsx), [Home.tsx](../../frontend/src/pages/Home.tsx)
@@ -248,9 +248,19 @@ Ertelenenler (davranış doğru, maliyet küçük): katalogda iki durum isteği 
 `List`'in `Limit` 0'da toplamı 0 vermesi, canlıda `parsePage` yüzünden olamaz (R2); site verisi engelliyken
 `sessionStorage` okumasının yakalanmamış hata atması, kullanıcı sonucu aynı (R3).
 
+Birleşmeden önceki son incelemenin (`e190586`) yeni tavsiyeleri, hepsi düşük önemde ve ertelendi: tembel
+`LibraryMenu` parçası yüklenemezse onu yakalayan bir ErrorBoundary yok (N1); katalogdan kaldırılmış bir kitap
+için kitaplık listesi tam içeriği döndürüyor, ürün kararı (N2); `filters.tsx`'teki sınırlar ve arama kutularındaki
+`maxLength={100}` sunucunun kopyası (R1); "Filtreleri temizle" sıralamayı da sıfırlıyor (N5); çıkarma onayı iki
+yerde kopya (N8); liste etkisi `update`'e bağlı (N4).
+
 ## ✅ Tamamlanma
 
-- Faz 15 issue'su açılmış (Ready'den önce kapsam ve kabul kriterleri), PR'ı `Refs` ile bağlı.
-- PR canlıda; Doğrulama 1–5 yeşil ve PR'da yazılı.
-- FEATURE_REQUESTS'te LIB-01, LIB-02 ve SOC-02'nin gizlilik yarısı işaretli; ROADMAP'te "Şimdi"
+- ✅ Faz 15 issue'su açılmış (Ready'den önce kapsam ve kabul kriterleri), PR'ı `Refs` ile bağlı.
+- ✅ PR canlıda (#43, `ba4197e`, 2026-10-25; Deploy migration 0010'u uyguladı); Doğrulama 1–5 yeşil ve PR'da yazılı.
+- ✅ Canlı doğrulama (2026-10-25, gerçek tarayıcı, atılabilir hesap): ekleme, durum değiştirme, Kitaplığım
+  süzgeçleri, arama ve sıralama (adres ↔ API birebir), elle bozulmuş adres, boş sonuç ve "Filtreleri temizle",
+  "Vazgeç" sonrası tıklanabilir sayfa, çıkarma; girişsiz `GET /api/me/library` 401; kitap sayfasından çıkınca
+  sayfa boşalmıyor. Ayrıntı #42'nin kapanış yorumunda.
+- ✅ FEATURE_REQUESTS'te LIB-01, LIB-02 ve SOC-02'nin gizlilik yarısı işaretli; ROADMAP'te "Şimdi"
   Faz 16'ya geçmiş; STATUS ve PROJECT_MAP güncel; faz listesinde bu dosyaya bağlantı var.
