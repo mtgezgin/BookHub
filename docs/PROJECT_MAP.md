@@ -5,8 +5,8 @@
 > **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
 > "Hangi sırayla?" sorusunun cevabı: **[ROADMAP.md](ROADMAP.md)**.
 >
-> Son güncelleme: 2026-10-18 — Faz 15 kişisel kitaplık (migration `0010`, `internal/library`,
-> `/api/me/library…`, Kitaplığım sayfası). Faz 1–14 canlıda.
+> Son güncelleme: 2026-10-25 — Faz 15 kişisel kitaplık (migration `0010`, `internal/library`,
+> `/api/me/library…`, Kitaplığım sayfası). Faz 1–15 canlıda.
 
 ---
 
@@ -181,7 +181,7 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
 | `src/pages/` | Home (katalog + en iyiler), BookDetail, **Library** ("Kitaplığım", Faz 15), Auth, Suggest, **Account** ("Hesabım": parola değiştirme, Faz 13), admin/Moderation |
 | `src/styles.css` | Tailwind + **tasarım token'ları** (açık/koyu tema, OKLCH); değeri değişince `node scripts/check-contrast.mjs` — [Faz 14](phases/phase-14-ui-redesign.md) |
 | `src/components/ui/` | shadcn/ui yaklaşımıyla repoya kopyalanmış temel bileşenler (Button, Input, Card, Badge, Alert, Skeleton, Label, Dialog) |
-| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `BookCard`, `EmptyState`, `NotFound`, `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged`, `LibraryButton` (kitap sayfasındaki kontrol; giriş yoksa bağlantı) + `LibraryMenu` (tembel parça: bölünmüş düğme, menü, onay), `LibraryBadge` + `useLibraryStatuses` (kart rozeti, tek toplu istek), `filters.tsx` (katalog ve Kitaplığım'ın ortak `Chip`, `GRID`, `useParamUpdater`), `ui/dropdown-menu.tsx` (Radix menüsü), `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
+| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `BookCard`, `EmptyState`, `NotFound`, `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged`, `LibraryButton` (kitap sayfasındaki kontrol; giriş yoksa bağlantı) + `LibraryMenu` (tembel parça: bölünmüş düğme, menü, onay), `LibraryBadge` + `useLibraryStatuses` (kart rozeti, tek toplu istek), `filters.tsx` (katalog ve Kitaplığım'ın ortak `Chip`, `GRID`, `useParamUpdater`; adresten okunan süzgeçleri sunucunun sınırlarıyla temizleyen `asGenre`/`asQuery`/`asOffset`), `ui/dropdown-menu.tsx` (Radix menüsü), `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
 | `src/lib/` | `cn()` (sınıf birleştirme), `format.ts` (Türkçe puan, dil adı, göreli zaman, baş harf), `theme.ts` (açık/koyu tema), `chunkReload.ts` (yayından sonra eski parça yüklenemezse bir kez yeniden yükleme; `main.tsx`'teki `vite:preloadError` dinleyicisi) |
 | `public/theme-init.js` | temayı ilk boyamadan önce uygular (CSP satır içi betiğe izin vermediği için ayrı dosya) |
 | `e2e/` | Playwright senaryoları (`catalog`, `auth-flow`, `reuse`, `tabs`, `cross-origin`, `rating-comment`, `moderation`) + `env.ts`, `helpers.ts` (**rate limit bütçesi tablosu**), `global-setup.ts` |

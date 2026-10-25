@@ -27,8 +27,8 @@ Kodla karşılaştırma (origin/main, Faz 14 sonrası). 34 maddenin hiçbiri tam
 DISC-04, SOC-01–03, ACC-01, ACC-03, ACC-04 (altyapısı var: Faz 13'ün oturum aileleri), DATA-01,
 DATA-02, NOTIF-01.
 
-**Güncelleme (18 Ekim 2026, Faz 15 — [#42](https://github.com/mtgezgin/BookHub/issues/42)):** LIB-01 ve LIB-02 uygulandı,
-PR [#43](https://github.com/mtgezgin/BookHub/pull/43)'te; birleşme ve canlı doğrulama bekliyor (24 Ekim). Aynı fazda SOC-02'nin "varsayılan gizli" yarısı (kitaplığı yalnız sahibi
+**Güncelleme (25 Ekim 2026, Faz 15 — [#42](https://github.com/mtgezgin/BookHub/issues/42)):** LIB-01 ve LIB-02 canlıda
+(PR [#43](https://github.com/mtgezgin/BookHub/pull/43), canlı doğrulama 25 Ekim). Aynı fazda SOC-02'nin "varsayılan gizli" yarısı (kitaplığı yalnız sahibi
 görür; herkese açık uç yok) ve CAT-01'in "detaydan kitaplığa ekleme" eksiği de kapandı. Arama
 Kitaplığım'da Enter ile çalışır (katalogdaki gibi yazarken değil).
 
@@ -74,7 +74,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### LIB-01 — Kitabı kişisel kitaplığa ekleme ve durum seçme
 
-- [ ] **P0 · Doğrulanıyor** (Faz 15, [#42](https://github.com/mtgezgin/BookHub/issues/42); kutu canlı doğrulamadan sonra)
+- [x] **P0 · Tamamlandı** (Faz 15, [#42](https://github.com/mtgezgin/BookHub/issues/42); canlıda doğrulandı 2026-10-25)
 - **Kullanıcı ihtiyacı:** Okumak istediğim, okuduğum ve bıraktığım kitapları tek yerde tutmak.
 - **Ekran/akış:** Kitap kartı veya detay → Kitaplığıma ekle → durum seç → aynı yerde seçili durumu gör.
 - **İlk kapsam:** Okumak istiyorum, Şu an okuyorum, Okudum, Yarım bıraktım. Kitaplığımdan çıkar işlemi.
@@ -85,7 +85,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### LIB-02 — Kitaplığım ekranı ve kişisel filtreleme
 
-- [ ] **P0 · Doğrulanıyor** (Faz 15, [#42](https://github.com/mtgezgin/BookHub/issues/42); kutu canlı doğrulamadan sonra)
+- [x] **P0 · Tamamlandı** (Faz 15, [#42](https://github.com/mtgezgin/BookHub/issues/42); canlıda doğrulandı 2026-10-25)
 - **Kullanıcı ihtiyacı:** Biriktirdiğim kitaplar arasında hızlıca doğru kitaba ulaşmak.
 - **Ekran/akış:** Ana navigasyon → Kitaplığım → durum sekmesi/filtre → kitap detayı.
 - **İlk kapsam:** Başlık/yazar araması; durum, tür ve kendi puanına göre filtreleme; eklenme tarihi ve başlığa göre sıralama; sayfalama. Kendi puanı olmayanlar için ayrı filtre.
@@ -291,7 +291,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### SOC-02 — Kitaplık görünürlüğü
 
-- [ ] **P0 varsayılan gizlilik / P1 paylaşım · Önerildi**
+- [ ] **P0 varsayılan gizlilik · Tamamlandı (Faz 15, canlıda 2026-10-25) / P1 paylaşım · Önerildi**
 - **İlk kapsam:** Kitaplık için Özel/Herkese açık seçimi; varsayılan Özel. İncelemeler yayınlama eylemiyle herkese açılır; kitaplığın gizli olması incelemeyi otomatik gizlemez ve bu fark açıklanır.
 - **İş kuralları:** Kontrol yalnız UI'da değil backend'de uygulanır. Gizli kitaplık sayıları, okuma tarihleri ve ilerleme verileri de korunur. Admin erişimi gerekiyorsa açık yetki ve amaçla sınırlanır.
 - **Kabul kriterleri:** Özel kitaplığa doğrudan API çağrısı veri döndürmez. Gizliye alınan kitaplık önbellek ve sosyal gösterimlerde görünmez. Kullanıcı hangi alanın paylaşıldığını önizleyebilir.

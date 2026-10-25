@@ -1,6 +1,6 @@
 # BookHub — Yol haritası (ROADMAP)
 
-> Son güncelleme: **2026-10-17**. Bu dosya tek bir soruyu cevaplar: **hangi sırayla ve neden?**
+> Son güncelleme: **2026-10-25**. Bu dosya tek bir soruyu cevaplar: **hangi sırayla ve neden?**
 > "Ne yapılabilir?" → [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) (ürün) ve
 > [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) (teknik bulgular). "Neredeyiz?" → [STATUS.md](STATUS.md).
 
@@ -17,16 +17,16 @@ Gerçek kullanıcıya açılma kararı verilirse Faz 18 (katkı ve hesap) ile ca
 
 - **Platform hazır:** Faz 1–14 bitti — API, veritabanı, auth, moderasyon, puan, önbellek, Docker,
   React, CI/CD, NGINX, Kubernetes, oturum sertleştirme, arayüz ([STATUS](STATUS.md)).
-- **Ürün döngüsü başlamadı:** FEATURE_REQUESTS'teki 34 maddenin hiçbiri tam değil; 7'si kısmen var
-  (katalog, arama, benzer kitaplar, moderasyon, parola değiştirme, arayüz durumları), 27'si yok.
-  Ayrıntı: [FEATURE_REQUESTS § Durum özeti](FEATURE_REQUESTS.md#durum-özeti-17-ekim-2026).
+- **Ürün döngüsünün ilk adımı canlıda (2026-10-25):** Faz 15 ile "kitaplığına ekle" tamam — LIB-01 ve
+  LIB-02, SOC-02'nin varsayılan gizlilik yarısı. 17 Ekim'deki durum: 34 maddenin 7'si kısmen vardı, 27'si
+  yoktu ([FEATURE_REQUESTS § Durum özeti](FEATURE_REQUESTS.md#durum-özeti-17-ekim-2026)).
 
 ## Ürün hattı
 
 | Sıra | Faz | Kapsam (backlog kimlikleri) | Neden bu sırada | Durum |
 | --- | --- | --- | --- | --- |
-| **Şimdi** | 15 — Kişisel kitaplık | Paket A: LIB-01, LIB-02, CAT-01'in kitaplık bölümü, SOC-02'nin "varsayılan gizli" kuralı; UX-01/02 kabul koşulu | En büyük ürün boşluğu: kullanıcının geri döneceği alan. Baskılara bağımlı değil (kitaplık kaydı kullanıcı–eser ilişkisi). | [uygulandı](phases/phase-15-personal-library.md) ([#42](https://github.com/mtgezgin/BookHub/issues/42), PR [#43](https://github.com/mtgezgin/BookHub/pull/43)); birleşme, yayın ve canlı doğrulama bekliyor |
-| Sonra | 16 — Eser ve baskı | CAT-02 ([#36](https://github.com/mtgezgin/BookHub/issues/36)) | Okuma kaydının sayfa toplamı baskıdan gelecek (READ-01'in bağımlılığı). | [spec](phases/phase-16-works-editions.md) incelemede |
+| ✅ | 15 — Kişisel kitaplık | Paket A: LIB-01, LIB-02, CAT-01'in kitaplık bölümü, SOC-02'nin "varsayılan gizli" kuralı; UX-01/02 kabul koşulu | En büyük ürün boşluğu: kullanıcının geri döneceği alan. Baskılara bağımlı değil (kitaplık kaydı kullanıcı–eser ilişkisi). | [canlıda](phases/phase-15-personal-library.md) (2026-10-25; [#42](https://github.com/mtgezgin/BookHub/issues/42), PR [#43](https://github.com/mtgezgin/BookHub/pull/43)) |
+| **Şimdi** | 16 — Eser ve baskı | CAT-02 ([#36](https://github.com/mtgezgin/BookHub/issues/36)) | Okuma kaydının sayfa toplamı baskıdan gelecek (READ-01'in bağımlılığı). | [spec](phases/phase-16-works-editions.md) incelemede |
 | Sonra | 17 — Okuma takibi ve inceleme | Paket B: READ-01, READ-02, REV-01, REV-02 | Döngüyü kapatır. İnceleme geniş kullanıma açılmadan MOD-04 gerekir; demo hedefinde Faz 18'e kalır. | — |
 | Daha sonra | 18 — Katkı döngüsü ve hesap | Paket C: MOD-01, MOD-02, ACC-01–03, DATA-02 | Gerçek kullanıcının kapısı; bir e-posta sağlayıcısı gerektirir. | — |
 | Daha sonra | — | Paket D (keşif: DISC-01–03, STATS-01, READ-03, REV-03) · Paket E (sosyal) | Veri ve kullanım oluştukça. | — |
