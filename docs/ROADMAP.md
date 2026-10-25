@@ -25,7 +25,7 @@ Gerçek kullanıcıya açılma kararı verilirse Faz 18 (katkı ve hesap) ile ca
 
 | Sıra | Faz | Kapsam (backlog kimlikleri) | Neden bu sırada | Durum |
 | --- | --- | --- | --- | --- |
-| **Şimdi** | 15 — Kişisel kitaplık | Paket A: LIB-01, LIB-02, CAT-01'in kitaplık bölümü, SOC-02'nin "varsayılan gizli" kuralı; UX-01/02 kabul koşulu | En büyük ürün boşluğu: kullanıcının geri döneceği alan. Baskılara bağımlı değil (kitaplık kaydı kullanıcı–eser ilişkisi). | tasarım yapılacak |
+| **Şimdi** | 15 — Kişisel kitaplık | Paket A: LIB-01, LIB-02, CAT-01'in kitaplık bölümü, SOC-02'nin "varsayılan gizli" kuralı; UX-01/02 kabul koşulu | En büyük ürün boşluğu: kullanıcının geri döneceği alan. Baskılara bağımlı değil (kitaplık kaydı kullanıcı–eser ilişkisi). | [uygulandı](phases/phase-15-personal-library.md) ([#42](https://github.com/mtgezgin/BookHub/issues/42), PR [#43](https://github.com/mtgezgin/BookHub/pull/43)); birleşme, yayın ve canlı doğrulama bekliyor |
 | Sonra | 16 — Eser ve baskı | CAT-02 ([#36](https://github.com/mtgezgin/BookHub/issues/36)) | Okuma kaydının sayfa toplamı baskıdan gelecek (READ-01'in bağımlılığı). | [spec](phases/phase-16-works-editions.md) incelemede |
 | Sonra | 17 — Okuma takibi ve inceleme | Paket B: READ-01, READ-02, REV-01, REV-02 | Döngüyü kapatır. İnceleme geniş kullanıma açılmadan MOD-04 gerekir; demo hedefinde Faz 18'e kalır. | — |
 | Daha sonra | 18 — Katkı döngüsü ve hesap | Paket C: MOD-01, MOD-02, ACC-01–03, DATA-02 | Gerçek kullanıcının kapısı; bir e-posta sağlayıcısı gerektirir. | — |
@@ -41,6 +41,7 @@ okuma takibinden hemen önceye kondu.
 | İş | Ne zaman | Not |
 | --- | --- | --- |
 | Node 26 (Dependabot #13, #29) | Ekim sonu, LTS çıkınca | |
+| Canlı imajlara haftalık güvenlik taraması (Trivy; [#48](https://github.com/mtgezgin/BookHub/issues/48)) | #47'den hemen sonra | #47'nin açıkları canlıda 6 gün fark edilmedi; canlı izlemenin ilk parçası |
 | Canlı izleme ve alarm (sağlık kontrolü, uptime, hata izleme) | Zamanı açık; gerçek kullanıcı kararından önce şart | [PROCESS §7](PROCESS.md) · [DEPLOYMENT §5](DEPLOYMENT.md) |
 | NGINX erişim logunda sorgu dizesi ve referrer | İzleme işiyle birlikte | [CLAUDE.md](../CLAUDE.md) "bilinen açık" |
 | REVIEW_FEEDBACK bulguları | İlgili fazın içinde | F10, F11 → Faz 15–17 (UX-01) · F13 → her fazın UX-02 kabulü · F12, F15 → Faz 18 (MOD-02) · F04 → Faz 18'den önce · F03, F06–F09, F16, F17 → ihtiyaç oldukça ayrı iş |

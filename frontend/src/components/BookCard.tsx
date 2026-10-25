@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
-import type { Book } from "../api/types";
+import type { Book, LibraryStatus } from "../api/types";
 import { BookCover } from "./BookCover";
 import { Rating } from "./common";
+import { LibraryBadge } from "./LibraryBadge";
 import { Badge } from "./ui/badge";
 
 /**
@@ -9,9 +10,11 @@ import { Badge } from "./ui/badge";
  * link"). Kartı <a> ile sarmak yerine böyle: içerideki tür bağlantıları iç içe <a> olmadan
  * çalışır — onlar `relative z-10` ile o katmanın ÜSTÜNDE durur.
  */
-export function BookCard({ book, extra, headingLevel: Heading = "h2" }: {
+export function BookCard({ book, extra, status, headingLevel: Heading = "h2" }: {
   book: Book;
   extra?: React.ReactNode;
+  /** Giriş yapmış okurun kitaplığındaki durumu; varsa kapağın köşesinde rozet. */
+  status?: LibraryStatus;
   /** Katalogda h2; bir bölüm başlığının altında (ör. "Aynı türden") h3. */
   headingLevel?: "h2" | "h3";
 }) {
@@ -23,6 +26,10 @@ export function BookCard({ book, extra, headingLevel: Heading = "h2" }: {
         src={book.cover_url}
         className="transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lg"
       />
+      {/* Kapakla birlikte yükselir; tıklamayı kartın bağlantısına bırakır. */}
+      {status && (
+        <LibraryBadge status={status} className="pointer-events-none absolute top-2 left-2 transition duration-200 group-hover:-translate-y-1" />
+      )}
       <div className="flex flex-col gap-1">
         <Heading className="line-clamp-2 text-base leading-snug font-semibold">
           <Link

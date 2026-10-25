@@ -5,8 +5,8 @@
 > **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
 > "Hangi sırayla?" sorusunun cevabı: **[ROADMAP.md](ROADMAP.md)**.
 >
-> Son güncelleme: 2026-10-05 — canlıya çıkış (2026-10-04) ve yayın süreci. 13 fazın tamamı
-> 2026-09-20'de bitti (Faz 13: oturum sertleştirme).
+> Son güncelleme: 2026-10-18 — Faz 15 kişisel kitaplık (migration `0010`, `internal/library`,
+> `/api/me/library…`, Kitaplığım sayfası). Faz 1–14 canlıda.
 
 ---
 
@@ -108,6 +108,7 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `books.go` | public kitap uçları, public DTO, `createBookRequest`, ortak alan kontrolleri (`checkTitle`…) |
 | `moderation.go` | öneri ucu + admin kitap uçları, admin DTO, durum geçişleri (method expression) |
 | `community.go` | yorum + puan + top-rated uçları |
+| `library.go` | kişisel kitaplık uçları (`/api/me/library…`, Faz 15): `libraryStore` arayüzü, PUT/DELETE kayıt, toplu durum (`parseBookIDs`, en çok 100), süzülen liste (`parseLibraryFilter`) |
 | `genres.go` | tür uçları |
 | `auth.go` | register/login/refresh/logout/me + `handleChangePassword` (`POST /api/auth/password`); refresh çerezi yardımcıları: `cookieSettings`/`cookieSettingsFrom`, `newRefreshCookie`, `setRefreshCookie`, `clearRefreshCookie`, `readRefreshCookie` (`r.CookiesNamed`: tam 1, ≤256 bayt) |
 | `*_test.go` | sahte (fake) servislerle DB'siz handler testleri; sözleşme (alan listesi) testleri; korelasyon testi |
@@ -130,10 +131,11 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `audit` | denetim kaydı yazıcısı (append-only tablo) |
 | `comments` | yorum servisi (yumuşak silme + denetim) |
 | `ratings` | puan servisi (kilit + upsert + türetme), `WeightedScore` (saf), `CachedService` (Redis) |
+| `library` | kişisel kitaplık repository'si (Faz 15, service yok): `Put` (yalnız APPROVED kitap, `ON CONFLICT`), `Remove`, `Statuses` (toplu), `List` (süzgeç + `CASE` ile sıralama, başlık `tr-x-icu`, toplam aynı sorguda `count(*) OVER ()`) |
 | `cache` | `Cache` arayüzü: Redis / Noop |
 | `ratelimit` | sabit pencere: Memory / Redis / Unlimited |
 | `slug` | NFD ile Türkçe/aksanlı → URL slug'ı, `Truncate` |
-| `testdb` | entegrasyon testlerinin ortak DB kurulumu |
+| `testdb` | entegrasyon testlerinin ortak DB kurulumu; `CreateUser` / `CreateBook` test verisi yardımcıları |
 
 ### `backend/migrations/` ve `backend/sql/queries/`
 
@@ -148,6 +150,7 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `0007` | o trigger önce kitabı kilitlesin (eşzamanlı oyla kayıp güncelleme olmasın) |
 | `0008` | refresh token **aileleri**: `refresh_token_families` (`id`, `user_id`, `created_at`, `absolute_expires_at`, `revoked_at`) + `refresh_tokens.family_id` (NOT NULL, CASCADE) ve `refresh_tokens.used_at`; `TRUNCATE refresh_tokens` (eski token'ların ailesi yok) |
 | `0009` | demo kataloğun gerçek kapakları (veri): slug + yazar eşleşen kitapta boş `cover_url`'i Open Library kapak adresiyle doldurur; Down yok, `make demo-seed` ve ilk kurulum da çalıştırır ([phase-14](phases/phase-14-ui-redesign.md)) |
+| `0010` | `library_entries` (Faz 15): `PRIMARY KEY (user_id, book_id)`, dört durum `TEXT + CHECK`; Up sonunda `tr-x-icu` koruması (kural yoksa Deploy migration'da durur) ([phase-15](phases/phase-15-personal-library.md)) |
 
 `sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
 
@@ -175,11 +178,11 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
 | `src/api/client.ts` | fetch sarmalayıcı + **oturum durum makinesi** (Faz 13'te yeniden yazıldı): access token yalnız bellekte, refresh token httpOnly çerezte (bu dosya onu hiç görmez), `localStorage`'da yalnız sır olmayan `bookhub.session` ipucu ve `bookhub.logout_pending` bayrağı; çerez yazan tüm istekler (login / refresh / logout / password) **Web Locks** (`bookhub-refresh`) ile origin başına seri; `sessionEpoch` geç gelen cevabın oturumu diriltmesini engeller |
 | `src/api/types.ts` | API sözleşmesinin TS tipleri (`Session`'da `refresh_token` YOK) |
 | `src/auth/AuthContext.tsx` | oturum durumu, açılışta geri yükleme |
-| `src/pages/` | Home (katalog + en iyiler), BookDetail, Auth, Suggest, **Account** ("Hesabım": parola değiştirme, Faz 13), admin/Moderation |
+| `src/pages/` | Home (katalog + en iyiler), BookDetail, **Library** ("Kitaplığım", Faz 15), Auth, Suggest, **Account** ("Hesabım": parola değiştirme, Faz 13), admin/Moderation |
 | `src/styles.css` | Tailwind + **tasarım token'ları** (açık/koyu tema, OKLCH); değeri değişince `node scripts/check-contrast.mjs` — [Faz 14](phases/phase-14-ui-redesign.md) |
 | `src/components/ui/` | shadcn/ui yaklaşımıyla repoya kopyalanmış temel bileşenler (Button, Input, Card, Badge, Alert, Skeleton, Label, Dialog) |
-| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `BookCard`, `EmptyState`, `NotFound`, `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged`, `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
-| `src/lib/` | `cn()` (sınıf birleştirme), `format.ts` (Türkçe puan, dil adı, göreli zaman, baş harf), `theme.ts` (açık/koyu tema) |
+| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `BookCard`, `EmptyState`, `NotFound`, `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged`, `LibraryButton` (kitap sayfasındaki kontrol; giriş yoksa bağlantı) + `LibraryMenu` (tembel parça: bölünmüş düğme, menü, onay), `LibraryBadge` + `useLibraryStatuses` (kart rozeti, tek toplu istek), `filters.tsx` (katalog ve Kitaplığım'ın ortak `Chip`, `GRID`, `useParamUpdater`), `ui/dropdown-menu.tsx` (Radix menüsü), `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
+| `src/lib/` | `cn()` (sınıf birleştirme), `format.ts` (Türkçe puan, dil adı, göreli zaman, baş harf), `theme.ts` (açık/koyu tema), `chunkReload.ts` (yayından sonra eski parça yüklenemezse bir kez yeniden yükleme; `main.tsx`'teki `vite:preloadError` dinleyicisi) |
 | `public/theme-init.js` | temayı ilk boyamadan önce uygular (CSP satır içi betiğe izin vermediği için ayrı dosya) |
 | `e2e/` | Playwright senaryoları (`catalog`, `auth-flow`, `reuse`, `tabs`, `cross-origin`, `rating-comment`, `moderation`) + `env.ts`, `helpers.ts` (**rate limit bütçesi tablosu**), `global-setup.ts` |
 | `playwright.config.ts` | yalnız chromium, `baseURL` = `E2E_BASE_URL`, `trace: retain-on-failure`, CI'da 1 yeniden deneme |

@@ -12,7 +12,7 @@ const ITEM =
 /**
  * Kullanıcı menüsü — "disclosure" kalıbı (düğme + aria-expanded + açılır panel). Site gezintisi
  * için ARIA `menu` rolünden doğru: içerik sıradan bağlantılar, Tab ile gezilir.
- * Dar ekranda üst çubuğa sığmayan "Kitap öner" ve "Moderasyon" da burada (md'den itibaren gizli).
+ * Dar ekranda üst çubuğa sığmayan "Kitaplığım", "Kitap öner" ve "Moderasyon" da burada (md'den itibaren gizli).
  * Kapanır: Esc (odak düğmeye döner), dışarı tıklama, sayfa değişimi, bir öğeye tıklama (zaten
  * açık olan sayfanın bağlantısı adresi değiştirmez).
  */
@@ -66,6 +66,7 @@ export function UserMenu({ user, onLogout }: { user: User; onLogout: () => void 
         <div id={panelId} className="absolute top-full right-0 z-30 mt-2 w-56 rounded-lg border bg-card p-1 text-card-foreground shadow-lg">
           <p className="truncate px-3 py-2 text-xs text-muted-foreground">{user.email}</p>
           <ul className="flex flex-col">
+            <li className="md:hidden"><Link to="/library" className={ITEM} onClick={close}>Kitaplığım</Link></li>
             <li className="md:hidden"><Link to="/suggest" className={ITEM} onClick={close}>Kitap öner</Link></li>
             {user.role === "ADMIN" && <li className="md:hidden"><Link to="/admin" className={ITEM} onClick={close}>Moderasyon</Link></li>}
             <li><Link to="/account" className={ITEM} onClick={close}>Hesabım</Link></li>

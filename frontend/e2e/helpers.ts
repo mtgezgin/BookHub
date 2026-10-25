@@ -19,7 +19,7 @@
 // YENİDEN DENEME DE BÜTÇEDEN YER: playwright.config.ts `retries: process.env.CI ? 1 : 0`.
 // Bir yeniden deneme TESTİ baştan koşar, yani o senaryonun tüm girişlerini tekrarlar —
 // ve `retries` düşen HER testi ayrı ayrı tekrarlar: sistemik bir arızada giriş yapan tüm
-// senaryolar tekrar eder (9 → 18). "Kararlı hâl + 4" bu yüzden en kötü durum DEĞİLDİR.
+// senaryolar tekrar eder (10 → 20). "Kararlı hâl + 4" bu yüzden en kötü durum DEĞİLDİR.
 //
 //   senaryo                              | :3000'e giden login/register
 //   -------------------------------------|-----------------------------
@@ -31,11 +31,12 @@
 //   cross-origin.spec                     | 0  (yalnız /api/auth/refresh)
 //   rating-comment.spec                   | 1
 //   moderation.spec                       | 2  (okur + admin)
+//   library.spec                          | 1
 //   -------------------------------------|-----------------------------
-//   KARARLI HÂL                           | 9
-//   + CI'da bir yeniden deneme (auth-flow) | 13
+//   KARARLI HÂL                           | 10
+//   + CI'da bir yeniden deneme (auth-flow) | 14
 //
-// SERT KURAL — YALNIZ SAYI ÜZERİNDEN, DOLUM SIFIR SAYILIR:  kararlı_hâl ≤ 11  (bugün 9).
+// SERT KURAL — YALNIZ SAYI ÜZERİNDEN, DOLUM SIFIR SAYILIR:  kararlı_hâl ≤ 11  (bugün 10).
 // Yeni bir senaryo eklerken önce bu tabloya bir satır ekle ve toplamı 11'in altında tut.
 //
 // Yeniden deneme marjını GARANTİ diye yazma: ölçülen koşu süresi `11 passed (~5-7 sn)` ve

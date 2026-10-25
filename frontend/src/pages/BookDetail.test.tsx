@@ -59,6 +59,7 @@ beforeEach(() => {
     comments: async (_id: number, offset: number) => ({ items: [comment(offset + 1, { id: 7, display_name: "Ali" })], total: 1, limit: 10, offset }),
     myRating: notRated,
     books: async () => ({ items: [], total: 0, limit: 7, offset: 0 }),
+    libraryStatuses: async () => ({ statuses: {} }),
   });
 });
 
@@ -335,6 +336,18 @@ describe("BookDetail — yükleme ve şablon", () => {
     expect(el.querySelector("h1")!.textContent).toBe("Kitap 2");
   });
 
+  // Chromium 156'da window.scrollTo() bir Promise döndürüyor. Etki onu döndürseydi React
+  // ayrılırken Promise'i temizlik fonksiyonu sanıp çağırır, uygulama boş ekranla çökerdi.
+  it("scrollTo Promise döndüren tarayıcıda sayfadan ayrılmak çökmez", async () => {
+    scrollTo.mockReturnValue(Promise.resolve());
+    const { el, nav } = await render();
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap 1");
+    await act(async () => nav.go!("/login"));
+    await flush();
+    expect(el.textContent).toContain("login");
+    scrollTo.mockReturnValue(undefined);
+  });
+
   it("rating_count 0 iken histogram gizli, oy varken görünür", async () => {
     const { el } = await render();
     expect(el.querySelector('[aria-label="Puan dağılımı"]')).toBeNull();
@@ -393,6 +406,19 @@ describe("BookDetail — aynı türden kitaplar", () => {
     const { el } = await render();
     expect(alertText(el)).toBeNull();
     expect(el.querySelector(SIMILAR)).toBeNull();
+  });
+  it("giriş yapmış okurda benzer kitabın kartında kitaplık durumu", async () => {
+    stub({
+      book: async (id: number) => withGenre(id),
+      books: async () => ({ items: [1, 2, 3].map(withGenre), total: 3, limit: 7, offset: 0 }),
+      libraryStatuses: async () => ({ statuses: { "3": "READ" } }),
+    });
+    const { el } = await render();
+    expect(calls.libraryStatuses).toContainEqual([[2, 3]]);
+    const cards = Array.from(el.querySelectorAll<HTMLElement>(`${SIMILAR} li`));
+    const card = (id: number) => cards.find((c) => c.querySelector(`a[href="/books/${id}"]`));
+    expect(card(3)!.textContent).toContain("Okudum");
+    expect(card(2)!.textContent).not.toContain("Okudum");
   });
 });
 

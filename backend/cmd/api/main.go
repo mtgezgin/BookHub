@@ -18,6 +18,7 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/config"
 	"github.com/mtgezgin/bookhub/backend/internal/database"
 	"github.com/mtgezgin/bookhub/backend/internal/genres"
+	"github.com/mtgezgin/bookhub/backend/internal/library"
 	"github.com/mtgezgin/bookhub/backend/internal/moderation"
 	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
 	"github.com/mtgezgin/bookhub/backend/internal/ratings"
@@ -106,6 +107,7 @@ func run() int {
 		moderation: moderationSvc,
 		comments:   comments.NewService(pool),
 		ratings:    ratingSvc,
+		library:    library.NewRepository(pool),
 		// Katalogun ?sort=rating sırası top-rated ile aynı m'yi kullanır.
 		ratingMinVotes: int64(cfg.RatingMinVotes),
 		auth:           auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL, cfg.SessionMaxAge),

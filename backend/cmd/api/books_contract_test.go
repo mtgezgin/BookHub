@@ -20,24 +20,7 @@ import (
 // (istemciyi kıran değişiklik) kırılır. `status` bilerek yok: public uçlar yalnızca
 // APPROVED döndürdüğü için bilgi taşımaz.
 func TestGetBookResponseContract(t *testing.T) {
-	// İzin verilen ÜST DÜZEY alanlar = bugünkü public sözleşme.
-	// Yeni alan buraya ancak "istemciye gitmesi kasıtlı" kararıyla eklenmeli.
-	allowedFields := []string{
-		"id",
-		"title",
-		"slug",
-		"author",
-		"description",
-		"cover_url",
-		"publication_year",
-		"page_count",
-		"language",
-		"genres",
-		"average_rating", // Faz 5: türetilmiş puan istatistiği (bilinçli ekleme)
-		"rating_count",
-		"created_at",
-		"updated_at",
-	}
+	allowedFields := publicBookFields
 
 	year := int32(2008)
 	pages := int32(464)
@@ -72,6 +55,32 @@ func TestGetBookResponseContract(t *testing.T) {
 		t.Fatalf("cevap geçerli JSON nesnesi değil: %v", err)
 	}
 
+	checkContract(t, body, allowedFields)
+}
+
+// publicBookFields, herkese açık kitap JSON'unun izin verilen ÜST DÜZEY alanları = bugünkü
+// public sözleşme. Yeni alan buraya ancak "istemciye gitmesi kasıtlı" kararıyla eklenmeli.
+// Kitaplık öğesinin içindeki `book` da aynı sözleşmeye bağlı (library_contract_test.go).
+var publicBookFields = []string{
+	"id",
+	"title",
+	"slug",
+	"author",
+	"description",
+	"cover_url",
+	"publication_year",
+	"page_count",
+	"language",
+	"genres",
+	"average_rating", // Faz 5: türetilmiş puan istatistiği (bilinçli ekleme)
+	"rating_count",
+	"created_at",
+	"updated_at",
+}
+
+// checkContract, bir JSON nesnesinin alanlarını izin listesiyle iki yönden karşılaştırır.
+func checkContract(t *testing.T, body map[string]json.RawMessage, allowedFields []string) {
+	t.Helper()
 	allowed := make(map[string]bool, len(allowedFields))
 	for _, field := range allowedFields {
 		allowed[field] = true

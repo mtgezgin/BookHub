@@ -1,5 +1,5 @@
 import { Search, SearchX } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Book, Genre, Page, TopRated } from "../api/types";
@@ -7,35 +7,27 @@ import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
 import { EmptyState } from "../components/EmptyState";
+import { asGenre, asOffset, asQuery, Chip, GRID, useParamUpdater } from "../components/filters";
+import { LibraryBadge } from "../components/LibraryBadge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
+import { useLibraryStatuses } from "../components/useLibraryStatuses";
 import { Pager } from "../components/usePaged";
 import { formatScore } from "../lib/format";
 import { cn } from "../lib/utils";
 
 const PAGE = 12;
-// 12'lik sayfa her sütun sayısında satırları tam doldurur (2, 3, 4, 6).
-const GRID = "grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6";
 const SEARCH_DELAY_MS = 300;
-
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <Button size="sm" variant={active ? "default" : "outline"} aria-pressed={active} className="shrink-0 rounded-full" onClick={onClick}>
-      {children}
-    </Button>
-  );
-}
 
 export function Home() {
   const [params, setParams] = useSearchParams();
-  const q = params.get("q") ?? "";
-  const genre = params.get("genre") ?? "";
+  // Elle değiştirilmiş adres (/?offset=abc, /?genre=Bilim Kurgu) API'ye gitmez: bkz. filters.tsx.
+  const q = asQuery(params.get("q"));
+  const genre = asGenre(params.get("genre"));
   // Yalnız iki sıra var; tanınmayan değer varsayılana (en yeni) düşer.
   const sort = params.get("sort") === "rating" ? "rating" : "";
-  // URL elle değiştirilebilir (/?offset=abc): geçersiz/negatif değer 0 sayılır (NaN API'ye gitmesin).
-  const parsed = parseInt(params.get("offset") ?? "0", 10);
-  const offset = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  const offset = asOffset(params.get("offset"));
 
   const [page, setPage] = useState<Page<Book> | null>(null);
   const [genres, setGenres] = useState<Genre[]>([]);
@@ -73,19 +65,8 @@ export function Home() {
     };
   }, [q, genre, offset, sort]);
 
-  // Dikkat: react-router 7'de `prev`, setParams'ın OLUŞTUĞU render'daki URL'dir; en güncel URL
-  // değil. Gecikmeli çağrılar bu yüzden aşağıdaki `latest` üzerinden son render'ın update'ini
-  // kullanır.
-  const update = useCallback(
-    (next: Record<string, string>, replace = false) =>
-      setParams((prev) => {
-        const p = new URLSearchParams(prev);
-        for (const [k, v] of Object.entries(next)) (v ? p.set(k, v) : p.delete(k));
-        if (!("offset" in next)) p.delete("offset");
-        return p;
-      }, { replace }),
-    [setParams],
-  );
+  // Gecikmeli çağrılar aşağıdaki `latest` üzerinden son render'ın update'ini kullanır (bkz. useParamUpdater).
+  const update = useParamUpdater(setParams);
 
   // Zamanlayıcı kurulduktan sonraki 300 ms'de tür, sıra ya da sayfa seçilmiş, Enter'a basılmış
   // olabilir. Kurulduğu anın q/update'ini kullanırsa o seçimi eski URL ile ezer.
@@ -147,6 +128,8 @@ export function Home() {
   const filtered = q !== "" || genre !== "";
   // Puan sırasında şerit, listenin başıyla aynı şeyi gösterirdi.
   const showTop = !filtered && sort === "" && offset === 0 && top !== null && top.items.length > 0;
+  // Izgara ve şerit için TEK istek: kimlikler birleşir, tekrarları kanca ayıklar.
+  const statuses = useLibraryStatuses([...(page?.items ?? []), ...(showTop && top ? top.items : [])].map((b) => b.id));
 
   return (
     <div>
@@ -200,6 +183,7 @@ export function Home() {
                     <span aria-hidden="true" className="absolute -top-2 -left-2 grid size-8 place-items-center rounded-full bg-primary font-serif text-sm font-semibold text-primary-foreground shadow">
                       {i + 1}
                     </span>
+                    {statuses[b.id] && <LibraryBadge status={statuses[b.id]} className="absolute bottom-2 left-2" />}
                   </div>
                   <span className="mt-2 line-clamp-2 block text-sm font-medium group-hover:underline">{b.title}</span>
                 </Link>
@@ -249,7 +233,7 @@ export function Home() {
             </EmptyState>
           ) : (
             <ul aria-label="Kitaplar" aria-busy={loading} className={cn(GRID, "transition-opacity", loading && "opacity-60")}>
-              {page.items.map((b) => <li key={b.id}><BookCard book={b} headingLevel="h3" /></li>)}
+              {page.items.map((b) => <li key={b.id}><BookCard book={b} headingLevel="h3" status={statuses[b.id]} /></li>)}
             </ul>
           )}
           {(offset > 0 || page.total > PAGE) && (

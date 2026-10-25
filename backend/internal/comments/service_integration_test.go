@@ -5,44 +5,16 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/testdb"
 )
-
-func createUser(t *testing.T, pool *pgxpool.Pool, name string) int64 {
-	t.Helper()
-	var id int64
-	err := pool.QueryRow(context.Background(),
-		`INSERT INTO users (email, display_name, password_hash) VALUES ($1, $2, 'x') RETURNING id`,
-		testdb.Unique("commenter")+"@example.com", name).Scan(&id)
-	if err != nil {
-		t.Fatalf("kullanıcı açılamadı: %v", err)
-	}
-	t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM users WHERE id = $1", id) })
-	return id
-}
-
-func createBook(t *testing.T, pool *pgxpool.Pool, status string) int64 {
-	t.Helper()
-	slug := testdb.Unique("commented")
-	var id int64
-	err := pool.QueryRow(context.Background(),
-		`INSERT INTO books (title, slug, author, status) VALUES ($1, $1, 'Yazar', $2) RETURNING id`, slug, status).Scan(&id)
-	if err != nil {
-		t.Fatalf("kitap açılamadı: %v", err)
-	}
-	t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM books WHERE id = $1", id) })
-	return id
-}
 
 func TestCommentsRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	s := NewService(pool)
 	ctx := context.Background()
-	book := createBook(t, pool, books.StatusApproved)
-	user, admin := createUser(t, pool, "Ayşe"), createUser(t, pool, "Admin")
+	book := testdb.CreateBook(t, pool, "", books.StatusApproved)
+	user, admin := testdb.CreateUser(t, pool, "Ayşe"), testdb.CreateUser(t, pool, "Admin")
 
 	first, err := s.Create(ctx, user, book, "Harika bir kitap")
 	if err != nil {
@@ -86,9 +58,9 @@ func TestCommentsRealDB(t *testing.T) {
 func TestCommentOnlyOnApprovedRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	s := NewService(pool)
-	user := createUser(t, pool, "Ali")
+	user := testdb.CreateUser(t, pool, "Ali")
 	for _, st := range []string{books.StatusPending, books.StatusRejected, books.StatusArchived} {
-		if _, err := s.Create(context.Background(), user, createBook(t, pool, st), "merhaba"); !errors.Is(err, books.ErrNotFound) {
+		if _, err := s.Create(context.Background(), user, testdb.CreateBook(t, pool, "", st), "merhaba"); !errors.Is(err, books.ErrNotFound) {
 			t.Errorf("%s kitaba yorum ErrNotFound vermeli: %v", st, err)
 		}
 	}

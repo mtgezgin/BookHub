@@ -7,8 +7,10 @@ import { useAuth } from "../auth/AuthContext";
 import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle, Rating } from "../components/common";
+import { LibraryButton } from "../components/LibraryButton";
 import { NotFound } from "../components/NotFound";
 import { useToast } from "../components/toast";
+import { useLibraryStatuses } from "../components/useLibraryStatuses";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -87,7 +89,11 @@ function BookDetailView() {
   const [similar, setSimilar] = useState<Book[] | null>(null);
   const [error, setError] = useState<unknown>(null);
 
-  useEffect(() => window.scrollTo(0, 0), []);
+  // Süslü parantez şart: yeni Chromium'da scrollTo bir Promise döndürüyor; etki onu döndürseydi
+  // React ayrılırken Promise'i temizlik fonksiyonu sanıp çağırır, uygulama boş ekranla çökerdi.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   // Kitap + puan özeti ve yorumlar AYRI yüklenir: yorum sayfası değişince kitabı yeniden
   // çekmeye gerek yok. Hatalar yutulmaz; yeni bir yükleme eski hata mesajını temizler.
@@ -113,6 +119,7 @@ function BookDetailView() {
       current = false;
     };
   }, [bookId, firstGenre]);
+  const similarStatuses = useLibraryStatuses((similar ?? []).map((b) => b.id));
 
   const fetchComments = useCallback((offset: number) => api.comments(id, offset), [id]);
   const comments = usePaged(fetchComments, String(id), setError);
@@ -212,6 +219,9 @@ function BookDetailView() {
               ))}
             </div>
           )}
+          <div>
+            <LibraryButton bookId={book.id} />
+          </div>
         </header>
 
         <section aria-labelledby="rating-heading" className="self-start [grid-area:rating]">
@@ -303,7 +313,7 @@ function BookDetailView() {
         <section aria-labelledby="similar-heading" className="mx-auto mt-16 max-w-5xl border-t pt-10">
           <h2 id="similar-heading" className="text-2xl font-semibold">{book.genres[0].name} türünden başka kitaplar</h2>
           <ul className="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 lg:grid-cols-6">
-            {similar.map((b) => <li key={b.id}><BookCard book={b} headingLevel="h3" /></li>)}
+            {similar.map((b) => <li key={b.id}><BookCard book={b} headingLevel="h3" status={similarStatuses[b.id]} /></li>)}
           </ul>
         </section>
       )}

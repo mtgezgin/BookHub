@@ -63,6 +63,14 @@ type Genre struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type LibraryEntry struct {
+	UserID    int64     `json:"user_id"`
+	BookID    int64     `json:"book_id"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Rating struct {
 	UserID    int64     `json:"user_id"`
 	BookID    int64     `json:"book_id"`
