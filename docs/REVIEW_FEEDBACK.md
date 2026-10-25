@@ -43,6 +43,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [ ] | F16 | Orta | CI/CD gerçek tarayıcı ve release doğrulamasını tamamlamıyor |
 | [ ] | F17 | İyileştirme | Frontend oturum sorumlulukları sadeleştirilmeli |
 | [x] | F18 | Düşük | Dokümanlar mevcut uygulamayla eşitlenmeli |
+| [ ] | F19 | Düşük | `manage migrate` hangi migration'ları uyguladığını yazmıyor |
 
 ## F01 — Başarısız logout sonrasında sunucu oturumu canlı kalabiliyor
 
@@ -351,6 +352,18 @@ DEPLOYMENT.md'nin bilinen sınırlar bölümünde refresh token'ın localStorage
 
 **Kalan risk:** Dokümanlar koddan ayrı yaşamaya devam ediyor; bunu otomatik doğrulayan bir kapı yok. Faz sonu ritüeli (STATUS + PROJECT_MAP + faz belgesi) tek koruma.
 
+## F19 — `manage migrate` hangi migration'ları uyguladığını yazmıyor
+
+**Öncelik:** Düşük · Altyapı / gözlemlenebilirlik
+
+**Kaynaklar:** [backend/internal/database/migrate.go](../backend/internal/database/migrate.go) (`provider.Up`), [backend/cmd/manage/main.go](../backend/cmd/manage/main.go) (`migrate`), [.github/workflows/deploy.yml](../.github/workflows/deploy.yml) (Migrate production database adımı). Faz 15 yayınında (2026-10-25) bulundu.
+
+`database.Migrate`, goose'un `provider.Up`'ının döndürdüğü uygulanan migration listesini atıyor; `manage migrate` de sıfır ya da N migration uygulasa da yalnız "migration'lar güncel" yazıyor. Faz 15'in Deploy'unda 0010'un uygulandığı ancak dolaylı görülebildi: Plan adımının "Yeni migration'lar" listesi ve `MIGRATE=true` bayrağı. İkisi de **niyeti** gösteriyor, sonucu değil; bir migration uygulanmadan geçilseydi log aynı görünürdü.
+
+**Öneri:** `Up`'ın sonuçlarını yazdır: uygulanan her migration için sürüm, dosya adı ve süre; hiçbiri yoksa "uygulanacak migration yok". İsteğe bağlı: Deploy adımı Plan'ın beklediği listeyle uygulananı karşılaştırıp uyuşmazlıkta durur.
+
+**Kabul kriteri:** Yeni migration'lı bir Deploy logunda uygulanan dosyanın adı ve sürümü görünür; migration'sız koşuda "uygulanacak migration yok" yazar. Başarısızlıkta "güncel" yazılmaz (mevcut `TestMigrateCommandRealDB` sözleşmesi korunur, beklenen çıktı güncellenir).
+
 ## Korunması gereken iyi tasarım kararları
 
 | Desen / yaklaşım | Değerlendirme |
@@ -368,7 +381,7 @@ DEPLOYMENT.md'nin bilinen sınırlar bölümünde refresh token'ın localStorage
 1. F01–F04 ve F10: oturum, kötüye kullanım ve veri doğruluğu. F17'yi bu düzeltmelerin gerektirdiği ölçüde ele alın.
 2. F05–F09: üretim yetkileri, sağlık kontrolleri ve kaynak sınırları.
 3. F11–F15: kullanıcı akışları, moderasyon, mobil/erişilebilirlik ve audit kapsamı.
-4. F16 ve F18: CI/CD ve dokümantasyon. Yeni regresyon testlerini ilgili düzeltmeyle birlikte ekleyin; son aşamaya bırakmayın.
+4. F16, F18 ve F19: CI/CD, yayın gözlemlenebilirliği ve dokümantasyon. Yeni regresyon testlerini ilgili düzeltmeyle birlikte ekleyin; son aşamaya bırakmayın.
 
 ## Çözüm kaydı şablonu
 
