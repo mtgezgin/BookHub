@@ -56,7 +56,8 @@ func (c *apiClient) get(ctx context.Context, path string, q url.Values) (json.Ra
 		// ipucunu verir (en sık sebep: make app-up çalışmıyor).
 		return nil, fmt.Errorf("BookHub API'ye ulaşılamadı (%s): %w", c.base.Redacted(), err)
 	}
-	defer resp.Body.Close()
+	// Okuma bittiyse kapatma hatası cevabı değiştirmez; bilerek yok sayılır (cmd/api healthcheck ile aynı desen).
+	defer func() { _ = resp.Body.Close() }()
 
 	// +1: sınırı aşan gövdeyi "tam sığdı" sanmamak için bir bayt fazla oku.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
