@@ -8,7 +8,7 @@ SHELL := /bin/bash
 ENV := set -a; . ./.env; set +a
 GO := go -C backend
 
-.PHONY: help up down app-up app-down logs run test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build scan web web-test e2e k8s-up k8s-port k8s-status k8s-down
+.PHONY: help up down app-up app-down logs run mcp test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build scan web web-test e2e k8s-up k8s-port k8s-status k8s-down
 
 help: ## Hedefleri listele
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -30,6 +30,9 @@ logs: ## API konteyner loglarını izle
 
 run: ## API'yi host'ta çalıştır (hızlı geliştirme döngüsü)
 	$(ENV); $(GO) run ./cmd/api
+
+mcp: ## MCP sunucusu (stdio; salt okunur araçlar) — API=... ile adres değişir, varsayılan app-up'ın NGINX'i
+	BOOKHUB_API_URL=$${API:-http://localhost:3000} $(GO) run ./cmd/mcp
 
 test: ## Birim testleri (DB'siz, CI gibi)
 	$(GO) test -race ./...
