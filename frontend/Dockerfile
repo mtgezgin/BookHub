@@ -32,6 +32,13 @@ RUN npm run bundle
 # (91 MB → 30 MB, 35 → 21 paket) ve Docker Scout'un standart sürümde bildirdiği "1 high"
 # bu modül kütüphanelerindeydi, slim'de yok. Healthcheck'in wget'i busybox'tan gelir, slim'de de var.
 FROM nginxinc/nginx-unprivileged:stable-alpine-slim@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6
+# Taban imaj yenilenmeden çıkan Alpine yamaları: sabitlenmiş digest bunları getiremez, üst kaynak
+# yeni imaj yayınlayana kadar Trivy kırmızı kalırdı (2026-11: musl, zlib). Paketler derleme anındaki
+# yamalı sürümdür; bedeli, iki derlemenin paket sürümünün birebir aynı olmayabilmesi.
+USER root
+RUN apk --no-cache upgrade
+# Sayısal uid: k8s'te runAsNonRoot kullanıcı adını doğrulayamaz.
+USER 101
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY nginx/security-headers.conf nginx/api-proxy.conf /etc/nginx/snippets/
 COPY --from=build /src/dist /usr/share/nginx/html
