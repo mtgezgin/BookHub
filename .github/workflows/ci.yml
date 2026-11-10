@@ -130,16 +130,22 @@ jobs:
   # Kural `make scan` ile aynı: HIGH/CRITICAL ve DÜZELTMESİ OLAN bir açık → iş kırmızı.
   # ignore-unfixed: dağıtımın henüz yama yayınlamadığı açık için yapacak bir şey yok; onunla
   # kırılmak gürültü olurdu. Action, commit SHA'sıyla sabitlendi (etiket taşınabilir, SHA taşınamaz).
+  # Aynı kural scan.yml'de haftalık olarak canlıdaki kod (release) üzerinde koşar; ikisi birlikte değişir.
   images:
     name: İmaj taraması (Trivy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Build the published images
+        id: build
         run: |
           docker build -t bookhub-api:dev backend
           docker build -t bookhub-web:dev frontend
+      # İKİ İMAJ DA HER ZAMAN TARANIR (#48): eskiden api kırılınca web adımı atlanıyordu ve nginx'in
+      # üç açığı bu yüzden CI'da görünmedi. Şimdi web de koşar, bulgusu logda görünür; iş yine kırmızı
+      # biter (adım atlanmaz, continue-on-error yok). Koşul yalnız derlemenin başarısına bakar.
       - name: Scan bookhub-api (Trivy)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: bookhub-api:dev
@@ -149,6 +155,7 @@ jobs:
           exit-code: "1"
           format: table
       - name: Scan bookhub-web (Trivy)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: bookhub-web:dev
