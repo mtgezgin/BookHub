@@ -182,8 +182,13 @@ Yalnız okuma yapan kontroller. `make smoke` ve `make e2e` canlıya karşı **ç
    [CLAUDE.md](../CLAUDE.md)'ye eklenen bir review kuralı. Önleme kuralı yazılmadan olay
    kapanmaz.
 
-Hedef, olayları kullanıcıdan önce kendi izlememizin bulması. Canlıda henüz izleme ve alarm yok;
-sıradaki adım bu.
+Hedef, olayları kullanıcıdan önce kendi izlememizin bulması. Bugün canlıda olan tek izleme
+haftalık imaj taraması: [scan.yml](../.github/workflows/scan.yml) her pazartesi 06:00 UTC'de
+`release`'i derleyip Trivy ile tarar, kırmızı koşu GitHub'ın hata e-postasıyla gelir ([#48](https://github.com/mtgezgin/BookHub/issues/48)).
+Elle koşu: Actions → "Haftalık imaj taraması" → Run workflow (`ref` boşsa `release`). Kırmızı
+koşu önce logla ayrılır: Trivy veritabanının indirilememesi bir açık değildir; düzeltmesi olan bir
+açık ise bug olarak ele alınır (taban imaj ya da bağımlılık güncellemesi). Uptime, hata izleme ve
+alarm henüz yok; sıradaki adım onlar.
 
 ## 8. Etiketler
 

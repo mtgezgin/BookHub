@@ -1,0 +1,80 @@
+# Haftalık imaj taraması (#48) — CANLIDA çalışan kodu, push beklemeden bilinen açıklara karşı tarar.
+#
+# NEDEN: ci.yml'deki Trivy yalnız bir push ya da PR olunca koşuyor. Açıklar ise imaj derlendikten SONRA
+# veritabanına girer: #47'nin dört HIGH açığı canlıda en az 6 gün kimse fark etmeden durdu ve ancak
+# ilgisiz bir PR'da ortaya çıktı. Bu iş akışı aynı taramayı takvimle `release` dalı üzerinde koşar;
+# kırmızı biten koşu GitHub'ın iş akışı hata e-postasıyla bildirilir (takvimli koşularda e-posta,
+# bu dosyadaki cron satırını en son değiştiren kullanıcıya gider).
+#
+# Kapsam: Northflank'taki konteyneri değil, `release`'ten AYNI Dockerfile'larla yeniden derlenen
+# imajı tarar (konteynere erişim bir Northflank API sırrı isterdi). Taban imajlar digest ile sabit
+# olduğundan sonuç aynı içeriği yansıtır; tek fark `apk upgrade` adımı (frontend/Dockerfile): bugün
+# derlenen imaj canlıdakinden daha yeni Alpine paketleri taşıyabilir.
+#
+# Sınır: GitHub, 60 gün hiç commit gelmeyen bir public repoda takvimli iş akışlarını kendiliğinden
+# kapatır (Actions sekmesinden yeniden açılır).
+name: Haftalık imaj taraması
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # pazartesi 06:00 UTC (İstanbul 09:00)
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Taranacak dal, etiket ya da tam (40 karakter) commit SHA'sı; boş: release, yani canlıdaki kod"
+        required: false
+        type: string
+        default: ""
+
+# Yalnız okuma. Bu iş akışı hiçbir sır kullanmaz; yazdığı tek şey loglardır.
+permissions:
+  contents: read
+
+jobs:
+  images:
+    name: İmaj taraması (Trivy, release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Girdi yalnız `with:` içinde kullanılır, `run:` bloğuna girmez (script injection'a karşı).
+      # Takvimli koşuda `inputs` boştur → release.
+      - name: Checkout (varsayılan release)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || 'release' }}
+          persist-credentials: false
+
+      - name: Commit
+        run: git log -1 --format='%h %ad %s' --date=short
+
+      # Kural ci.yml'deki images işiyle BİREBİR aynı (HIGH/CRITICAL, ignore-unfixed, exit-code 1,
+      # aynı action SHA'sı). Birini değiştiren diğerini de değiştirir.
+      - name: Build the published images
+        id: build
+        run: |
+          docker build -t bookhub-api:scan backend
+          docker build -t bookhub-web:scan frontend
+
+      # İKİ İMAJ DA HER ZAMAN TARANIR: api taraması kırılsa da web taraması koşar ve bulgusu logda
+      # görünür; iş yine kırmızı biter (adım atlanmaz, continue-on-error yok). Koşul yalnız derlemenin
+      # başarısına bakar: derlenmemiş imajı taramanın anlamı yok.
+      - name: Scan bookhub-api (Trivy)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: bookhub-api:scan
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+      - name: Scan bookhub-web (Trivy)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: bookhub-web:scan
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
