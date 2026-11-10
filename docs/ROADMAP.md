@@ -6,7 +6,9 @@
 
 ## Hedef
 
-**Üretim kalitesinde demo** (kullanıcı kararı, 2026-10-17). Site gerçek kullanıcılara açılmıyor; amaç
+**Üretim kalitesinde demo** (kullanıcı kararı, 2026-10-17; repo public olduktan sonra 2026-11-09'da
+yinelendi — kayıt ekranında ve README'de demo uyarısı var, [#64](https://github.com/mtgezgin/BookHub/issues/64)).
+Site gerçek kullanıcılara açılmıyor; amaç
 ürün döngüsünü uçtan uca, canlıda ve üretim standartlarında göstermek:
 
 **Keşfet → kitaplığına ekle → okumaya başla → bitir → değerlendir.**

@@ -2,6 +2,9 @@
 
 **Canlı:** https://p01--web--4x2qb6s8vg5j.code.run
 
+> **Demo:** gerçek kullanıcıya açık bir hizmet değil. Kayıt olursan başka bir yerde kullandığın
+> parolayı kullanma; e-posta adresi doğrulanmaz ve veriler her an silinebilir.
+
 Okunan kitapların kataloğu ve topluluğu: kullanıcılar kitap önerir, admin onaylar; herkes yorum
 yapar ve 1–10 puan verir; "en iyiler" listesi basit ortalamayla değil **ağırlıklı (Bayes) puanla**
 sıralanır.

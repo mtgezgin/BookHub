@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBox, PageTitle } from "../components/common";
 import { PasswordField } from "../components/PasswordField";
+import { Alert } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
@@ -64,8 +65,17 @@ export function Login() {
   );
 }
 
+/**
+ * Demo uyarısı (#64): site gerçek kullanıcıya açık değil (ROADMAP "Hedef"), ama kayıt herkese açık.
+ * Formdan önce durur; parola alanı da aria-describedby ile buna bağlı, yani ekran okuyucu alana
+ * gelince uyarıyı yeniden okur. role="note": canlı bölge (alert/status) değil, sayfa açılınca bağırmaz.
+ */
+const DEMO_NOTICE =
+  "Bu site bir öğrenme projesinin demosu. Başka bir yerde kullandığın parolayı kullanma: e-posta adresi doğrulanmaz ve veriler her an silinebilir.";
+
 export function Register() {
   const { login } = useAuth();
+  const noticeId = useId();
   const nav = useNavigate();
   const { state } = useLocation();
   const returnTo = useReturnTo();
@@ -93,9 +103,10 @@ export function Register() {
       <PageTitle title="Kayıt ol" />
       <form onSubmit={submit} className="flex flex-col gap-4">
         <h1 className="text-2xl font-semibold">Kayıt ol</h1>
+        <Alert id={noticeId} role="note" className="text-muted-foreground">{DEMO_NOTICE}</Alert>
         <Label>E-posta<Input type="email" value={form.email} onChange={set("email")} required autoComplete="email" /></Label>
         <Label>Görünen ad<Input value={form.name} onChange={set("name")} required maxLength={100} /></Label>
-        <PasswordField label="Parola" hint="(en az 8 karakter)" value={form.password} onChange={set("password")} required minLength={8} autoComplete="new-password" />
+        <PasswordField label="Parola" hint="(en az 8 karakter)" value={form.password} onChange={set("password")} required minLength={8} autoComplete="new-password" aria-describedby={noticeId} />
         <ErrorBox error={error} />
         <Button type="submit" disabled={busy}>{busy ? "Kaydediliyor…" : "Kayıt ol"}</Button>
         <p className="text-sm text-muted-foreground">
