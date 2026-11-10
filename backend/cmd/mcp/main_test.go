@@ -149,6 +149,38 @@ func TestToolCalls(t *testing.T) {
 	}
 }
 
+// structuredContent standartta (2025-06-18) bir JSON nesnesi: nesne cevap orada da durur, dizi
+// cevap (ör. /api/genres) yalnız metin olarak gider — iki durumda da model gövdeyi aynen okur.
+func TestStructuredContentOnlyForObjects(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		wantStructured bool
+	}{
+		{"nesne cevap structuredContent'te de durur", `{"items":[{"id":7}],"total":1}`, true},
+		{"dizi cevap yalnız metin olarak gider", `[{"id":1,"name":"Bilim","slug":"bilim"}]`, false},
+		{"baştaki boşluk nesneyi gizlemez", " \n{\"total\":0}", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := connect(t, &fakeAPI{status: http.StatusOK, body: tt.body})
+			res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "list_genres", Arguments: map[string]any{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.IsError {
+				t.Fatalf("araç hata döndü: %s", textOf(t, res))
+			}
+			if got := textOf(t, res); got != strings.TrimLeft(tt.body, " \n") && got != tt.body {
+				t.Errorf("metin = %q, API gövdesi aynen beklenirdi: %q", got, tt.body)
+			}
+			if gotStructured := res.StructuredContent != nil; gotStructured != tt.wantStructured {
+				t.Errorf("structuredContent var mı = %v, beklenen %v (%v)", gotStructured, tt.wantStructured, res.StructuredContent)
+			}
+		})
+	}
+}
+
 func TestToolErrors(t *testing.T) {
 	tests := []struct {
 		name     string

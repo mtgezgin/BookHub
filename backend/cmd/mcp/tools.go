@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/url"
@@ -104,12 +105,27 @@ func registerTools(s *mcp.Server, api *apiClient) {
 // call, API cevabını aracın çıktısı yapar. Out = any olduğu için SDK çıktı şeması üretmez ve
 // ham JSON'u hem structuredContent'e hem metin içeriğine koyar. Dönen error ise protokol
 // hatası OLMAZ: SDK onu IsError=true bir sonuca çevirir, model mesajı görür.
+//
+// NESNE OLMAYAN CEVAP (ör. /api/genres bir DİZİ döner): MCP 2025-06-18'de structuredContent bir
+// JSON NESNESİ; diziyi yalnız standardın yeni taslağı (SEP-2106) kabul ediyor ve SDK onu olduğu
+// gibi geçiriyor. Şemayı sıkı denetleyen eski bir istemci o cevabı reddedebilirdi. Bu yüzden
+// nesne olmayan gövde YALNIZ metin içeriği olarak döner: model aynı JSON'u değiştirilmeden okur,
+// structuredContent ise hiç gönderilmez — her standart sürümünde geçerli.
 func call(ctx context.Context, api *apiClient, path string, q url.Values) (*mcp.CallToolResult, any, error) {
 	body, err := api.get(ctx, path, q)
 	if err != nil {
 		return nil, nil, err
 	}
+	if !isJSONObject(body) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(body)}}}, nil, nil
+	}
 	return nil, body, nil
+}
+
+// isJSONObject: gövde get'te zaten json.Valid'den geçti; ilk anlamlı bayt '{' ise nesnedir.
+func isJSONObject(body []byte) bool {
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	return len(trimmed) > 0 && trimmed[0] == '{'
 }
 
 // bookPath: id sayı olduğu için yola güvenle yazılır (string olsaydı PathEscape gerekirdi).
