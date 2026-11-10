@@ -1,10 +1,13 @@
 # 📚 BookHub
 
+**Canlı:** https://p01--web--4x2qb6s8vg5j.code.run
+
+> **Demo:** gerçek kullanıcıya açık bir hizmet değil. Kayıt olursan başka bir yerde kullandığın
+> parolayı kullanma; e-posta adresi doğrulanmaz ve veriler her an silinebilir.
+
 Okunan kitapların kataloğu ve topluluğu: kullanıcılar kitap önerir, admin onaylar; herkes yorum
 yapar ve 1–10 puan verir; "en iyiler" listesi basit ortalamayla değil **ağırlıklı (Bayes) puanla**
 sıralanır.
-
-**Canlı:** https://p01--web--4x2qb6s8vg5j.code.run
 
 Asıl amaç ürün değil **öğrenme**: TypeScript geçmişinden gelen biri için backend teknolojilerini
 *neden var oldukları* üzerinden, Go ile, baştan sona bir üretim yığını kurarak öğrenmek. Kod
@@ -99,3 +102,7 @@ Hata zarfı her yerde aynı: `{"error":{"code":"…","message":"…"}}`; her cev
 - [docs/PROCESS.md](docs/PROCESS.md) — geliştirme süreci: issue → PR → testlere bağlı yayın → doğrulama
 - [CLAUDE.md](CLAUDE.md) — proje kuralları (AI oturumları ve review kapısı için)
 - [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md) — ürün tanımı ve yol haritası
+
+## Lisans
+
+[MIT](LICENSE)

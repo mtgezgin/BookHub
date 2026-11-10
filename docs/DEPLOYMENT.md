@@ -134,7 +134,10 @@ Eski `release.yml` (etiketle ghcr'ye imaj yayını) hiç çalışmadığı için
   sertifikayı ve host adını doğrulamaz (pgx). Sertleştirme: Supabase'in CA sertifikasını repoya
   ve imaja koyup `PGSSLROOTCERT` ile vermek, sonra DSN'i `sslmode=verify-full` yapmak
   ([öğrenme notu #6](learning-notes/infra-and-devops.md)).
-- **İzleme yok:** Northflank'ta sağlık kontrolü, uptime izleyici ve hata izleme (Sentry) henüz
-  kurulmadı; sıradaki adım.
+- **İzleme sınırlı:** günde bir dışarıdan erişilebilirlik kontrolü var
+  ([uptime.yml](../.github/workflows/uptime.yml), #63: `/healthz`, `/health`, `/api/books`) ve
+  haftalık imaj taraması ([scan.yml](../.github/workflows/scan.yml), #48); ikisi de kırmızı
+  koşuda GitHub e-postasıyla bildirir. Northflank'ta sağlık kontrolü ve hata izleme (Sentry) henüz
+  yok. Uptime'ın `/api/books` isteği Supabase'in hareketsizlik duraklamasını da önlemeli.
 - Access token'lar stateless: çıkış, parola ve rol değişikliği refresh tarafını anında keser ama
   verilmiş access token'lar `JWT_ACCESS_TTL` (15 dk) dolana kadar geçerli kalır.

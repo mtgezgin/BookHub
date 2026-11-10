@@ -110,6 +110,9 @@ e2e: ## Playwright uçtan uca testleri (yığını kendisi kaldırır)
 # yanlışlıkla onlara bir şey uygulanamaz.
 KIND_CLUSTER := bookhub
 KCTL := kubectl --context kind-$(KIND_CLUSTER)
+# İmaj arşivi repo içinde göreli bir yolda (git dışı): /tmp gibi Unix yolları Windows'ta make satırı
+# kabuksuz çalıştığında çevrilmiyor ve kind dosyayı bulamıyordu.
+K8S_IMAGES := .k8s-images.tar
 
 k8s-up: ## Yerel kind kümesinde tüm uygulama (küme yoksa oluşturur)
 	kind get clusters | grep -qx $(KIND_CLUSTER) || kind create cluster --name $(KIND_CLUSTER)
@@ -119,10 +122,10 @@ k8s-up: ## Yerel kind kümesinde tüm uygulama (küme yoksa oluşturur)
 	@# "kind load docker-image" Docker Desktop'ın containerd deposundaki ÇOK PLATFORMLU imajlarda
 	@# "content digest not found" ile düşüyor (yerelde yalnız bu makinenin platformu var). Çözüm:
 	@# imajları tek platformlu bir arşive kaydedip arşivi yüklemek.
-	docker save --platform linux/$$(docker version -f '{{.Server.Arch}}') -o /tmp/bookhub-images.tar \
+	docker save --platform linux/$$(docker version -f '{{.Server.Arch}}') -o $(K8S_IMAGES) \
 		bookhub-api:dev bookhub-web:dev postgres:16 redis:7-alpine
-	kind load image-archive --name $(KIND_CLUSTER) /tmp/bookhub-images.tar
-	rm -f /tmp/bookhub-images.tar
+	kind load image-archive --name $(KIND_CLUSTER) $(K8S_IMAGES)
+	rm -f $(K8S_IMAGES)
 	$(KCTL) apply -f deploy/k8s/namespace.yaml
 	@# Sırlar dosyada değil: ilk kurulumda rastgele üretilir, sonra korunur.
 	$(KCTL) -n bookhub get secret bookhub-secrets >/dev/null 2>&1 || $(KCTL) -n bookhub create secret generic bookhub-secrets \

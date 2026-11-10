@@ -6,7 +6,9 @@
 
 ## Hedef
 
-**Üretim kalitesinde demo** (kullanıcı kararı, 2026-10-17). Site gerçek kullanıcılara açılmıyor; amaç
+**Üretim kalitesinde demo** (kullanıcı kararı, 2026-10-17; repo public olduktan sonra 2026-11-09'da
+yinelendi — kayıt ekranında ve README'de demo uyarısı var, [#64](https://github.com/mtgezgin/BookHub/issues/64)).
+Site gerçek kullanıcılara açılmıyor; amaç
 ürün döngüsünü uçtan uca, canlıda ve üretim standartlarında göstermek:
 
 **Keşfet → kitaplığına ekle → okumaya başla → bitir → değerlendir.**
@@ -41,8 +43,8 @@ okuma takibinden hemen önceye kondu.
 | İş | Ne zaman | Not |
 | --- | --- | --- |
 | Node 26 (Dependabot #13, #29) | Ekim sonu, LTS çıkınca | |
-| Canlı imajlara haftalık güvenlik taraması (Trivy; [#48](https://github.com/mtgezgin/BookHub/issues/48)) | #47'den hemen sonra | #47'nin açıkları canlıda 6 gün fark edilmedi; canlı izlemenin ilk parçası |
-| Canlı izleme ve alarm (sağlık kontrolü, uptime, hata izleme) | Zamanı açık; gerçek kullanıcı kararından önce şart | [PROCESS §7](PROCESS.md) · [DEPLOYMENT §5](DEPLOYMENT.md) |
+| Canlı imajlara haftalık güvenlik taraması (Trivy; [#48](https://github.com/mtgezgin/BookHub/issues/48)) | 2026-11 | `scan.yml`: pazartesi 06:00 UTC ve elle, `release` üzerinde; iki imaj her zaman taranır (ci.yml'de de). #47'nin açıkları canlıda 6 gün fark edilmemişti; canlı izlemenin ilk parçası |
+| Canlı izleme ve alarm (sağlık kontrolü, uptime, hata izleme) | Uptime 2026-11 ([#63](https://github.com/mtgezgin/BookHub/issues/63)); hata izleme zamanı açık, gerçek kullanıcı kararından önce şart | `uptime.yml`: günde bir üç uç (NGINX, API, Postgres). [PROCESS §7](PROCESS.md) · [DEPLOYMENT §5](DEPLOYMENT.md) |
 | NGINX erişim logunda sorgu dizesi ve referrer | İzleme işiyle birlikte | [CLAUDE.md](../CLAUDE.md) "bilinen açık" |
 | REVIEW_FEEDBACK bulguları | İlgili fazın içinde | F10, F11 → Faz 15–17 (UX-01) · F13 → her fazın UX-02 kabulü · F12, F15 → Faz 18 (MOD-02) · F04 → Faz 18'den önce · F03, F06–F09, F16, F17 → ihtiyaç oldukça ayrı iş |
 | Dependabot, Sonar ve güvenlik bulguları | Geldikçe | Ürün fazını durdurmaz; güvenlik engelleyicisi hariç |
