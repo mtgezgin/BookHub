@@ -17,6 +17,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 10. [Docker ağında sabit IP ve güvenilen proxy: 172.28.0.10 nereden geliyor?](#10-docker-ağında-sabit-ip-ve-güvenilen-proxy-17228010-nereden-geliyor)
 11. [NGINX'i canlıda gözlemlemek: access log, API logu ve istek kimliği](#11-nginxi-canlıda-gözlemlemek-access-log-api-logu-ve-istek-kimliği)
 12. [CI'a bağlı yayın: push'tan canlıya otomasyon nasıl ilerliyor?](#12-cia-bağlı-yayın-pushtan-canlıya-otomasyon-nasıl-ilerliyor)
+13. [Kubernetes var ama canlı Northflank'ta: kind ile PaaS farkı ve merge'ün canlıya etkisi](#13-kubernetes-var-ama-canlı-northflankta-kind-ile-paas-farkı-ve-mergeün-canlıya-etkisi)
 
 ---
 
@@ -820,3 +821,65 @@ durumda o commit'i atlar ve `main` ucunun yayını onu da kapsar (PROCESS §5).
   [docs/DEPLOYMENT.md](../DEPLOYMENT.md) §3
 - [#2 CI'da gerçek veritabanı](#2-cida-gerçek-veritabanı-servis-konteynerleri-ve-uçtan-uca-iş) ·
   [#5 Trivy](#5-i̇maj-güvenlik-açığı-taraması-trivy-nedir-docker-scouttan-neden-farklı-sayar)
+
+---
+
+## 13. Kubernetes var ama canlı Northflank'ta: kind ile PaaS farkı ve merge'ün canlıya etkisi
+
+**🗓️ Bağlam:** MCP sunucusunun PR'ını (#53) açtıktan sonra "bu değişiklikleri canlıya nasıl
+deploy ediyorum, projede Kubernetes var mı?" diye sordum. Repoda `deploy/k8s/` klasörünü görünce
+canlının da Kubernetes'te çalıştığını sanmıştım.
+
+**⚡ Kısa cevap:** Elle deploy yok: PR'ı `main`'e merge etmek yetiyor, gerisini Deploy iş akışı ve
+Northflank yapıyor ([#12](#12-cia-bağlı-yayın-pushtan-canlıya-otomasyon-nasıl-ilerliyor)).
+Kubernetes manifest'leri var ama yalnız **öğrenme ve yerel deneme** için: Faz 12'de bilgisayarda
+çalışan bir kind kümesinde doğrulandı. Canlı, yönetilen bir platformda (Northflank) çalışıyor. Bir
+merge'ün canlıda bir şeyi değiştirip değiştirmediği de ayrı bir soru: bu, değişikliğin **imaja
+girip girmediğine** bağlı.
+
+**📖 Açıklama:**
+
+**Aynı uygulama, üç çalışma ortamı:**
+
+| Ortam | Ne | Nasıl açılır | Kim yönetiyor |
+|---|---|---|---|
+| Docker Compose | yerel geliştirme | `make app-up` → http://localhost:3000 | sen, tek makinede |
+| kind (Kubernetes in Docker) | yerel Kubernetes kümesi | `make k8s-up` + `make k8s-port` → http://localhost:3001 | sen; küme Docker konteynerleri içinde |
+| Northflank | canlı | `main`'e merge → `release` dalı → otomatik | platform |
+
+Üçü de **aynı imajları** çalıştırır (`backend/Dockerfile`, `frontend/Dockerfile`). Değişen,
+imajları kimin, nerede ve nasıl ayağa kaldırdığı.
+
+**Neden canlı Kubernetes'te değil?** Kendi Kubernetes kümeni çalıştırmak; control plane, node'lar,
+yük dengeleyici, TLS sertifikası, sürüm yükseltmeleri ve izleme demek. Tek kişilik bir projede bu
+iş, uygulamanın kendisinden ağır gelir ve ücretsiz değildir. Northflank gibi bir **PaaS** (Platform
+as a Service) bunları üstlenir: sen yalnız "şu Git dalını derle, şu portta çalıştır, şu env'leri
+ver" dersin. Kavramlar yine aynı (servis, replika, env/secret, sağlık kontrolü, servis adıyla iç
+DNS); bu yüzden NGINX'teki `proxy_pass http://api:8080;` satırı compose, kind ve canlıda değişmeden
+çalışıyor. Northflank'ın kendisi de altta Kubernetes kullanıyor; sen yalnız kümeyi yönetmiyorsun.
+
+**Manifest'ler neden repoda duruyor?** Faz 12'nin dersi buydu: Deployment, Service, Job, Secret,
+PVC gibi parçaları elle yazmak ve bir kümede çalıştırmak
+([#4](#4-kubernetesin-temel-parçaları-ve-deploy-ederken-çıkan-iki-hata)). Bir gün
+PaaS'tan kendi kümene (ya da EKS/GKE gibi yönetilen bir Kubernetes'e) geçersen başlangıç noktası
+hazır. Ama canlıya giden yolun parçası değiller: Deploy iş akışı onlara dokunmuyor.
+
+**Merge her zaman canlıyı değiştirir mi?** Hayır. Northflank yalnız imajlara giren şeyi yayınlar.
+`backend/Dockerfile` yalnız `./cmd/api` ve `./cmd/manage`'i derliyor; MCP sunucusu (`cmd/mcp`)
+imaja girmiyor. Yani #53 merge edilince Deploy çalışır ve Northflank yeniden derler, ama canlıdaki
+davranış aynı kalır. MCP sunucusu, Claude'un kendi bilgisayarında başlattığı bir program
+(stdio). Canlıya karşı da kullanılabilir (`BOOKHUB_API_URL` ile), ama yine senin makinende çalışır.
+"Bu değişiklik canlıyı etkiliyor mu?" sorusunu cevaplamak için Dockerfile'lara bakmak yeterli.
+
+**Dürüst not:** JS dünyasında Vercel, Netlify ve Render de aynı PaaS modeli: "repo bağla, push et,
+yayında". Kubernetes'i öğrenmek değerli, çünkü PaaS'ın arkasında ne olduğunu anlatıyor ve büyüyen
+ekiplerde standart. Ama küçük bir projede "Kubernetes kullanmıyoruz" bir eksiklik değil, bilinçli
+bir sadelik.
+
+**🔗 İlgili:**
+- [docs/DEPLOYMENT.md](../DEPLOYMENT.md) §1 (mimari) · §3 (yayın akışı)
+- [docs/phases/phase-12-kubernetes.md](../phases/phase-12-kubernetes.md) ·
+  [deploy/k8s/](../../deploy/k8s/)
+- [backend/Dockerfile](../../backend/Dockerfile) (imaja hangi binary'lerin girdiği)
+- [#4 Kubernetes'in temel parçaları](#4-kubernetesin-temel-parçaları-ve-deploy-ederken-çıkan-iki-hata) ·
+  [#12 CI'a bağlı yayın](#12-cia-bağlı-yayın-pushtan-canlıya-otomasyon-nasıl-ilerliyor)
