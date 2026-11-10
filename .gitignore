@@ -42,6 +42,8 @@ yarn-error.log*
 pnpm-debug.log*
 
 # ---- Docker / local data volumes ----
+# make k8s-up'ın geçici imaj arşivi
+.k8s-images.tar
 # Local Postgres/Redis data if mounted into the repo
 /data/
 *.pgdata/
