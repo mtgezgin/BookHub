@@ -182,13 +182,21 @@ Yalnız okuma yapan kontroller. `make smoke` ve `make e2e` canlıya karşı **ç
    [CLAUDE.md](../CLAUDE.md)'ye eklenen bir review kuralı. Önleme kuralı yazılmadan olay
    kapanmaz.
 
-Hedef, olayları kullanıcıdan önce kendi izlememizin bulması. Bugün canlıda olan tek izleme
-haftalık imaj taraması: [scan.yml](../.github/workflows/scan.yml) her pazartesi 06:00 UTC'de
-`release`'i derleyip Trivy ile tarar, kırmızı koşu GitHub'ın hata e-postasıyla gelir ([#48](https://github.com/mtgezgin/BookHub/issues/48)).
-Elle koşu: Actions → "Haftalık imaj taraması" → Run workflow (`ref` boşsa `release`). Kırmızı
-koşu önce logla ayrılır: Trivy veritabanının indirilememesi bir açık değildir; düzeltmesi olan bir
-açık ise bug olarak ele alınır (taban imaj ya da bağımlılık güncellemesi). Uptime, hata izleme ve
-alarm henüz yok; sıradaki adım onlar.
+Hedef, olayları kullanıcıdan önce kendi izlememizin bulması. Bugün canlıda iki izleme var; ikisi de
+kırmızı koşuyu GitHub'ın iş akışı hata e-postasıyla bildirir:
+
+- **Erişilebilirlik:** [uptime.yml](../.github/workflows/uptime.yml) her gün 06:17 UTC'de `/healthz`,
+  `/health` ve `/api/books?limit=1`'i yoklar ([#63](https://github.com/mtgezgin/BookHub/issues/63)).
+  Hangi ucun kırıldığı katmanı söyler: `/healthz` → web servisi; `/health` → API; yalnız
+  `/api/books` → veritabanı (Supabase duraklamış olabilir: panelden *Restore*). Kırmızı bir
+  koşu bir olaydır: yukarıdaki döngü işler.
+- **İmaj açıkları:** [scan.yml](../.github/workflows/scan.yml) her pazartesi 06:00 UTC'de
+  `release`'i derleyip Trivy ile tarar ([#48](https://github.com/mtgezgin/BookHub/issues/48)).
+  Elle koşu: Actions → "Haftalık imaj taraması" → Run workflow (`ref` boşsa `release`). Kırmızı
+  koşu önce logla ayrılır: Trivy veritabanının indirilememesi bir açık değildir; düzeltmesi olan
+  bir açık ise bug olarak ele alınır (taban imaj ya da bağımlılık güncellemesi).
+
+Hata izleme (Sentry) ve gerçek zamanlı alarm henüz yok.
 
 ## 8. Etiketler
 

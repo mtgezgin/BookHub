@@ -1,0 +1,82 @@
+# Canlı erişilebilirlik kontrolü (#63) — siteyi günde bir dışarıdan yoklar; bir uç cevap vermezse
+# iş kırmızı biter ve GitHub'ın iş akışı hata e-postası gelir (takvimli koşuda e-posta, bu dosyadaki
+# cron satırını en son değiştiren kullanıcıya gider).
+#
+# NEDEN üç uç: her biri bir katmanı yoklar.
+#   /healthz            NGINX'in kendisi (web servisi ayakta mı)
+#   /health             NGINX → API (API ayakta mı). Veritabanına DOKUNMAZ, yalnız "ok" döner.
+#   /api/books?limit=1  NGINX → API → Postgres: önbelleksiz, gerçek bir sorgu. Veritabanını gerçekten
+#                       yoklayan uç bu. Yan etkisi de istenen şey: Supabase'in ücretsiz projesi bir hafta
+#                       hareketsiz kalınca duruyor; düzenli sorgu bunu önlemeli (doğrulaması #63'te).
+#
+# NEDEN günde bir (kullanıcı kararı, 2026-11-10): Actions dakikasını az harcar (public repoda zaten
+# ücretsiz; private olursa ayda ~30 dk, Free planın 2.000 dk'sının %1,5'i) ve Supabase'in 7 günlük
+# süresine yine bol pay bırakır. Bedeli: bir kesinti en geç ~24 saatte fark edilir.
+# Dakika 17: GitHub saat başlarında takvimli koşuları geciktirebiliyor; tam saatten kaçınıldı.
+#
+# Sınırlar: takvimli koşular yük altında gecikebilir ya da atlanabilir (gerçek zamanlı izleme değil);
+# public repoya 60 gün commit gelmezse GitHub takvimi kapatır (Actions sekmesinden yeniden açılır).
+name: Uptime
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # her gün 06:17 UTC (İstanbul 09:17)
+  workflow_dispatch:
+    inputs:
+      extra_path:
+        description: "Doğrulama için ek yol, / ile başlar (ör. /api/yok → 404, kırmızı beklenir)"
+        required: false
+        type: string
+        default: ""
+
+# Yalnız okuma; kod bile checkout edilmez. Hiçbir sır kullanılmaz: canlı adres README'de zaten açık.
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Canlı erişilebilirlik
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BASE_URL: https://p01--web--4x2qb6s8vg5j.code.run
+      # Girdi run: bloğuna ${{ }} ile değil ortam değişkeniyle girer (script injection'a karşı).
+      EXTRA_PATH: ${{ inputs.extra_path }}
+    steps:
+      - name: Probe the live endpoints
+        run: |
+          paths=(/healthz /health "/api/books?limit=1")
+          if [[ -n "$EXTRA_PATH" ]]; then
+            if [[ "$EXTRA_PATH" != /* ]]; then
+              echo "::error::Ek yol / ile başlamalı"
+              exit 1
+            fi
+            paths+=("$EXTRA_PATH")
+          fi
+
+          {
+            echo "| Uç | Durum | Süre |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          failed=0
+          for p in "${paths[@]}"; do
+            # --retry: geçici hatalarda (zaman aşımı, 5xx) 2 kez daha dener; tek bir takılma alarm olmasın.
+            # 404 gibi kalıcı hatalar yeniden denenmez. Hata olunca curl "000" yazar ve 0 dışı döner.
+            result="$(curl -sS -o /dev/null -w '%{http_code} %{time_total} %{content_type}' \
+              --max-time 20 --retry 2 --retry-delay 10 "$BASE_URL$p" 2>/dev/null)" || true
+            read -r code secs ctype <<< "$result"
+            # API'ye giden yollarda cevap JSON olmalı. Neden: NGINX bilinmeyen yolları SPA için
+            # index.html'e (200) düşürüyor; bir gün bir location bozulursa API hiç çağrılmadan "200"
+            # gelirdi. JSON şartı bu sessiz arızayı da kırmızıya çevirir.
+            want_json=0
+            if [[ "$p" == /health || "$p" == /api/* ]]; then want_json=1; fi
+            if [[ "$code" == "200" && ( $want_json == 0 || "$ctype" == application/json* ) ]]; then
+              echo "OK    $code  ${secs}s  $p"
+            else
+              echo "::error::$p → ${code:-000} ${ctype:-} (${secs:-?}s)"
+              failed=1
+            fi
+            echo "| \`$p\` | ${code:-000} | ${secs:-?} s |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit "$failed"
