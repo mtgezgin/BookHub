@@ -156,6 +156,23 @@ describe("Login", () => {
 });
 
 describe("Register", () => {
+  it("demo uyarısı formdan önce görünür ve parola alanına bağlı (ekran okuyucu alanda da duyar)", async () => {
+    const { el } = await render("/register");
+    const note = el.querySelector<HTMLElement>("[role=note]")!;
+    expect(note.textContent).toContain("öğrenme projesinin demosu");
+    expect(note.textContent).toContain("Başka bir yerde kullandığın parolayı kullanma");
+    // Uyarı ilk alandan önce: DOM sırası = görme ve ekran okuyucu okuma sırası.
+    const firstInput = el.querySelector("input")!;
+    expect(note.compareDocumentPosition(firstInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const password = el.querySelector<HTMLInputElement>("input[autocomplete=new-password]")!;
+    expect(password.getAttribute("aria-describedby")).toBe(note.id);
+  });
+
+  it("giriş ekranında demo uyarısı yok (hesabı olan kayıtta görmüştür)", async () => {
+    const { el } = await render("/login");
+    expect(el.querySelector("[role=note]")).toBeNull();
+  });
+
   it("kayıttan sonra da geldiği sayfaya döner", async () => {
     const { loc } = await submit({ pathname: "/register", state: fromBook.state }, ["ali@example.com", "Ali", "parola123"]);
     expect(loc.pathname).toBe("/books/5");
