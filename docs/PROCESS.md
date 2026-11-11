@@ -31,9 +31,12 @@ Backlog → Ready → In Progress → In Review → Testing → Released → Don
 
 Kuralların tek kaynağı `scripts/checks.sh`, testleri `scripts/checks_test.sh`. Aynı betiği CI'da
 **Kurallar** iş akışı (`rules.yml`) her push ve PR'da, yol filtresi olmadan çalıştırır: kancayı
-atlayan bir commit de orada yakalanır. Yeni bir kural eklenirken testi de eklenir. Kurallar zorunlu
-kontrol yapılamıyor (özel repo, ücretsiz plan): PR'da yeşil bir Kurallar koşusu yoksa — GitHub head
-commit'inde atlama bayrağı olan PR'da iş akışını hiç başlatmaz — kırmızı sayılır. Güvenlik incelemesi, AI review
+atlayan bir commit de orada yakalanır. Yeni bir kural eklenirken testi de eklenir. Repo public
+olduğundan (2026-11-09) `main` dal korumasıyla korunuyor: değişiklik yalnız PR'la girer ve
+**Kurallar** zorunlu kontroldür; yeşil bir Kurallar koşusu olmayan PR birleştirilemez (head
+commit'inde atlama bayrağı olan PR'da GitHub iş akışını hiç başlatmaz, kontrol bekler kalır).
+Koruma yöneticiye uygulanmıyor (`enforce_admins` kapalı): repo sahibi isterse atlayabilir, kural
+olarak atlamaz. Güvenlik incelemesi, AI review
 paneli ve test coverage ise Claude Code eklenti kancalarıdır; yalnız Claude Code üzerinden
 yapılan push'ta çalışırlar. Terminalden push edildiyse bu kapıların koşmadığı PR'da yazılır.
 GitHub'daki asıl güvenlik ağı CI'dır.
@@ -125,8 +128,9 @@ commit'e ilerletiyor. Sırla çalışan migration işi salt-okunur, dalı ilerle
     `CREATE INDEX CONCURRENTLY` geçersiz (INVALID) bir index bırakır; `IF NOT EXISTS` onu var
     sayıp atlar ve index geçersiz kalır. Doğrusu önce `DROP INDEX CONCURRENTLY IF EXISTS`, sonra
     yeniden oluşturmak. Böyle bir migration yalnız gerçekten gereken ifadeleri içerir.
-- **`release`'e elle push edilmez.** Özel repoda branch koruması ücretli (GitHub Pro ya da public
-  repo); şimdilik bu bir kural.
+- **`release`'e elle push edilmez.** `release` force push ve silmeye karşı korumalı (2026-11-09).
+  Normal push açık kalmak zorunda, çünkü Deploy iş akışı dalı ileri sarıyor; kişisel repoda
+  "yalnız şu push edebilir" kısıtı yok. Elle push'u engelleyen şey bu kural.
 - Bekleyen yayınlar iptal edilmez, sırayla koşar. Release'in zaten kapsadığı bir commit'in
   koşusu "zaten yayında" diye atlanır.
 - Yalnız doküman değişen commit'ler CI'ı tetiklemez; bir sonraki yeşil CI'ın commit'iyle

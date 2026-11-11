@@ -1,6 +1,6 @@
 # BookHub — Yol haritası (ROADMAP)
 
-> Son güncelleme: **2026-10-25**. Bu dosya tek bir soruyu cevaplar: **hangi sırayla ve neden?**
+> Son güncelleme: **2026-11-11**. Bu dosya tek bir soruyu cevaplar: **hangi sırayla ve neden?**
 > "Ne yapılabilir?" → [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) (ürün) ve
 > [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) (teknik bulgular). "Neredeyiz?" → [STATUS.md](STATUS.md).
 
@@ -22,6 +22,9 @@ Gerçek kullanıcıya açılma kararı verilirse Faz 18 (katkı ve hesap) ile ca
 - **Ürün döngüsünün ilk adımı canlıda (2026-10-25):** Faz 15 ile "kitaplığına ekle" tamam — LIB-01 ve
   LIB-02, SOC-02'nin varsayılan gizlilik yarısı. 17 Ekim'deki durum: 34 maddenin 7'si kısmen vardı, 27'si
   yoktu ([FEATURE_REQUESTS § Durum özeti](FEATURE_REQUESTS.md#durum-özeti-17-ekim-2026)).
+- **Kubernetes öğrenimi ertelendi (kullanıcı kararı, 2026-11-09):** sıra önce özelliklerde (Faz 16).
+  Manifest'ler ve kind kurulumu yerinde; dönüldüğünde ilk adım `make k8s-up` (Windows düzeltmesi
+  [#67](https://github.com/mtgezgin/BookHub/issues/67)).
 
 ## Ürün hattı
 
@@ -45,6 +48,8 @@ okuma takibinden hemen önceye kondu.
 | Node 26 (Dependabot #13, #29) | Ekim sonu, LTS çıkınca | |
 | Canlı imajlara haftalık güvenlik taraması (Trivy; [#48](https://github.com/mtgezgin/BookHub/issues/48)) | 2026-11 | `scan.yml`: pazartesi 06:00 UTC ve elle, `release` üzerinde; iki imaj her zaman taranır (ci.yml'de de). #47'nin açıkları canlıda 6 gün fark edilmemişti; canlı izlemenin ilk parçası |
 | Canlı izleme ve alarm (sağlık kontrolü, uptime, hata izleme) | Uptime 2026-11 ([#63](https://github.com/mtgezgin/BookHub/issues/63)); hata izleme zamanı açık, gerçek kullanıcı kararından önce şart | `uptime.yml`: günde bir üç uç (NGINX, API, Postgres). [PROCESS §7](PROCESS.md) · [DEPLOYMENT §5](DEPLOYMENT.md) |
+| Salt okunur MCP sunucusu ([#52](https://github.com/mtgezgin/BookHub/issues/52)) | 2026-11-11 (PR #53) | `backend/cmd/mcp`: kataloğu bir modele altı okuma aracıyla açar; API istemcisi, imaja girmez. Yazma araçları ayrı karar |
+| `PROD_DATABASE_URL`'i bir GitHub Environment'a taşımak | Zamanı açık | Repo public olunca Environments ücretsiz: sır yalnız `main`'den koşan Deploy'a açılabilir ([DEPLOYMENT §2](DEPLOYMENT.md)) |
 | NGINX erişim logunda sorgu dizesi ve referrer | İzleme işiyle birlikte | [CLAUDE.md](../CLAUDE.md) "bilinen açık" |
 | REVIEW_FEEDBACK bulguları | İlgili fazın içinde | F10, F11 → Faz 15–17 (UX-01) · F13 → her fazın UX-02 kabulü · F12, F15 → Faz 18 (MOD-02) · F04 → Faz 18'den önce · F03, F06–F09, F16, F17 → ihtiyaç oldukça ayrı iş |
 | Dependabot, Sonar ve güvenlik bulguları | Geldikçe | Ürün fazını durdurmaz; güvenlik engelleyicisi hariç |

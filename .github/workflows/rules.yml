@@ -5,9 +5,10 @@
 # bir sır, bir .env ya da bir atlama bayrağı doküman commit'inde de olabilir. Bu iş akışında filtre
 # yok. Deploy yalnız ci.yml'i bekler; Kurallar bir PR kontrolüdür: kırmızıysa PR birleştirilmez.
 #
-# Sınır: Kurallar zorunlu kontrol yapılamıyor (özel repo, ücretsiz plan: dal koruması yok) ve GitHub
-# head commit'inde atlama bayrağı olan bir PR'da bu iş akışını hiç başlatmaz. PR'da Kurallar'ın yeşil
-# bir koşusu görünmüyorsa kırmızı sayılır; o durumda tek engel yereldeki commit-msg kancasıdır.
+# Zorunlu kontrol (2026-11-09, repo public olunca): `main` dal korumasında "Kurallar (scripts/checks.sh)"
+# gerekli; bu işin adı değişirse koruma ayarı da değişmeli, yoksa PR'lar birleştirilemez. GitHub head
+# commit'inde atlama bayrağı olan bir PR'da bu iş akışını hiç başlatmaz: kontrol bekler kalır ve PR
+# birleştirilemez (yereldeki commit-msg kancası bayrağı daha önce yakalar).
 name: Kurallar
 
 on:
