@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-10-25):** **15 fazın tamamı ✅** (Faz 15 kişisel kitaplık canlıda, #43) · **Şimdi: Faz 16 — eser ve baskı** ([Sıradaki](#sıradaki)) — MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-11-11):** **15 fazın tamamı ✅** · repo public (MIT) · canlı izleme başladı · MCP sunucusu · **Şimdi: Faz 16 — eser ve baskı** ([Sıradaki](#sıradaki)) — MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React frontend, CI/CD, NGINX,
 Kubernetes) + **Faz 13 oturum sertleştirme** (httpOnly refresh çerezi, token aileleri + reuse
 tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
@@ -18,9 +18,22 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
   [ROADMAP.md](ROADMAP.md)'de. Faz 15 kişisel kitaplık ✅ → **Şimdi: Faz 16 — eser ve baskı**
   ([#36](https://github.com/mtgezgin/BookHub/issues/36), spec [incelemede](phases/phase-16-works-editions.md)) →
   Faz 17 okuma takibi ve inceleme.
-- **Teknik hat:** canlı imajlara haftalık güvenlik taraması ([#48](https://github.com/mtgezgin/BookHub/issues/48)),
-  Node 26 (Dependabot #13, #29; LTS'i bekliyor), canlı izleme ve alarm (henüz yok),
-  [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki kapanmamış bulgular (ilgili fazın içinde kapanır).
+- **Public repo (2026-11-09):** geçmiş (commit'ler, PR/issue metinleri, Actions logları) sır
+  taramasından geçti; MIT lisansı; `main` korumalı (PR ve zorunlu **Kurallar** kontrolü), `release`
+  force push ve silmeye karşı korumalı; secret scanning ve push protection açık. Site **demo**
+  kalıyor (kullanıcı kararı, 2026-11-09): kayıt ekranında ve README'de uyarı var
+  ([#64](https://github.com/mtgezgin/BookHub/issues/64)).
+- **Canlı izleme (2026-11-10):** haftalık imaj taraması (`scan.yml`,
+  [#48](https://github.com/mtgezgin/BookHub/issues/48)) ve günlük erişilebilirlik kontrolü
+  (`uptime.yml`, [#63](https://github.com/mtgezgin/BookHub/issues/63); Supabase'in duraklamadığı
+  2026-11-24 civarı panelden kontrol edilecek) · [PROCESS §7](PROCESS.md). Hata izleme henüz yok.
+- **MCP sunucusu (2026-11-11):** `backend/cmd/mcp`, kataloğu Claude gibi bir modele altı salt okunur
+  araçla açar; API'nin istemcisidir, imaja girmez ([#52](https://github.com/mtgezgin/BookHub/issues/52),
+  PR #53) · [PROJECT_MAP](PROJECT_MAP.md).
+- **Kubernetes öğrenimi ertelendi (kullanıcı kararı, 2026-11-09):** önce özellikler (Faz 16).
+  `make k8s-up`'ın Windows düzeltmesi hazır ([#67](https://github.com/mtgezgin/BookHub/issues/67)).
+- **Teknik hat:** Node 26 (Dependabot #13), hata izleme, [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki
+  kapanmamış bulgular (ilgili fazın içinde kapanır).
 
 > **Faz 15 — kişisel kitaplık (canlıda 2026-10-25):** dört durumla gizli kitaplık (migration `0010`),
 > kitap sayfasında ekleme/durum menüsü, kartlarda durum rozeti (tek toplu istek), süzgeçleri adreste
@@ -32,8 +45,13 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 > PR #21, takipleri #25; gerçek kapaklar (Open Library, #34) ·
 > [phase-14](phases/phase-14-ui-redesign.md).
 
-> **Ortam notu:** Kabukta `go` bulunamazsa `export PATH="/opt/homebrew/bin:$HOME/go/bin:$PATH"`
+> **Ortam notu (macOS):** Kabukta `go` bulunamazsa `export PATH="/opt/homebrew/bin:$HOME/go/bin:$PATH"`
 > — git hook'ları da `go: command not found` ile bu yüzden patlıyor.
+>
+> **Ortam notu (Windows, 2026-11):** araçlar winget ile (Go, gitleaks, golangci-lint, kind, kubectl,
+> make); kabuk Git Bash. Git Bash `/api/yok` gibi `/` ile başlayan argümanları Windows yoluna
+> çeviriyor: `gh`'ye böyle bir değer verirken `MSYS_NO_PATHCONV=1` kullan. Yerel `.env` şablonla
+> aynı; canlı sırlar yerelde tutulmaz.
 
 ---
 
@@ -165,9 +183,10 @@ Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
    - Faz 17, okuma takibi ve inceleme.
    - Faz 18, katkı döngüsü ve hesap (gerçek kullanıcı kararıyla öne alınır).
 3. **Teknik hat (araya, küçük):**
-   - Canlı imajlara haftalık güvenlik taraması ([#48](https://github.com/mtgezgin/BookHub/issues/48)).
-   - Node 26.
-   - Canlı izleme ([PROCESS.md](PROCESS.md) §7).
+   - Node 26 (Dependabot #13).
+   - Hata izleme ve gerçek zamanlı alarm ([PROCESS.md](PROCESS.md) §7; imaj taraması ve uptime var).
+   - `PROD_DATABASE_URL`'i bir GitHub Environment'a taşımak: repo public olduğu için artık ücretsiz
+     ([DEPLOYMENT.md](DEPLOYMENT.md) §2).
    - [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) bulguları: açık olanlar F03, F04, F06–F09, F11–F15, F17
      ve F10/F16'nın kalan yarıları; F05 risk kabul edildi.
    - Bilinen borçlar: [PROJECT_MAP.md](PROJECT_MAP.md) §7.
@@ -176,7 +195,7 @@ Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 
 ## Ortam / gerçekler
 
-- **Go toolchain 1.27.1** (Homebrew) · `go.mod`: `go 1.27.3` (Docker derleme imajıyla aynı yama; 1.27.2 CVE-2026-111943 yüzünden bırakıldı, #47) · module `github.com/mtgezgin/bookhub/backend`.
+- **Go toolchain:** macOS 1.27.1 (Homebrew), Windows 1.27.0 (winget); `go.mod` daha yenisini isteyince Go o sürümü kendisi indirir · `go.mod`: `go 1.27.3` (Docker derleme imajıyla aynı yama; 1.27.2 CVE-2026-111943 yüzünden bırakıldı, #47) · module `github.com/mtgezgin/bookhub/backend`.
 - CLI'lar `~/go/bin`: goose v3.27.2, sqlc v1.31.1. golangci-lint v2.14.0 Homebrew'dan (CI'da da v2.14.0
   pinli); `~/go/bin`'deki eski v1.64.8 PATH'te arkada kalıyor.
 - Docker Desktop + `docker compose up -d` → Postgres 16 (`127.0.0.1:5432`) + Redis 7 (`127.0.0.1:6380` — 6379 başka projenin). Veri named volume'da.
@@ -184,7 +203,9 @@ Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 - Canlı: Northflank, `release` dalından yayınlanıyor; `release`'i yalnız Deploy iş akışı ilerletir — [PROCESS.md](PROCESS.md) §5.
 - `.env` = `.env.example` kopyası (dotenv YOK: `set -a; source .env; set +a` ile yükle).
 - Testler: `go test -race ./...` (DB'siz, CI gibi) · `TEST_DATABASE_URL="$DATABASE_URL" go test -race ./...` (DB'li).
-- Commit kimliği: repo-yerel `user.email=mehmetturgutgezgin@gmail.com`.
+- Commit kimliği: repo-yerel `user.email`, GitHub'ın noreply adresi
+  (`…@users.noreply.github.com`). Repo public; yeni commit'lere kişisel e-posta yazılmaz. Eski
+  commit'lerdeki adres, public yapılırken bilerek bırakıldı (2026-11-09).
 - **Git kapıları:** pre-commit hook yalnız gofmt+vet (golangci-lint'i ELLE çalıştır). Push'ta plugin
   kapıları: güvenlik incelemesi + çok ajanlı review paneli + test coverage (SHA'ya bağlı; her yeni
   commit onları sıfırlar → push'u faz sonunda topla).

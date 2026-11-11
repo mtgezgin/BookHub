@@ -58,10 +58,12 @@ imaja girer). `web` servisinin env değişkeni yok.
 | `RATING_MIN_VOTES` · `AUTH_RATE_LIMIT_PER_MIN` | varsayılanlar | Ağırlıklı puanın `m`'i · IP başına dakikalık kimlik isteği kotası |
 
 Deploy iş akışı için GitHub secret'ı: `PROD_DATABASE_URL` (yukarıdaki `DATABASE_URL` ile aynı
-değer). Yalnız yeni bir migration dosyası geldiğinde kullanılır. Repo seviyesinde bir sır
-(ücretsiz özel repoda Environments yok): yazma yetkisi olan herkes, herhangi bir dalda bu sırrı
-referans eden bir iş akışıyla okuyabilir. Bu yüzden yalnız deploy.yml'in migration adımında
-kullanılır ([CLAUDE.md](../CLAUDE.md)).
+değer). Yalnız yeni bir migration dosyası geldiğinde kullanılır. Repo seviyesinde bir sır: yazma
+yetkisi olan herkes, herhangi bir dalda bu sırrı referans eden bir iş akışıyla okuyabilir (fork'tan
+gelen PR'lar repo sırlarını görmez). Bu yüzden yalnız deploy.yml'in migration adımında kullanılır
+([CLAUDE.md](../CLAUDE.md)). Repo 2026-11-09'da public olduğundan GitHub **Environments** artık
+ücretsiz: sırrı yalnız `main`'den koşan işlere açan bir `production` ortamına taşımak mümkün
+(henüz yapılmadı; [ROADMAP](ROADMAP.md) teknik hat).
 
 **Herkesi anında çıkarmak** (ör. bir sızıntıda) iki adımdır: aileleri iptal et ve `JWT_SECRET`'ı
 döndür. Yalnız aileleri iptal etmek verilmiş access token'ları ≤ 15 dk daha yaşatır; yalnız
