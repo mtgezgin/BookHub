@@ -117,6 +117,18 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 
 `migrate` (şemayı uygula) · `create-admin -email E` (parola prompt/stdin'den; argümanla ASLA).
 
+### `backend/cmd/mcp/` — MCP sunucusu (#52)
+
+Kataloğu bir dil modeline araç olarak açar (stdio, resmî Go SDK). REST API'nin istemcisidir — DB'ye
+bağlanmaz, sır kullanmaz; adres `BOOKHUB_API_URL` (varsayılan `http://localhost:3000`). `make mcp`.
+
+| Dosya | Ne |
+|---|---|
+| `main.go` | `run()`: adres doğrulama (`parseAPIURL`, fail fast) → sunucu → taşıma |
+| `client.go` | `apiClient.get`: yalnız GET, 10 sn zaman aşımı, 1 MiB sınır; hata zarfı → modelin göreceği hata |
+| `tools.go` | salt okunur araçlar: `search_books`, `get_book`, `top_rated`, `list_genres`, `book_comments`, `rating_summary` |
+| `main_test.go` | sahte API (`httptest`) + bellek içi MCP istemcisi |
+
 ### `backend/internal/` — iş mantığı ve veri
 
 | Paket | Ne |
