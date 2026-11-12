@@ -32,7 +32,8 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
   PR #53) · [PROJECT_MAP](PROJECT_MAP.md).
 - **Kubernetes öğrenimi ertelendi (kullanıcı kararı, 2026-11-09):** önce özellikler (Faz 16).
   `make k8s-up`'ın Windows düzeltmesi hazır ([#67](https://github.com/mtgezgin/BookHub/issues/67)).
-- **Teknik hat:** Node 26 (Dependabot #13), hata izleme, [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki
+- **Node 26 LTS (2026-11-11, [#71](https://github.com/mtgezgin/BookHub/issues/71)):** derleme imajı, CI ve `@types/node` birlikte geçti.
+- **Teknik hat:** hata izleme, [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki
   kapanmamış bulgular (ilgili fazın içinde kapanır).
 
 > **Faz 15 — kişisel kitaplık (canlıda 2026-10-25):** dört durumla gizli kitaplık (migration `0010`),
@@ -183,7 +184,6 @@ Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
    - Faz 17, okuma takibi ve inceleme.
    - Faz 18, katkı döngüsü ve hesap (gerçek kullanıcı kararıyla öne alınır).
 3. **Teknik hat (araya, küçük):**
-   - Node 26 (Dependabot #13).
    - Hata izleme ve gerçek zamanlı alarm ([PROCESS.md](PROCESS.md) §7; imaj taraması ve uptime var).
    - `PROD_DATABASE_URL`'i bir GitHub Environment'a taşımak: repo public olduğu için artık ücretsiz
      ([DEPLOYMENT.md](DEPLOYMENT.md) §2).
