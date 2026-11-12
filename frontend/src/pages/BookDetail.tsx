@@ -2,10 +2,11 @@ import { Star } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { Book, RatingSummary } from "../api/types";
+import type { Book, BookDetail as BookDetailData, RatingSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
+import { EditionStrip, PrimaryEditionNote } from "../components/EditionStrip";
 import { ErrorBox, PageTitle, Rating } from "../components/common";
 import { LibraryButton } from "../components/LibraryButton";
 import { NotFound } from "../components/NotFound";
@@ -81,7 +82,7 @@ function BookDetailView() {
   const { user } = useAuth();
   const location = useLocation();
   const toast = useToast();
-  const [book, setBook] = useState<Book | null>(null);
+  const [book, setBook] = useState<BookDetailData | null>(null);
   const [summary, setSummary] = useState<RatingSummary | null>(null);
   const [mine, setMine] = useState<number | null>(null);
   const [text, setText] = useState("");
@@ -206,7 +207,11 @@ function BookDetailView() {
         aria-labelledby="book-title"
         className="mx-auto grid max-w-5xl grid-cols-[6.5rem_minmax(0,1fr)] gap-x-5 gap-y-8 [grid-template-areas:'cover_header'_'rating_rating'_'body_body'] sm:grid-cols-[9rem_minmax(0,1fr)] md:grid-cols-[16rem_minmax(0,1fr)] md:grid-rows-[auto_auto_1fr] md:gap-x-10 md:[grid-template-areas:'cover_header'_'cover_body'_'rating_body']"
       >
-        <BookCover title={book.title} author={book.author} src={book.cover_url} className="self-start [grid-area:cover]" />
+        <div className="self-start [grid-area:cover]">
+          <BookCover title={book.title} author={book.author} src={book.cover_url} />
+          {/* Kapak ve sayfa sayısı varsayılan baskıdan; meta satırındaki dil ise eserin özgün dili. */}
+          <PrimaryEditionNote editions={book.editions} />
+        </div>
         <header className="flex flex-col gap-3 self-end [grid-area:header] md:self-start md:pt-2">
           <h1 id="book-title" className="text-2xl font-semibold sm:text-4xl">{book.title}</h1>
           <p className="text-sm text-muted-foreground sm:text-base">{meta.join(" · ")}</p>
@@ -261,6 +266,7 @@ function BookDetailView() {
         <div className="min-w-0 [grid-area:body]">
           {/* İçerik React'te METİN olarak basılır → yorumdaki "<script>" çalışmaz, görünür. */}
           {book.description && <p className="text-lg leading-relaxed whitespace-pre-wrap">{book.description}</p>}
+          <EditionStrip editions={book.editions} author={book.author} />
           <ErrorBox error={error} className="mt-6" />
 
           <section aria-labelledby="comments-heading" className="mt-10">

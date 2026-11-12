@@ -24,6 +24,26 @@ export interface Book {
   updated_at: string;
 }
 
+/**
+ * Kitabın bir baskısı (Faz 16): kitap eserdir, baskı elde tutulan somut kitap. Kitabın kapağı ve
+ * sayfa sayısı varsayılan baskıdan (is_primary) gelir. Boş metin ('') = bilinmiyor.
+ */
+export interface Edition {
+  id: number;
+  title: string;
+  language: string;
+  translator: string;
+  publisher: string;
+  publication_year: number | null;
+  isbn: string;
+  page_count: number | null;
+  cover_url: string;
+  is_primary: boolean;
+}
+
+/** GET /api/books/{id}: liste öğesinin alanları + baskılar (yalnız detayda; varsayılan önce). */
+export type BookDetail = Book & { editions: Edition[] };
+
 export interface Page<T> {
   items: T[];
   total: number;

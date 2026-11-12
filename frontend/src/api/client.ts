@@ -18,7 +18,7 @@
 // yalnızca UZUN ÖMÜRLÜ sırrın saldırganın sunucusuna KOPYALANMASINI engeller.
 
 import type {
-  AdminBook, Book, BookStatus, Comment, Genre, LibraryEntry, LibraryItem, LibraryStatus, MyRating,
+  AdminBook, Book, BookDetail, BookStatus, Comment, Genre, LibraryEntry, LibraryItem, LibraryStatus, MyRating,
   NewBook, Page, RatingSummary, Session, TopRated, User,
 } from "./types";
 
@@ -352,7 +352,7 @@ export const api = {
   // Katalog
   books: (p: { q?: string; genre?: string; limit?: number; offset?: number; sort?: "rating" }) =>
     request<Page<Book>>("GET", `/api/books${qs(p)}`),
-  book: (id: number) => request<Book>("GET", `/api/books/${id}`),
+  book: (id: number) => request<BookDetail>("GET", `/api/books/${id}`),
   topRated: (limit = 10) => request<TopRated>("GET", `/api/books/top-rated${qs({ limit })}`),
   genres: () => request<Genre[]>("GET", "/api/genres"),
   suggest: (b: NewBook) => request<Book & { status: BookStatus }>("POST", "/api/books/suggestions", b),
