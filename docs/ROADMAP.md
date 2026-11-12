@@ -45,7 +45,7 @@ okuma takibinden hemen önceye kondu.
 
 | İş | Ne zaman | Not |
 | --- | --- | --- |
-| Node 26 (Dependabot #13, #29) | Ekim sonu, LTS çıkınca | |
+| Node 26 LTS ([#71](https://github.com/mtgezgin/BookHub/issues/71); Dependabot #13, #46) | 2026-11-11 (LTS: 2026-10-28) | Derleme imajı, CI ve `@types/node` birlikte; derleme aşaması son imaja girmez |
 | Canlı imajlara haftalık güvenlik taraması (Trivy; [#48](https://github.com/mtgezgin/BookHub/issues/48)) | 2026-11 | `scan.yml`: pazartesi 06:00 UTC ve elle, `release` üzerinde; iki imaj her zaman taranır (ci.yml'de de). #47'nin açıkları canlıda 6 gün fark edilmemişti; canlı izlemenin ilk parçası |
 | Canlı izleme ve alarm (sağlık kontrolü, uptime, hata izleme) | Uptime 2026-11 ([#63](https://github.com/mtgezgin/BookHub/issues/63)); hata izleme zamanı açık, gerçek kullanıcı kararından önce şart | `uptime.yml`: günde bir üç uç (NGINX, API, Postgres). [PROCESS §7](PROCESS.md) · [DEPLOYMENT §5](DEPLOYMENT.md) |
 | Salt okunur MCP sunucusu ([#52](https://github.com/mtgezgin/BookHub/issues/52)) | 2026-11-11 (PR #53) | `backend/cmd/mcp`: kataloğu bir modele altı okuma aracıyla açar; API istemcisi, imaja girmez. Yazma araçları ayrı karar |

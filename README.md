@@ -45,7 +45,7 @@ tarayıcı ──▶ NGINX (statik frontend, /api proxy, CSP) ──▶ Go API (
 
 ## Hızlı başlangıç
 
-Gerekenler: Docker Desktop, Go 1.27+, Node 24+ (yalnız frontend geliştirmek için), `make`.
+Gerekenler: Docker Desktop, Go 1.27+, Node 26+ (yalnız frontend geliştirmek için), `make`.
 
 ```bash
 cp .env.example .env            # dev değerleri; JWT_SECRET'ı prod'da mutlaka değiştir
