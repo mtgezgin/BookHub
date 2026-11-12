@@ -166,14 +166,19 @@ func handleAdminListBooks(svc moderationService, store bookStore) http.HandlerFu
 	}
 }
 
-// writeAdminBook, tek kitabı türleriyle admin DTO'su olarak yazar.
+// writeAdminBook, tek kitabı türleri ve baskılarıyla admin DTO'su olarak yazar.
 func writeAdminBook(w http.ResponseWriter, r *http.Request, store bookStore, b db.BookView) {
 	genreList, err := store.GenresForBook(r.Context(), b.ID)
 	if err != nil {
 		writeInternalError(w, "GenresForBook", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAdminBookResponse(b, genreList))
+	eds, err := store.Editions(r.Context(), b.ID)
+	if err != nil {
+		writeInternalError(w, "Editions", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, adminBookDetailResponse{adminBookResponse: toAdminBookResponse(b, genreList), Editions: toEditionResponses(eds)})
 }
 
 // handleAdminGetBook, GET /api/admin/books/{id} — statüden bağımsız.

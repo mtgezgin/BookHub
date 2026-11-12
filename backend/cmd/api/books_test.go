@@ -26,6 +26,9 @@ type fakeBooks struct {
 	err      error
 	setErr   error
 	genreErr error
+	// Faz 16: detay uçlarının baskı listesi.
+	editions    []db.Edition
+	editionsErr error
 }
 
 func (f fakeBooks) Get(context.Context, int64) (db.BookView, error) { return f.book, f.err }
@@ -42,6 +45,9 @@ func (f fakeBooks) GenresForBooks(context.Context, []int64) (map[int64][]db.Genr
 	return f.genres, f.genreErr
 }
 func (f fakeBooks) SetGenres(context.Context, int64, []int64) error { return f.setErr }
+func (f fakeBooks) Editions(context.Context, int64) ([]db.Edition, error) {
+	return f.editions, f.editionsErr
+}
 
 func do(t *testing.T, h http.Handler, method, url, body string) *httptest.ResponseRecorder {
 	t.Helper()

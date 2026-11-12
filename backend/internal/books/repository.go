@@ -144,6 +144,17 @@ func (r *Repository) Create(ctx context.Context, p CreateParams) (db.BookView, e
 	return book, err
 }
 
+// Editions, kitabın baskıları (Faz 16): varsayılan önce, sonra dil, yıl (bilinmeyen sonda), id.
+// Düz okuma; kitabın görünürlüğünü çağıran denetler (public uç önce Get ile onaylı kitabı okur).
+// Baskı YAZIMLARI kurallı olduğu için internal/editions servisinde.
+func (r *Repository) Editions(ctx context.Context, bookID int64) ([]db.Edition, error) {
+	list, err := r.q.ListEditionsByBook(ctx, bookID)
+	if err != nil {
+		return nil, fmt.Errorf("baskılar okunamadı (kitap=%d): %w", bookID, err)
+	}
+	return list, nil
+}
+
 // Sort, katalog sırası.
 type Sort string
 

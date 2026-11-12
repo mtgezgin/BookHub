@@ -20,7 +20,8 @@ import (
 // (istemciyi kıran değişiklik) kırılır. `status` bilerek yok: public uçlar yalnızca
 // APPROVED döndürdüğü için bilgi taşımaz.
 func TestGetBookResponseContract(t *testing.T) {
-	allowedFields := publicBookFields
+	// Detay = liste öğesinin alanları + editions (Faz 16; liste uçları baskı taşımaz).
+	allowedFields := append(append([]string{}, publicBookFields...), "editions")
 
 	year := int32(2008)
 	pages := int32(464)
@@ -37,7 +38,11 @@ func TestGetBookResponseContract(t *testing.T) {
 		Status:          "APPROVED",
 		CreatedAt:       time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 		UpdatedAt:       time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
-	}}
+	}, editions: []db.Edition{{
+		ID: 7, BookID: 1, Title: "Temiz Kod", Language: "tr", Translator: "Çevirmen", Publisher: "Yayınevi",
+		PublicationYear: &year, Isbn: "9789750000000", PageCount: &pages, CoverUrl: "https://example.test/tr.jpg",
+		IsPrimary: true, CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+	}}}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/books/1", nil)
 	rec := httptest.NewRecorder()
@@ -56,6 +61,28 @@ func TestGetBookResponseContract(t *testing.T) {
 	}
 
 	checkContract(t, body, allowedFields)
+
+	// Baskı öğesi: kendi izin listesi. book_id ve zaman damgaları bilerek yok (baskı hep
+	// kitabının içinde döner).
+	var eds []map[string]json.RawMessage
+	if err := json.Unmarshal(body["editions"], &eds); err != nil || len(eds) != 1 {
+		t.Fatalf("editions tek öğeli bir dizi olmalı: %s (%v)", body["editions"], err)
+	}
+	checkContract(t, eds[0], publicEditionFields)
+}
+
+// publicEditionFields, kitap detayındaki (ve admin baskı uçlarındaki) baskı öğesinin alanları.
+var publicEditionFields = []string{
+	"id",
+	"title",
+	"language",
+	"translator",
+	"publisher",
+	"publication_year",
+	"isbn",
+	"page_count",
+	"cover_url",
+	"is_primary",
 }
 
 // publicBookFields, herkese açık kitap JSON'unun izin verilen ÜST DÜZEY alanları = bugünkü

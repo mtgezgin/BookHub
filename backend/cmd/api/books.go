@@ -29,6 +29,7 @@ type bookStore interface {
 	GenresForBook(ctx context.Context, bookID int64) ([]db.Genre, error)
 	GenresForBooks(ctx context.Context, bookIDs []int64) (map[int64][]db.Genre, error)
 	SetGenres(ctx context.Context, bookID int64, genreIDs []int64) error
+	Editions(ctx context.Context, bookID int64) ([]db.Edition, error)
 }
 
 // bookResponse, kitabın HERKESE AÇIK temsili (response DTO).
@@ -116,7 +117,13 @@ func handleGetBook(store bookStore) http.HandlerFunc {
 			writeInternalError(w, "GenresForBook", err)
 			return
 		}
-		writeJSON(w, http.StatusOK, toBookResponse(book, genreList))
+		// 5) Baskılar (Faz 16) yalnız detayda: liste uçları şişmesin.
+		eds, err := store.Editions(r.Context(), book.ID)
+		if err != nil {
+			writeInternalError(w, "Editions", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, bookDetailResponse{bookResponse: toBookResponse(book, genreList), Editions: toEditionResponses(eds)})
 	}
 }
 

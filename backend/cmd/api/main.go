@@ -17,6 +17,7 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/comments"
 	"github.com/mtgezgin/bookhub/backend/internal/config"
 	"github.com/mtgezgin/bookhub/backend/internal/database"
+	"github.com/mtgezgin/bookhub/backend/internal/editions"
 	"github.com/mtgezgin/bookhub/backend/internal/genres"
 	"github.com/mtgezgin/bookhub/backend/internal/library"
 	"github.com/mtgezgin/bookhub/backend/internal/moderation"
@@ -100,11 +101,14 @@ func run() int {
 	// top-rated cache'ini geçersiz kılar. İki servis birbirini tanımıyor — bağ burada kuruluyor.
 	ratingSvc := ratings.NewCached(ratings.NewService(pool, int64(cfg.RatingMinVotes)), appCache)
 	moderationSvc := moderation.NewService(pool, moderation.WithPublicChangeHook(ratingSvc.InvalidateTopRated))
+	// Baskılar (Faz 16) kapak taşıyor; top-rated cache'i de onları gösterir.
+	editionSvc := editions.NewService(pool, editions.WithPublicChangeHook(ratingSvc.InvalidateTopRated))
 
 	d := deps{
 		books:      books.NewRepository(pool),
 		genres:     genres.NewRepository(pool),
 		moderation: moderationSvc,
+		editions:   editionSvc,
 		comments:   comments.NewService(pool),
 		ratings:    ratingSvc,
 		library:    library.NewRepository(pool),
