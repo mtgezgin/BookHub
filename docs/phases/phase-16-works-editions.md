@@ -115,6 +115,24 @@ SELECT id, title, language, page_count, cover_url, true FROM books;
 3. Sekiz yeni kapak #34'teki gibi gözle doğrulanır: kontrol sayfası hazırlanır, kullanıcı onaylar.
    Varsayılan baskıların meta verisi örneklemeyle kontrol edilir.
 
+**Uygulamada (2026-11-12):**
+
+- Kapak kaydının `olid` alanı baskıyı doğrudan verir (`covers.openlibrary.org/b/id/<kimlik>.json`);
+  53 kapağın 50'si bir baskıya bağlı. Clean Code, Yaban ve Kozmos'ta dil ve (görünüyorsa) yayınevi
+  kapaktan okundu; taze kurulumda kapakları dolsun diye bu üçü de listede.
+- Open Library verisi temizlendi: yayınevi adlarındaki düşmüş Türkçe harfler düzeltildi, boş dil
+  yayınevinden çıkarıldı. Çevirmen kayıtlarda neredeyse hiç yok; Solaris ve Gülün Adı'nınki kapaktan.
+  Türkçe olmayan varsayılan baskılara kendi adları verildi (ör. 1984 → *Nineteen Eighty-Four*).
+- Anna Karenina'nın kapağı bir sesli kitap kaydına bağlı (Books on Tape): yayınevi ve yıl boş.
+- Özgün dil listesi iki yerde değişti: **1984 → Cesur Yeni Dünya** (1984'ün varsayılan baskısı zaten
+  İngilizce, yukarıdaki kural) ve **Simyacı → Solaris (pl)** (Simyacı demo katalogda onay bekleyen bir
+  öneri; katalogda görünmediği için şeridi de görünmezdi).
+- Open Library'de bazı kapaklar yanlış kayda bağlı (ör. "Chilton 1965" diye kayıtlı bir Dune kapağı
+  Berkley cep baskısı): her aday kayıtla birlikte gözle kontrol edildi, uyuşmayanlar elendi.
+- Örneklem: Cesur Yeni Dünya (İthaki), Solaris (İletişim), Gülün Adı (Can) kapaklarında yayınevi kayıtla
+  aynı. Yerel prova: 0010'daki demo verisine 0011 + 0012 uygulandı, 54 kitabın kapak, sayfa ve puan
+  görüntüsü birebir aynı; taze kurulum (migration → seed → 0009 → 0012) iki kez çalıştı.
+
 Taze kurulum:
 
 - `demo_seed.sql`, kitap INSERT'inden sonra baskısı olmayan her kitaba kitabın adı, dili ve sayfa
