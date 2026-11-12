@@ -218,7 +218,7 @@ func handleListLibrary(ls libraryStore, bs bookStore) http.HandlerFunc {
 		}
 		ids := make([]int64, 0, len(rows))
 		for _, row := range rows {
-			ids = append(ids, row.Book.ID)
+			ids = append(ids, row.BookView.ID)
 		}
 		genresByBook, err := bs.GenresForBooks(r.Context(), ids)
 		if err != nil {
@@ -233,7 +233,7 @@ func handleListLibrary(ls libraryStore, bs bookStore) http.HandlerFunc {
 				mine = &score
 			}
 			items = append(items, libraryItemResponse{
-				Book:      toBookResponse(row.Book, genresByBook[row.Book.ID]),
+				Book:      toBookResponse(row.BookView, genresByBook[row.BookView.ID]),
 				Status:    row.Status,
 				AddedAt:   row.AddedAt,
 				MyRating:  mine,

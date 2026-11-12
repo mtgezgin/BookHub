@@ -185,8 +185,8 @@ func TestListLibrary(t *testing.T) {
 	t.Run("öğe: kitap, durum, puanım ve katalog bilgisi", func(t *testing.T) {
 		added := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
 		fake := &fakeLibrary{total: 2, rows: []db.ListLibraryRow{
-			{Book: db.Book{ID: 1, Title: "Dune"}, Status: "READ", AddedAt: added, MyRating: ptr(int16(8)), InCatalog: true},
-			{Book: db.Book{ID: 2, Title: "Vakıf"}, Status: "READING", AddedAt: added, InCatalog: false},
+			{BookView: db.BookView{ID: 1, Title: "Dune"}, Status: "READ", AddedAt: added, MyRating: ptr(int16(8)), InCatalog: true},
+			{BookView: db.BookView{ID: 2, Title: "Vakıf"}, Status: "READING", AddedAt: added, InCatalog: false},
 		}}
 		rec := do(t, libraryRouter(fake), http.MethodGet, "/api/me/library", "")
 		if rec.Code != http.StatusOK {
@@ -240,7 +240,7 @@ func TestLibraryStoreErrors(t *testing.T) {
 		{"ekleme depo hatası 404 değil", http.MethodPut, "/api/me/library/5", `{"status":"READ"}`, fakeBooks{}, &fakeLibrary{err: dbErr}},
 		{"durum sorgusu depo hatası", http.MethodGet, "/api/me/library/statuses?book_ids=3", "", fakeBooks{}, &fakeLibrary{err: dbErr}},
 		{"liste depo hatası", http.MethodGet, "/api/me/library", "", fakeBooks{}, &fakeLibrary{err: dbErr}},
-		{"liste tür yüklemesi hatası", http.MethodGet, "/api/me/library", "", fakeBooks{genreErr: dbErr}, &fakeLibrary{total: 1, rows: []db.ListLibraryRow{{Book: db.Book{ID: 1, Title: "Dune"}, Status: "READ"}}}},
+		{"liste tür yüklemesi hatası", http.MethodGet, "/api/me/library", "", fakeBooks{genreErr: dbErr}, &fakeLibrary{total: 1, rows: []db.ListLibraryRow{{BookView: db.BookView{ID: 1, Title: "Dune"}, Status: "READ"}}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

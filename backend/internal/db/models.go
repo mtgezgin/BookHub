@@ -45,6 +45,27 @@ type BookGenre struct {
 	GenreID int64 `json:"genre_id"`
 }
 
+type BookView struct {
+	ID              int64      `json:"id"`
+	Title           string     `json:"title"`
+	Slug            string     `json:"slug"`
+	Author          string     `json:"author"`
+	Description     string     `json:"description"`
+	CoverUrl        string     `json:"cover_url"`
+	PublicationYear *int32     `json:"publication_year"`
+	PageCount       *int32     `json:"page_count"`
+	Language        string     `json:"language"`
+	Status          string     `json:"status"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	SubmittedBy     *int64     `json:"submitted_by"`
+	RejectionReason *string    `json:"rejection_reason"`
+	ModeratedBy     *int64     `json:"moderated_by"`
+	ModeratedAt     *time.Time `json:"moderated_at"`
+	AverageRating   *float64   `json:"average_rating"`
+	RatingCount     int32      `json:"rating_count"`
+}
+
 type Comment struct {
 	ID        int64      `json:"id"`
 	BookID    int64      `json:"book_id"`
@@ -54,6 +75,22 @@ type Comment struct {
 	UpdatedAt time.Time  `json:"updated_at"`
 	DeletedAt *time.Time `json:"deleted_at"`
 	DeletedBy *int64     `json:"deleted_by"`
+}
+
+type Edition struct {
+	ID              int64     `json:"id"`
+	BookID          int64     `json:"book_id"`
+	Title           string    `json:"title"`
+	Language        string    `json:"language"`
+	Translator      string    `json:"translator"`
+	Publisher       string    `json:"publisher"`
+	PublicationYear *int32    `json:"publication_year"`
+	Isbn            string    `json:"isbn"`
+	PageCount       *int32    `json:"page_count"`
+	CoverUrl        string    `json:"cover_url"`
+	IsPrimary       bool      `json:"is_primary"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type Genre struct {

@@ -78,7 +78,7 @@ SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publicatio
        ((b.rating_count::float8 / (b.rating_count + $1::float8)) * b.average_rating::float8
         + ($1::float8 / (b.rating_count + $1::float8)) * $2::float8
        )::float8 AS weighted_score
-FROM books b
+FROM book_view b
 WHERE b.status = 'APPROVED' AND b.rating_count > 0
 ORDER BY weighted_score DESC, b.rating_count DESC, b.id DESC
 LIMIT $3
@@ -91,25 +91,8 @@ type ListTopRatedParams struct {
 }
 
 type ListTopRatedRow struct {
-	ID              int64      `json:"id"`
-	Title           string     `json:"title"`
-	Slug            string     `json:"slug"`
-	Author          string     `json:"author"`
-	Description     string     `json:"description"`
-	CoverUrl        string     `json:"cover_url"`
-	PublicationYear *int32     `json:"publication_year"`
-	PageCount       *int32     `json:"page_count"`
-	Language        string     `json:"language"`
-	Status          string     `json:"status"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	SubmittedBy     *int64     `json:"submitted_by"`
-	RejectionReason *string    `json:"rejection_reason"`
-	ModeratedBy     *int64     `json:"moderated_by"`
-	ModeratedAt     *time.Time `json:"moderated_at"`
-	AverageRating   *float64   `json:"average_rating"`
-	RatingCount     int32      `json:"rating_count"`
-	WeightedScore   float64    `json:"weighted_score"`
+	BookView      BookView `json:"book_view"`
+	WeightedScore float64  `json:"weighted_score"`
 }
 
 // En iyi kitaplar, AĞIRLIKLI skora göre — QUERY-TIME hesap (saklanan kolon YOK).
@@ -132,24 +115,24 @@ func (q *Queries) ListTopRated(ctx context.Context, arg ListTopRatedParams) ([]L
 	for rows.Next() {
 		var i ListTopRatedRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Slug,
-			&i.Author,
-			&i.Description,
-			&i.CoverUrl,
-			&i.PublicationYear,
-			&i.PageCount,
-			&i.Language,
-			&i.Status,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.SubmittedBy,
-			&i.RejectionReason,
-			&i.ModeratedBy,
-			&i.ModeratedAt,
-			&i.AverageRating,
-			&i.RatingCount,
+			&i.BookView.ID,
+			&i.BookView.Title,
+			&i.BookView.Slug,
+			&i.BookView.Author,
+			&i.BookView.Description,
+			&i.BookView.CoverUrl,
+			&i.BookView.PublicationYear,
+			&i.BookView.PageCount,
+			&i.BookView.Language,
+			&i.BookView.Status,
+			&i.BookView.CreatedAt,
+			&i.BookView.UpdatedAt,
+			&i.BookView.SubmittedBy,
+			&i.BookView.RejectionReason,
+			&i.BookView.ModeratedBy,
+			&i.BookView.ModeratedAt,
+			&i.BookView.AverageRating,
+			&i.BookView.RatingCount,
 			&i.WeightedScore,
 		); err != nil {
 			return nil, err

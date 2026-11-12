@@ -28,13 +28,13 @@ func TestGetBookEndpointRealDB(t *testing.T) {
 
 	ids := make(map[string]int64, 2)
 	for _, status := range []string{books.StatusApproved, books.StatusPending} {
-		book, err := repo.Create(context.Background(), db.CreateBookParams{
+		book, err := repo.Create(context.Background(), books.CreateParams{CreateBookParams: db.CreateBookParams{
 			Title:    "Uçtan Uca Testi " + status,
 			Slug:     testdb.Unique("e2e-" + strings.ToLower(status)),
 			Author:   "Test Yazar",
 			Language: "tr",
 			Status:   status,
-		})
+		}})
 		if err != nil {
 			t.Fatalf("%s kitabı eklenemedi: %v", status, err)
 		}

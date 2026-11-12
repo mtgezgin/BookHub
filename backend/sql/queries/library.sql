@@ -30,7 +30,7 @@ SELECT sqlc.embed(b), le.status, le.created_at AS added_at, r.score AS my_rating
        (b.status = 'APPROVED')::boolean AS in_catalog,
        count(*) OVER () AS total
 FROM library_entries le
-JOIN books b ON b.id = le.book_id
+JOIN book_view b ON b.id = le.book_id
 LEFT JOIN ratings r ON r.user_id = le.user_id AND r.book_id = le.book_id
 WHERE le.user_id = sqlc.arg('user_id')
   AND (sqlc.narg('status')::text IS NULL OR le.status = sqlc.narg('status'))

@@ -1,6 +1,6 @@
 # Faz 16 — Eser ve baskı (works / editions)
 
-> Durum: 📝 tasarım incelemede (2026-10-17); uygulama Faz 15'ten (kişisel kitaplık) sonra —
+> Durum: 🔨 uygulamada (spec onayı 2026-11-12; sorgular için görünüm kararı aynı gün, § 3) —
 > [ROADMAP](../ROADMAP.md) · Backlog: [CAT-02](../FEATURE_REQUESTS.md) · Issue: [#36](https://github.com/mtgezgin/BookHub/issues/36) ·
 > İlgili: [0001_books_genres.sql](../../backend/migrations/0001_books_genres.sql),
 > [books.sql](../../backend/sql/queries/books.sql), [BookDetail.tsx](../../frontend/src/pages/BookDetail.tsx)
@@ -126,17 +126,29 @@ Taze kurulum:
 
 ### 3. Sorgular (sqlc)
 
-- Kitap satırı döndüren her sorgu (`books.sql`: `GetApprovedBook`, `GetBook`, `ListBooks`,
-  `ListBooksByRating`, `ListBooksByStatus`, `RETURNING` olan yazımlar; `ratings.sql`: `ListTopRated`)
-  `*` yerine **açık kolon listesine** geçer; `books.cover_url` ve `books.page_count` listede yoktur.
-  Kapak ve sayfa `LEFT JOIN editions pe ON pe.book_id = b.id AND pe.is_primary` ile gelir;
-  baskısız kitapta kapak `COALESCE(pe.cover_url, '')`, sayfa `NULL`.
-- `CreateBook` ve `UpdateBookDetails` bu iki kolonu yazmaz; değerler varsayılan baskıya gider.
-- Yeni `editions.sql`: kitabın baskılarını listele, getir, ekle, güncelle (`COALESCE` yaması), sil,
-  varsayılanı temizle / ata, kilitle.
-- Üretilen satır tipleri değişir: `toBookResponse` yeni tipleri alır; `rowcopy_test.go` yeni tiplere
-  genişler. En iyi puanlılar önbelleğinin anahtarı `books:top-rated:v2` olur (saklanan JSON'un şekli
-  değişiyor; eski anahtar 60 sn'de kendiliğinden düşer).
+**Karar (2026-11-12, kullanıcı onayı): sorgular bir görünümden okur.** İlk tasarım her sorguda açık
+kolon listesi ve `LEFT JOIN` öngörüyordu; uygulamada bu, sqlc'nin her sorgu için ayrı satır tipi
+üretmesi ve `db.Book`'u kullanan 40'tan çok yerin bu tipler arasında dönüşüm yapması demekti. Onun yerine:
+
+- `0011`, `book_view` görünümünü tanımlar: `books`'un kolonları **açıkça** yazılı (iki eski kolon hariç),
+  kapak `COALESCE(pe.cover_url, '')` ve sayfa `pe.page_count` varsayılan baskıdan
+  (`LEFT JOIN editions pe ON pe.book_id = b.id AND pe.is_primary`). Görünüm eski kolonlara bağımlı
+  olmadığı için PR 2 onları silebilir (bağımlı olsaydı Postgres silmeyi reddederdi).
+- Kitap okuyan her sorgu (`GetApprovedBook`, `GetBook`, `ListBooks`, `ListBooksByRating`,
+  `ListBooksByStatus`, `ListLibrary`, `ListTopRated`) görünümden okur. sqlc görünüm için tek bir
+  `db.BookView` üretir; alanları `db.Book`'la aynıdır, Go tarafında değişiklik çoğunlukla tip adıdır.
+  `ListTopRated` ve `ListLibrary` `sqlc.embed(b)` kullanır.
+- Yazımlar (`CreateBook`, `UpdateBookDetails`, `SetBookStatus`) `RETURNING *` yerine yalnız `id` döner
+  (ya da hiçbir şey); kitabın tam hâli aynı transaction'da görünümden okunur. Kapak ve sayfayı yazmazlar.
+- `LockBookForModeration` yalnız `status` döner: Postgres, `LEFT JOIN`'in boş olabilen tarafını
+  kilitleyemediği için kilit görünümde değil `books`'ta alınır.
+- Yeni `editions.sql`: listele, getir, varsayılan baskıyı aç (kitap eklerken), varsayılanı yamala
+  (kitap PATCH'i; yoksa açar, `ON CONFLICT (book_id) WHERE is_primary`), ekle, güncelle (`COALESCE`
+  yaması), sil, varsayılan var mı, varsayılanı temizle / ata.
+- `ratings/rowcopy_test.go` ve `bookFromTopRatedRow` silinir: `sqlc.embed` bütün alanları yapı gereği
+  taşır. Önbellek anahtarı `books:top-rated:v1` kalır: `db.BookView`'un JSON şekli `db.Book`'unkiyle aynı.
+- Bedeli: `books`'a ileride eklenen bir kolon görünüme kendiliğinden girmez; yeni bir migration görünümü
+  yeniden tanımlar.
 
 ### 4. `internal/editions` paketi (repository + service)
 
@@ -228,7 +240,7 @@ Mevcut moderasyon servisi:
 
 1. **Go:** baskı servisi (tek varsayılan, varsayılan silinemez, varsayılan yap tek transaction,
    denetim kaydı, önbellek kancası); handler'lar (bilinmeyen alan, doğrulama, 404, admin dışına
-   401/403); sözleşme testi; `rowcopy_test.go`.
+   401/403); sözleşme testi.
 2. **"Eski kolonlar yokmuş gibi" testi:** bir transaction'da `books.cover_url` ve `books.page_count`
    silinir, kitap okuyan ve yazan her repository fonksiyonu çalıştırılır, sonra geri alınır. Bir
    sorgu eski kolonu anıyorsa PR 1'de kırmızı.

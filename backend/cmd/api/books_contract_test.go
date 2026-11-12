@@ -24,7 +24,7 @@ func TestGetBookResponseContract(t *testing.T) {
 
 	year := int32(2008)
 	pages := int32(464)
-	fake := fakeBooks{book: db.Book{
+	fake := fakeBooks{book: db.BookView{
 		ID:              1,
 		Title:           "Clean Code",
 		Slug:            "clean-code",
