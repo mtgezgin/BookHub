@@ -12,9 +12,4 @@ function Textarea({ className, ...props }: ComponentProps<"textarea">) {
   return <textarea data-slot="textarea" className={cn(field, "min-h-24 resize-y py-2", className)} {...props} />;
 }
 
-/** Tarayıcının kendi `<select>`'i, alanlarla aynı görünümde: klavye ve mobil seçici bedava gelir. */
-function NativeSelect({ className, ...props }: ComponentProps<"select">) {
-  return <select data-slot="select" className={cn(field, "h-9 w-auto py-1 pr-8", className)} {...props} />;
-}
-
-export { Input, NativeSelect, Textarea };
+export { Input, Textarea };
