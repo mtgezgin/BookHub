@@ -356,17 +356,7 @@ func checkPageCount(v *validator, n *int32) {
 
 // readBookRequest, create ve öneri uçlarının ortak gövde okuma + doğrulama adımı.
 func readBookRequest(w http.ResponseWriter, r *http.Request) (createBookRequest, bool) {
-	var req createBookRequest
-	if err := readJSON(w, r, &req); err != nil {
-		writeRequestError(w, err)
-		return req, false
-	}
-	req.normalize()
-	if err := req.validate(); err != nil {
-		writeRequestError(w, err)
-		return req, false
-	}
-	return req, true
+	return readBody[createBookRequest](w, r)
 }
 
 // handleCreateBook, POST /api/admin/books — admin doğrudan (onaylı) kitap ekler.

@@ -224,22 +224,12 @@ func writeEditionError(w http.ResponseWriter, op string, err error) {
 // handleCreateEdition, POST /api/admin/books/{id}/editions → 201.
 func handleCreateEdition(svc editionService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		actor, ok := actorFrom(w, r)
+		actor, bookID, ok := actorAndID(w, r)
 		if !ok {
 			return
 		}
-		bookID, ok := parseID(w, r)
+		req, ok := readBody[createEditionRequest](w, r)
 		if !ok {
-			return
-		}
-		var req createEditionRequest
-		if err := readJSON(w, r, &req); err != nil {
-			writeRequestError(w, err)
-			return
-		}
-		req.normalize()
-		if err := req.validate(); err != nil {
-			writeRequestError(w, err)
 			return
 		}
 		ed, err := svc.Create(r.Context(), actor, bookID, req.toParams())
@@ -254,22 +244,12 @@ func handleCreateEdition(svc editionService) http.HandlerFunc {
 // handleUpdateEdition, PATCH /api/admin/editions/{id} → 200.
 func handleUpdateEdition(svc editionService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		actor, ok := actorFrom(w, r)
+		actor, id, ok := actorAndID(w, r)
 		if !ok {
 			return
 		}
-		id, ok := parseID(w, r)
+		req, ok := readBody[updateEditionRequest](w, r)
 		if !ok {
-			return
-		}
-		var req updateEditionRequest
-		if err := readJSON(w, r, &req); err != nil {
-			writeRequestError(w, err)
-			return
-		}
-		req.normalize()
-		if err := req.validate(); err != nil {
-			writeRequestError(w, err)
 			return
 		}
 		ed, err := svc.Update(r.Context(), actor, id, req.toParams())
@@ -284,11 +264,7 @@ func handleUpdateEdition(svc editionService) http.HandlerFunc {
 // handleDeleteEdition, DELETE /api/admin/editions/{id} → 204. Varsayılan baskı → 409.
 func handleDeleteEdition(svc editionService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		actor, ok := actorFrom(w, r)
-		if !ok {
-			return
-		}
-		id, ok := parseID(w, r)
+		actor, id, ok := actorAndID(w, r)
 		if !ok {
 			return
 		}
@@ -304,11 +280,7 @@ func handleDeleteEdition(svc editionService) http.HandlerFunc {
 // (zaten varsayılan olan baskı için de 200).
 func handleSetPrimaryEdition(svc editionService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		actor, ok := actorFrom(w, r)
-		if !ok {
-			return
-		}
-		id, ok := parseID(w, r)
+		actor, id, ok := actorAndID(w, r)
 		if !ok {
 			return
 		}

@@ -80,6 +80,16 @@ type auditEntryResponse struct {
 
 // actorFrom, işlemi yapanın kimliğini okur. Rota requireAuth arkasında değilse (yanlış
 // kurulum) 401 yazar — kimliksiz bir yazım asla "aktörsüz" denetim kaydına dönüşmesin.
+// actorAndID, tek kaynağa yazan admin uçlarının ortak girişi: işlemi yapan (token'dan) ve URL'deki
+// {id}. Hata varsa cevabı yazar ve ok=false döner (önce kimlik: 401, sonra id: 400).
+func actorAndID(w http.ResponseWriter, r *http.Request) (actor, id int64, ok bool) {
+	if actor, ok = actorFrom(w, r); !ok {
+		return 0, 0, false
+	}
+	id, ok = parseID(w, r)
+	return actor, id, ok
+}
+
 func actorFrom(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	p, ok := principalFrom(r.Context())
 	if !ok {
@@ -270,22 +280,12 @@ func (req updateBookRequest) toParams() books.UpdateParams {
 // handleAdminUpdateBook, PATCH /api/admin/books/{id} — onay öncesi düzeltme gibi.
 func handleAdminUpdateBook(svc moderationService, store bookStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		actor, ok := actorFrom(w, r)
+		actor, id, ok := actorAndID(w, r)
 		if !ok {
 			return
 		}
-		id, ok := parseID(w, r)
+		req, ok := readBody[updateBookRequest](w, r)
 		if !ok {
-			return
-		}
-		var req updateBookRequest
-		if err := readJSON(w, r, &req); err != nil {
-			writeRequestError(w, err)
-			return
-		}
-		req.normalize()
-		if err := req.validate(); err != nil {
-			writeRequestError(w, err)
 			return
 		}
 		b, err := svc.Update(r.Context(), actor, id, req.toParams())
