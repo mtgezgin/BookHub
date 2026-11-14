@@ -15,8 +15,10 @@
 -- handler'daki bir "if" hatasıyla açılamasın. Bulunmayan satır = 404: onaylanmamış
 -- bir kitabın VARLIĞINI bile sızdırmıyoruz.
 -- (Admin'in tüm statüleri görmesi ileride AYRI bir sorgu + /api/admin rotası olur.)
+-- Faz 16: kitap okuyan sorgular books'tan değil book_view'dan okur (kapak ve sayfa sayısı
+-- varsayılan baskıdan gelir; tanım 0011_editions.sql'de).
 -- name: GetApprovedBook :one
-SELECT * FROM books
+SELECT * FROM book_view
 WHERE id = $1
   AND status = 'APPROVED';
 
@@ -35,7 +37,7 @@ WHERE id = $1
 -- yer değiştirmesin (kararlı sayfalama). Partial index (created_at DESC) WHERE
 -- status='APPROVED' bu sorguya hizmet ediyor.
 -- name: ListBooks :many
-SELECT b.* FROM books b
+SELECT b.* FROM book_view b
 WHERE b.status = 'APPROVED'
   AND (sqlc.narg('genre')::text IS NULL OR EXISTS (
         SELECT 1 FROM book_genres bg
@@ -55,7 +57,7 @@ LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 -- kitapta 0/0 bölmesini de önler (RATING_MIN_VOTES 0 olabilir).
 -- Filtreler ListBooks ile birebir aynı; birini değiştiren ikisini de değiştirir.
 -- name: ListBooksByRating :many
-SELECT b.* FROM books b
+SELECT b.* FROM book_view b
 WHERE b.status = 'APPROVED'
   AND (sqlc.narg('genre')::text IS NULL OR EXISTS (
         SELECT 1 FROM book_genres bg
@@ -85,55 +87,58 @@ WHERE b.status = 'APPROVED'
        OR b.author ILIKE '%' || sqlc.narg('query') || '%');
 
 -- submitted_by: kitabı kim getirdi (öneren kullanıcı ya da doğrudan ekleyen admin).
+-- Kapak ve sayfa sayısı kitaba değil varsayılan baskıya yazılır (editions.sql → CreatePrimaryEdition,
+-- aynı transaction'da). Faz 16'dan beri kitap yazımları yalnız id döner; kitabın tam hâli
+-- book_view'dan okunur. RETURNING * books.cover_url'ü anardı, daraltmadan sonra kırılırdı.
 -- name: CreateBook :one
 INSERT INTO books (
-    title, slug, author, description, cover_url, publication_year,
-    page_count, language, status, submitted_by
+    title, slug, author, description, publication_year, language, status, submitted_by
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING *;
+    $1, $2, $3, $4, $5, $6, $7, $8
+) RETURNING id;
 
 -- ADMIN tekil okuma: statüden bağımsız. Public GetApprovedBook'un ayrı kalması bilinçli —
 -- görünürlük kuralı bir parametreye ("includeHidden bool") indirgenirse bir handler'ın
 -- yanlış değeri geçmesi BOLA'yı geri getirir. İki sorgu, iki ayrı niyet.
 -- name: GetBook :one
-SELECT * FROM books WHERE id = $1;
+SELECT * FROM book_view WHERE id = $1;
 
 -- Moderasyon için kilitli okuma: statü kontrolü + güncelleme arasına başka bir admin
 -- giremesin (iki admin aynı anda approve/reject → ikisi de "PENDING" görüp ikisi de yazardı).
+-- Kilit book_view'da değil books'ta: Postgres, LEFT JOIN'in boş olabilen tarafını (baskı)
+-- kilitleyemez. Yalnız statü döner. Baskı servisi de aynı kilidi alır (kitabın baskıları
+-- arasındaki "tek varsayılan" kuralı için).
 -- name: LockBookForModeration :one
-SELECT * FROM books WHERE id = $1 FOR UPDATE;
+SELECT status FROM books WHERE id = $1 FOR UPDATE;
 
--- name: SetBookStatus :one
+-- name: SetBookStatus :exec
 UPDATE books
 SET status           = sqlc.arg('status'),
     rejection_reason = sqlc.narg('rejection_reason'),
     moderated_by     = sqlc.arg('moderated_by'),
     moderated_at     = now(),
     updated_at       = now()
-WHERE id = sqlc.arg('id')
-RETURNING *;
+WHERE id = sqlc.arg('id');
 
 -- Kısmi güncelleme (PATCH): gönderilmeyen alan (NULL) mevcut değeri korur.
 -- Sınır: bu desenle bir alanı NULL'A ÇEKMEK mümkün değil (publication_year'ı "bilinmiyor"
 -- yapmak gibi) — NULL "dokunma" anlamına geliyor. Gerekirse ayrı bir "clear" bayrağı gerekir.
+-- Kapak ve sayfa sayısı varsayılan baskıdadır (editions.sql → PatchPrimaryEdition).
 -- name: UpdateBookDetails :one
 UPDATE books
 SET title            = COALESCE(sqlc.narg('title'), title),
     slug             = COALESCE(sqlc.narg('slug'), slug),
     author           = COALESCE(sqlc.narg('author'), author),
     description      = COALESCE(sqlc.narg('description'), description),
-    cover_url        = COALESCE(sqlc.narg('cover_url'), cover_url),
     publication_year = COALESCE(sqlc.narg('publication_year'), publication_year),
-    page_count       = COALESCE(sqlc.narg('page_count'), page_count),
     language         = COALESCE(sqlc.narg('language'), language),
     updated_at       = now()
 WHERE id = sqlc.arg('id')
-RETURNING *;
+RETURNING id;
 
 -- Admin listesi: tek statüye göre (bekleyen kuyruğu, arşiv, reddedilenler...).
 -- name: ListBooksByStatus :many
-SELECT * FROM books
+SELECT * FROM book_view
 WHERE status = sqlc.arg('status')
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');

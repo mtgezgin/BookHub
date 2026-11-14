@@ -41,7 +41,7 @@ func TestAdminPatchRejectsInvalidFields(t *testing.T) {
 		`{"language":"türkçe"}`,
 		`{"language":""}`,
 	} {
-		fake := &fakeModeration{book: db.Book{ID: 5}}
+		fake := &fakeModeration{book: db.BookView{ID: 5}}
 		rec := do(t, adminRouter(deps{moderation: fake, books: fakeBooks{}}), http.MethodPatch, "/api/admin/books/5", body)
 		if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "validation_error" || len(fake.calls) != 0 {
 			t.Errorf("%.40s…: 400 validation_error ve servis çağrısı YOK bekleniyordu: %d %v", body, rec.Code, fake.calls)
@@ -50,7 +50,7 @@ func TestAdminPatchRejectsInvalidFields(t *testing.T) {
 }
 
 func TestRejectMalformedBody(t *testing.T) {
-	fake := &fakeModeration{book: db.Book{ID: 5}}
+	fake := &fakeModeration{book: db.BookView{ID: 5}}
 	rec := do(t, adminRouter(deps{moderation: fake, books: fakeBooks{}}), http.MethodPost, "/api/admin/books/5/reject", `{"reason":`)
 	if rec.Code != http.StatusBadRequest || len(fake.calls) != 0 {
 		t.Errorf("bozuk gövde 400 olmalı ve Reject çağrılmamalı: %d %v", rec.Code, fake.calls)

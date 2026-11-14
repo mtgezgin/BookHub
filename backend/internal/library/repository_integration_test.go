@@ -143,7 +143,7 @@ func TestLibraryRealDB(t *testing.T) {
 func titles(rows []db.ListLibraryRow) []string {
 	out := make([]string, len(rows))
 	for i, r := range rows {
-		out[i] = r.Book.Title
+		out[i] = r.BookView.Title
 	}
 	return out
 }
@@ -151,7 +151,7 @@ func titles(rows []db.ListLibraryRow) []string {
 func ids(rows []db.ListLibraryRow) []int64 {
 	out := make([]int64, len(rows))
 	for i, r := range rows {
-		out[i] = r.Book.ID
+		out[i] = r.BookView.ID
 	}
 	return out
 }

@@ -90,7 +90,7 @@ export function topbar(page: Page) {
 }
 
 /** Kullanıcı menüsünün düğmesi (adı "Hesap menüsü: <ad>"); Hesabım ve Çıkış onun içinde. */
-export function accountMenuButton(page: Page) {
+function accountMenuButton(page: Page) {
   return topbar(page).getByRole("button", { name: /^Hesap menüsü/ });
 }
 

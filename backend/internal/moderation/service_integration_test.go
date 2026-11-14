@@ -29,10 +29,10 @@ func createUser(t *testing.T, pool *pgxpool.Pool) int64 {
 	return id
 }
 
-func params(t *testing.T) db.CreateBookParams {
+func params(t *testing.T) books.CreateParams {
 	t.Helper()
 	slug := testdb.Unique("mod")
-	return db.CreateBookParams{Title: "Moderasyon " + slug, Slug: slug, Author: "Yazar", Language: "tr"}
+	return books.CreateParams{CreateBookParams: db.CreateBookParams{Title: "Moderasyon " + slug, Slug: slug, Author: "Yazar", Language: "tr"}}
 }
 
 // cleanupBook: kitap silinir; audit satırları kalır (append-only — silinemez, bilerek).
@@ -199,7 +199,7 @@ func TestCreateApprovedAndUpdateRealDB(t *testing.T) {
 	}
 
 	newTitle := "Yeni Başlık"
-	updated, err := s.Update(ctx, admin, b.ID, db.UpdateBookDetailsParams{Title: &newTitle})
+	updated, err := s.Update(ctx, admin, b.ID, books.UpdateParams{UpdateBookDetailsParams: db.UpdateBookDetailsParams{Title: &newTitle}})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -212,10 +212,10 @@ func TestCreateApprovedAndUpdateRealDB(t *testing.T) {
 		t.Fatalf("CreateApproved: %v", err)
 	}
 	cleanupBook(t, pool, other.ID)
-	if _, err := s.Update(ctx, admin, other.ID, db.UpdateBookDetailsParams{Slug: &b.Slug}); !errors.Is(err, books.ErrDuplicateSlug) {
+	if _, err := s.Update(ctx, admin, other.ID, books.UpdateParams{UpdateBookDetailsParams: db.UpdateBookDetailsParams{Slug: &b.Slug}}); !errors.Is(err, books.ErrDuplicateSlug) {
 		t.Errorf("çakışan slug ErrDuplicateSlug vermeli, gelen %v", err)
 	}
-	if _, err := s.Update(ctx, admin, 0, db.UpdateBookDetailsParams{Title: &newTitle}); !errors.Is(err, books.ErrNotFound) {
+	if _, err := s.Update(ctx, admin, 0, books.UpdateParams{UpdateBookDetailsParams: db.UpdateBookDetailsParams{Title: &newTitle}}); !errors.Is(err, books.ErrNotFound) {
 		t.Errorf("olmayan kitap ErrNotFound vermeli, gelen %v", err)
 	}
 
@@ -266,7 +266,7 @@ func TestPublicChangeHookRealDB(t *testing.T) {
 		t.Fatalf("ikinci onay reddedilmeli: %v", err)
 	}
 	title := "Düzeltilmiş"
-	if _, err := s.Update(ctx, admin, b.ID, db.UpdateBookDetailsParams{Title: &title}); err != nil {
+	if _, err := s.Update(ctx, admin, b.ID, books.UpdateParams{UpdateBookDetailsParams: db.UpdateBookDetailsParams{Title: &title}}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if calls != 2 {

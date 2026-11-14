@@ -28,13 +28,13 @@ func TestGetBookEndpointRealDB(t *testing.T) {
 
 	ids := make(map[string]int64, 2)
 	for _, status := range []string{books.StatusApproved, books.StatusPending} {
-		book, err := repo.Create(context.Background(), db.CreateBookParams{
+		book, err := repo.Create(context.Background(), books.CreateParams{CreateBookParams: db.CreateBookParams{
 			Title:    "Uçtan Uca Testi " + status,
 			Slug:     testdb.Unique("e2e-" + strings.ToLower(status)),
 			Author:   "Test Yazar",
 			Language: "tr",
 			Status:   status,
-		})
+		}})
 		if err != nil {
 			t.Fatalf("%s kitabı eklenemedi: %v", status, err)
 		}
@@ -68,12 +68,16 @@ func TestGetBookEndpointRealDB(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("durum kodu: istenen %d, gelen %d (gövde: %s)", http.StatusOK, rec.Code, rec.Body)
 		}
-		var got bookResponse
+		var got bookDetailResponse
 		if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 			t.Fatalf("kitap cevabı geçerli JSON değil: %v", err)
 		}
 		if got.ID != ids[books.StatusApproved] {
 			t.Errorf("kitap id: istenen %d, gelen %d", ids[books.StatusApproved], got.ID)
+		}
+		// Faz 16: Create kitabı varsayılan baskısıyla açar; detay onu taşır.
+		if len(got.Editions) != 1 || !got.Editions[0].IsPrimary || got.Editions[0].Language != "tr" {
+			t.Errorf("tek varsayılan baskı bekleniyordu: %+v", got.Editions)
 		}
 	})
 }

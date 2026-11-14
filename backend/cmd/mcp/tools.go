@@ -57,7 +57,7 @@ func registerTools(s *mcp.Server, api *apiClient) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_book",
-		Description: "Tek bir kitabın ayrıntısını döner: yazar, açıklama, yıl, sayfa, türler, ortalama puan.",
+		Description: "Tek bir kitabın ayrıntısını döner: yazar, açıklama, ilk yayın yılı, özgün dil, türler, ortalama puan ve baskıları (editions: dil, çevirmen, yayınevi, yıl, ISBN, sayfa; is_primary olan varsayılan baskıdır, kitabın kapağı ve sayfa sayısı ondan gelir).",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in bookIDInput) (*mcp.CallToolResult, any, error) {
 		return call(ctx, api, bookPath(in.ID), nil)

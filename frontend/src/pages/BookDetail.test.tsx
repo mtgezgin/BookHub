@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Book, Comment, RatingSummary, User } from "../api/types";
+import type { BookDetail as BookDetailData, Comment, RatingSummary, User } from "../api/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -29,10 +29,10 @@ function stub(impls: Record<string, (...a: any[]) => unknown>) {
 
 const USER: User = { id: 7, email: "ali@example.com", display_name: "Ali", role: "USER", created_at: "" };
 const ADMIN: User = { ...USER, id: 1, role: "ADMIN" };
-const bookOf = (id: number): Book => ({
+const bookOf = (id: number): BookDetailData => ({
   id, title: `Kitap ${id}`, slug: `kitap-${id}`, author: "Yazar", description: "", cover_url: "",
   publication_year: null, page_count: null, language: "tr", genres: [], average_rating: null, rating_count: 0,
-  created_at: "", updated_at: "",
+  created_at: "", updated_at: "", editions: [],
 });
 const summaryOf = (count: number): RatingSummary => ({
   average_rating: count ? 8 : null,
@@ -277,7 +277,7 @@ describe("BookDetail — yükleme ve şablon", () => {
   });
 
   it("kitap yüklenirken iskelet gösterir", async () => {
-    stub({ book: () => new Promise<Book>(() => {}) });
+    stub({ book: () => new Promise<BookDetailData>(() => {}) });
     const { el } = await render();
     expect(el.querySelector('[role=status][aria-label="Kitap yükleniyor"]')).not.toBeNull();
   });
@@ -377,8 +377,33 @@ describe("BookDetail — yükleme ve şablon", () => {
   });
 });
 
+describe("BookDetail — baskılar (Faz 16)", () => {
+  const edition = (id: number, language: string, is_primary: boolean, publisher = "") => ({
+    id, title: `Baskı ${id}`, language, translator: "", publisher, publication_year: 2012, isbn: "",
+    page_count: null, cover_url: "", is_primary,
+  });
+
+  it("birden çok baskıda: kapak altında varsayılan baskı notu, açıklamanın altında şerit (yorumlardan önce)", async () => {
+    stub({ book: async (id: number) => ({ ...bookOf(id), description: "Açıklama", editions: [edition(1, "tr", true, "Yediveren Yayınları"), edition(2, "ru", false)] }) });
+    const { el } = await render();
+    expect(el.textContent).toContain("Türkçe baskı · Yediveren Yayınları");
+    const strip = el.querySelector('section[aria-labelledby="editions-heading"]')!;
+    expect(strip.querySelectorAll("li")).toHaveLength(1);
+    expect(strip.textContent).toContain("Rusça · 2012");
+    const comments = el.querySelector('section[aria-labelledby="comments-heading"]')!;
+    expect(strip.compareDocumentPosition(comments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("tek baskıda ne not ne şerit", async () => {
+    stub({ book: async (id: number) => ({ ...bookOf(id), editions: [edition(1, "tr", true, "Yediveren Yayınları")] }) });
+    const { el } = await render();
+    expect(el.querySelector("#editions-heading")).toBeNull();
+    expect(el.textContent).not.toContain("Türkçe baskı");
+  });
+});
+
 describe("BookDetail — aynı türden kitaplar", () => {
-  const withGenre = (id: number): Book => ({ ...bookOf(id), genres: [{ id: 1, name: "Roman", slug: "roman" }] });
+  const withGenre = (id: number): BookDetailData => ({ ...bookOf(id), genres: [{ id: 1, name: "Roman", slug: "roman" }] });
   const SIMILAR = '[aria-labelledby="similar-heading"]';
 
   it("ilk türden en fazla 6 kitap gösterir, mevcut kitabı göstermez", async () => {

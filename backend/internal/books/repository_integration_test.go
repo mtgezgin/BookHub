@@ -26,15 +26,15 @@ func newFixture(t *testing.T) fixture {
 }
 
 // createBook, gerçek DB'ye kitap ekler ve testin sonunda siler.
-func (f fixture) createBook(t *testing.T, status string) db.Book {
+func (f fixture) createBook(t *testing.T, status string) db.BookView {
 	t.Helper()
-	book, err := f.repo.Create(context.Background(), db.CreateBookParams{
+	book, err := f.repo.Create(context.Background(), CreateParams{CreateBookParams: db.CreateBookParams{
 		Title:    "Test Kitabı " + status,
 		Slug:     testdb.Unique("test-" + strings.ToLower(status)),
 		Author:   "Test Yazar",
 		Language: "tr",
 		Status:   status,
-	})
+	}})
 	if err != nil {
 		t.Fatalf("%s kitabı eklenemedi: %v", status, err)
 	}
@@ -175,9 +175,9 @@ func TestRepositoryCreateDuplicateSlugRealDB(t *testing.T) {
 	f := newFixture(t)
 	first := f.createBook(t, StatusApproved)
 
-	_, err := f.repo.Create(context.Background(), db.CreateBookParams{
+	_, err := f.repo.Create(context.Background(), CreateParams{CreateBookParams: db.CreateBookParams{
 		Title: "Kopya", Slug: first.Slug, Author: "X", Language: "tr", Status: StatusApproved,
-	})
+	}})
 	if !errors.Is(err, ErrDuplicateSlug) {
 		t.Fatalf("aynı slug: istenen ErrDuplicateSlug, gelen %v", err)
 	}

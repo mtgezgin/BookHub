@@ -19,7 +19,7 @@ import (
 // Get'in HATA ÇEVİRİSİNİ (sürücü dili → domain dili) DB'siz kanıtlamak.
 type fakeRow struct {
 	err  error
-	book db.Book
+	book db.BookView
 }
 
 func (r fakeRow) Scan(dest ...any) error {
@@ -65,6 +65,32 @@ func (f fakeDBTX) QueryRow(context.Context, string, ...interface{}) pgx.Row {
 	return f.row
 }
 
+// fakeBeginner, transaction açabilen sahte bağlantı: Create kitabı ve varsayılan baskısını bir
+// transaction'da açar (Faz 16). fakeDBTX'in kendisinde Begin YOK, çünkü SetGenres'in
+// "transaction açamayan bağlantı" yolu (TestRepositorySetGenresNoTx) ona dayanıyor.
+// Sahte transaction sorguları aynı sahte bağlantıya yollar; Commit/Rollback hiçbir şey yapmaz.
+type fakeBeginner struct{ fakeDBTX }
+
+func (f fakeBeginner) Begin(context.Context) (pgx.Tx, error) { return fakeTx{f: f.fakeDBTX}, nil }
+
+// fakeTx, pgx.Tx'i gömer (nil): testin çağırmadığı bir metot çağrılırsa panik eder ve fark edilir.
+type fakeTx struct {
+	pgx.Tx
+	f fakeDBTX
+}
+
+func (t fakeTx) Exec(ctx context.Context, sql string, args ...interface{}) (pgconn.CommandTag, error) {
+	return t.f.Exec(ctx, sql, args...)
+}
+func (t fakeTx) Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
+	return t.f.Query(ctx, sql, args...)
+}
+func (t fakeTx) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row {
+	return t.f.QueryRow(ctx, sql, args...)
+}
+func (fakeTx) Commit(context.Context) error   { return nil }
+func (fakeTx) Rollback(context.Context) error { return nil }
+
 // TestRepositoryGetErrorTranslation, Get'in SÜRÜCÜ hatasını domain sınırından
 // geçirmediğini doğrular: pgx.ErrNoRows → ErrNotFound (sarılmadan, tanınabilir),
 // diğer hatalar ise %w ile bağlam eklenerek sarılır (zincir korunur, ErrNotFound'a
@@ -96,7 +122,7 @@ func TestRepositoryGetErrorTranslation(t *testing.T) {
 		},
 		{
 			name:   "satır var → kitap döner",
-			row:    fakeRow{book: db.Book{ID: 42, Title: "Clean Code"}},
+			row:    fakeRow{book: db.BookView{ID: 42, Title: "Clean Code"}},
 			wantID: 42,
 		},
 	}
@@ -206,11 +232,11 @@ func TestRepositoryCreateErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := NewRepository(fakeDBTX{row: fakeRow{err: tt.rowErr}})
+			repo := NewRepository(fakeBeginner{fakeDBTX{row: fakeRow{err: tt.rowErr}}})
 
-			got, err := repo.Create(context.Background(), db.CreateBookParams{
+			got, err := repo.Create(context.Background(), CreateParams{CreateBookParams: db.CreateBookParams{
 				Title: "Yeni Kitap", Slug: "yeni-kitap", Author: "Yazar", Status: StatusApproved,
-			})
+			}})
 
 			if err == nil {
 				t.Fatalf("hata bekleniyordu ama gelmedi (gelen kitap: %+v)", got)
@@ -227,7 +253,7 @@ func TestRepositoryCreateErrors(t *testing.T) {
 			if strings.Contains(err.Error(), "kitap ekleme sorgusu") != tt.wantWrapped {
 				t.Errorf("bağlam sarması: istenen %v, gelen %q", tt.wantWrapped, err.Error())
 			}
-			if got != (db.Book{}) {
+			if got != (db.BookView{}) {
 				t.Errorf("hata yolunda zero-value Book dönmeliydi, gelen %+v", got)
 			}
 		})

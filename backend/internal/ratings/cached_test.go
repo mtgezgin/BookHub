@@ -55,7 +55,7 @@ func cachedWithLoader(c *memCache, loads *int) *CachedService {
 		}
 		books := make([]TopRatedBook, 0, 30)
 		for i := range 30 {
-			books = append(books, TopRatedBook{Book: db.Book{ID: int64(i + 1)}, WeightedScore: float64(100 - i)})
+			books = append(books, TopRatedBook{Book: db.BookView{ID: int64(i + 1)}, WeightedScore: float64(100 - i)})
 		}
 		return TopRated{Books: books, M: 10, C: 6.5}, nil
 	}

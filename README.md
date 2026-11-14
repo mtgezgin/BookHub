@@ -82,12 +82,12 @@ Kubernetes (yerel kind kümesi): `make k8s-up` → `make k8s-port` → http://lo
 
 | Uç | Kim |
 |---|---|
-| `GET /api/books` · `/api/books/{id}` · `/api/books/top-rated` · `/api/genres` | herkes |
+| `GET /api/books` · `/api/books/{id}` (baskılarıyla) · `/api/books/top-rated` · `/api/genres` | herkes |
 | `GET /api/books/{id}/comments` · `/ratings/summary` | herkes |
 | `POST /api/auth/register\|login\|refresh\|logout` · `GET /api/auth/me` | — / giriş |
 | `POST /api/auth/password` (parola değiştir; diğer tüm oturumları kapatır) | giriş |
 | `POST /api/books/suggestions` · `POST /api/books/{id}/comments` · `GET/PUT/DELETE /api/books/{id}/rating` | giriş |
-| `/api/admin/books…` (kuyruk, approve/reject/restore, PATCH, DELETE=arşiv, audit) · `/api/admin/genres…` · `DELETE /api/admin/comments/{id}` | admin |
+| `/api/admin/books…` (kuyruk, approve/reject/restore, PATCH, DELETE=arşiv, audit) · `POST /api/admin/books/{id}/editions` · `PATCH/DELETE /api/admin/editions/{id}` · `POST …/editions/{id}/primary` · `/api/admin/genres…` · `DELETE /api/admin/comments/{id}` | admin |
 
 Hata zarfı her yerde aynı: `{"error":{"code":"…","message":"…"}}`; her cevapta `X-Request-Id`.
 

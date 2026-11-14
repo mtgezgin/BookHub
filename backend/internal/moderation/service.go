@@ -55,24 +55,25 @@ func (s *Service) publicChanged(ctx context.Context, err error) {
 
 // Suggest, kullanıcının önerisini PENDING olarak kaydeder. Statü ve öneren BURADA
 // belirlenir; istemci ikisini de seçemez.
-func (s *Service) Suggest(ctx context.Context, userID int64, p db.CreateBookParams) (db.Book, error) {
+func (s *Service) Suggest(ctx context.Context, userID int64, p books.CreateParams) (db.BookView, error) {
 	p.Status = books.StatusPending
 	p.SubmittedBy = &userID
 	return s.create(ctx, userID, "book.suggest", p)
 }
 
 // CreateApproved, admin'in doğrudan eklediği kitabı yayında (APPROVED) başlatır.
-func (s *Service) CreateApproved(ctx context.Context, actorID int64, p db.CreateBookParams) (db.Book, error) {
+func (s *Service) CreateApproved(ctx context.Context, actorID int64, p books.CreateParams) (db.BookView, error) {
 	p.Status = books.StatusApproved
 	p.SubmittedBy = &actorID
 	return s.create(ctx, actorID, "book.create", p)
 }
 
-func (s *Service) create(ctx context.Context, actorID int64, action string, p db.CreateBookParams) (db.Book, error) {
-	var book db.Book
+func (s *Service) create(ctx context.Context, actorID int64, action string, p books.CreateParams) (db.BookView, error) {
+	var book db.BookView
 	err := database.WithTx(ctx, s.conn, func(tx pgx.Tx) error {
 		// books.Repository'yi tx ÜZERİNDE kuruyoruz: slug çakışması → ErrDuplicateSlug
-		// çevirisi tek yerde (repository'de) kalıyor, burada tekrar yazılmıyor.
+		// çevirisi tek yerde (repository'de) kalıyor, burada tekrar yazılmıyor. Kitap ve
+		// varsayılan baskısı (Faz 16) denetim kaydıyla aynı transaction'da açılır.
 		b, err := books.NewRepository(tx).Create(ctx, p)
 		if err != nil {
 			return err
@@ -84,12 +85,12 @@ func (s *Service) create(ctx context.Context, actorID int64, action string, p db
 }
 
 // Approve / Reject / Archive / Restore: durum makinesindeki geçişler.
-func (s *Service) Approve(ctx context.Context, actorID, bookID int64) (db.Book, error) {
+func (s *Service) Approve(ctx context.Context, actorID, bookID int64) (db.BookView, error) {
 	return s.transition(ctx, actorID, bookID, ActionApprove, nil)
 }
 
 // Reject, opsiyonel bir gerekçeyle reddeder (boş gerekçe = NULL).
-func (s *Service) Reject(ctx context.Context, actorID, bookID int64, reason string) (db.Book, error) {
+func (s *Service) Reject(ctx context.Context, actorID, bookID int64, reason string) (db.BookView, error) {
 	var r *string
 	if reason != "" {
 		r = &reason
@@ -97,11 +98,11 @@ func (s *Service) Reject(ctx context.Context, actorID, bookID int64, reason stri
 	return s.transition(ctx, actorID, bookID, ActionReject, r)
 }
 
-func (s *Service) Archive(ctx context.Context, actorID, bookID int64) (db.Book, error) {
+func (s *Service) Archive(ctx context.Context, actorID, bookID int64) (db.BookView, error) {
 	return s.transition(ctx, actorID, bookID, ActionArchive, nil)
 }
 
-func (s *Service) Restore(ctx context.Context, actorID, bookID int64) (db.Book, error) {
+func (s *Service) Restore(ctx context.Context, actorID, bookID int64) (db.BookView, error) {
 	return s.transition(ctx, actorID, bookID, ActionRestore, nil)
 }
 
@@ -111,11 +112,11 @@ func (s *Service) Restore(ctx context.Context, actorID, bookID int64) (db.Book, 
 // diğeri reddediyor. Kilitsiz, ikisi de "PENDING" okur, ikisi de geçişi geçerli bulur,
 // son yazan kazanır ve audit'te BİRBİRİYLE ÇELİŞEN iki karar kalır. Kilitle, ikinci
 // admin birincinin commit'ini bekler, sonra "APPROVED" görür ve reddi 409 alır.
-func (s *Service) transition(ctx context.Context, actorID, bookID int64, a Action, reason *string) (db.Book, error) {
-	var book db.Book
+func (s *Service) transition(ctx context.Context, actorID, bookID int64, a Action, reason *string) (db.BookView, error) {
+	var book db.BookView
 	err := database.WithTx(ctx, s.conn, func(tx pgx.Tx) error {
 		q := db.New(tx)
-		cur, err := q.LockBookForModeration(ctx, bookID)
+		cur, err := q.LockBookForModeration(ctx, bookID) // yalnız statü
 		if errors.Is(err, pgx.ErrNoRows) {
 			return books.ErrNotFound
 		}
@@ -123,23 +124,25 @@ func (s *Service) transition(ctx context.Context, actorID, bookID int64, a Actio
 			return fmt.Errorf("kitap kilitlenemedi (id=%d): %w", bookID, err)
 		}
 
-		next, err := Next(cur.Status, a)
+		next, err := Next(cur, a)
 		if err != nil {
 			return err
 		}
 
-		updated, err := q.SetBookStatus(ctx, db.SetBookStatusParams{
+		if err := q.SetBookStatus(ctx, db.SetBookStatusParams{
 			ID:              bookID,
 			Status:          next,
 			RejectionReason: reason,
 			ModeratedBy:     &actorID,
-		})
-		if err != nil {
+		}); err != nil {
 			return fmt.Errorf("statü güncellenemedi (id=%d): %w", bookID, err)
 		}
-		book = updated
+		// Yazım yalnız books'a; kitabın tam hâli (baskıdan gelen kapakla) görünümden okunur.
+		if book, err = q.GetBook(ctx, bookID); err != nil {
+			return fmt.Errorf("kitap okunamadı (id=%d): %w", bookID, err)
+		}
 
-		details := map[string]any{"from": cur.Status, "to": next}
+		details := map[string]any{"from": cur, "to": next}
 		if reason != nil {
 			details["reason"] = *reason
 		}
@@ -150,13 +153,14 @@ func (s *Service) transition(ctx context.Context, actorID, bookID int64, a Actio
 }
 
 // Update, kitabın bilgilerini kısmen günceller (nil alan = dokunma) ve hangi alanların
-// gönderildiğini denetim kaydına yazar.
-func (s *Service) Update(ctx context.Context, actorID, bookID int64, p db.UpdateBookDetailsParams) (db.Book, error) {
+// gönderildiğini denetim kaydına yazar. Kapak ve sayfa sayısı varsayılan baskıya gider (Faz 16);
+// kitabın varsayılan baskısı yoksa açılır.
+func (s *Service) Update(ctx context.Context, actorID, bookID int64, p books.UpdateParams) (db.BookView, error) {
 	p.ID = bookID
-	var book db.Book
+	var book db.BookView
 	err := database.WithTx(ctx, s.conn, func(tx pgx.Tx) error {
 		q := db.New(tx)
-		b, err := q.UpdateBookDetails(ctx, p)
+		_, err := q.UpdateBookDetails(ctx, p.UpdateBookDetailsParams)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return books.ErrNotFound
 		}
@@ -166,7 +170,19 @@ func (s *Service) Update(ctx context.Context, actorID, bookID int64, p db.Update
 		if err != nil {
 			return fmt.Errorf("kitap güncellenemedi (id=%d): %w", bookID, err)
 		}
-		book = b
+		// Kitap satırından SONRA: varsayılan baskı yeni açılacaksa kitabın güncel adını ve dilini alır.
+		if p.CoverURL != nil || p.PageCount != nil {
+			if err := q.PatchPrimaryEdition(ctx, db.PatchPrimaryEditionParams{
+				BookID:    bookID,
+				CoverUrl:  p.CoverURL,
+				PageCount: p.PageCount,
+			}); err != nil {
+				return fmt.Errorf("varsayılan baskı güncellenemedi (kitap=%d): %w", bookID, err)
+			}
+		}
+		if book, err = q.GetBook(ctx, bookID); err != nil {
+			return fmt.Errorf("kitap okunamadı (id=%d): %w", bookID, err)
+		}
 		return audit.Write(ctx, q, actorID, "book.update", audit.EntityBook, bookID, map[string]any{"fields": changedFields(p)})
 	})
 	s.publicChanged(ctx, err)
@@ -175,7 +191,7 @@ func (s *Service) Update(ctx context.Context, actorID, bookID int64, p db.Update
 
 // changedFields, PATCH'te GÖNDERİLEN alanların adları (değerleri değil: audit kaydı
 // "ne değişti"yi söylesin, uzun açıklama metinlerini kopyalamasın).
-func changedFields(p db.UpdateBookDetailsParams) []string {
+func changedFields(p books.UpdateParams) []string {
 	var f []string
 	add := func(name string, set bool) {
 		if set {
@@ -186,7 +202,7 @@ func changedFields(p db.UpdateBookDetailsParams) []string {
 	add("slug", p.Slug != nil)
 	add("author", p.Author != nil)
 	add("description", p.Description != nil)
-	add("cover_url", p.CoverUrl != nil)
+	add("cover_url", p.CoverURL != nil)
 	add("publication_year", p.PublicationYear != nil)
 	add("page_count", p.PageCount != nil)
 	add("language", p.Language != nil)
@@ -194,19 +210,19 @@ func changedFields(p db.UpdateBookDetailsParams) []string {
 }
 
 // Get, admin okuması: statüden bağımsız.
-func (s *Service) Get(ctx context.Context, bookID int64) (db.Book, error) {
+func (s *Service) Get(ctx context.Context, bookID int64) (db.BookView, error) {
 	b, err := s.q.GetBook(ctx, bookID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return db.Book{}, books.ErrNotFound
+		return db.BookView{}, books.ErrNotFound
 	}
 	if err != nil {
-		return db.Book{}, fmt.Errorf("kitap okunamadı (id=%d): %w", bookID, err)
+		return db.BookView{}, fmt.Errorf("kitap okunamadı (id=%d): %w", bookID, err)
 	}
 	return b, nil
 }
 
 // List, tek statüdeki kitapları sayfalı döner (admin kuyruğu).
-func (s *Service) List(ctx context.Context, status string, limit, offset int32) ([]db.Book, int64, error) {
+func (s *Service) List(ctx context.Context, status string, limit, offset int32) ([]db.BookView, int64, error) {
 	list, err := s.q.ListBooksByStatus(ctx, db.ListBooksByStatusParams{Status: status, Limit: limit, Offset: offset})
 	if err != nil {
 		return nil, 0, fmt.Errorf("kitaplar listelenemedi: %w", err)

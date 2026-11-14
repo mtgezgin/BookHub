@@ -22,6 +22,7 @@ type deps struct {
 	books      bookStore
 	genres     genreStore
 	moderation moderationService
+	editions   editionService
 	comments   commentService
 	ratings    ratingService
 	library    libraryStore
@@ -145,6 +146,12 @@ func newRouter(d deps) http.Handler {
 		r.Post("/books/{id}/restore", handleTransition("RestoreBook", d.moderation, moderationService.Restore, d.books))
 		r.Get("/books/{id}/audit", handleBookHistory(d.moderation))
 		r.Put("/books/{id}/genres", handleSetBookGenres(d.books))
+
+		// Baskılar (Faz 16): her yazım kitabın denetim kaydına düşer; varsayılan baskı silinemez.
+		r.Post("/books/{id}/editions", handleCreateEdition(d.editions))
+		r.Patch("/editions/{id}", handleUpdateEdition(d.editions))
+		r.Delete("/editions/{id}", handleDeleteEdition(d.editions))
+		r.Post("/editions/{id}/primary", handleSetPrimaryEdition(d.editions))
 
 		r.Delete("/comments/{id}", handleDeleteComment(d.comments))
 

@@ -43,6 +43,10 @@ var adminRoutes = []struct{ method, path string }{
 	{http.MethodPost, "/api/admin/genres"},
 	{http.MethodPatch, "/api/admin/genres/1"},
 	{http.MethodDelete, "/api/admin/genres/1"},
+	{http.MethodPost, "/api/admin/books/1/editions"},
+	{http.MethodPatch, "/api/admin/editions/1"},
+	{http.MethodDelete, "/api/admin/editions/1"},
+	{http.MethodPost, "/api/admin/editions/1/primary"},
 }
 
 // TestAdminRoutesAreGuarded: her admin rotası token'sız 401, USER token'ıyla 403 döner.

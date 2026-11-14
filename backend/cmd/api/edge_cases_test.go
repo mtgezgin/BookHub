@@ -17,7 +17,7 @@ import (
 // TestSlugCannotBeDerived: yalnız emoji içeren başlık/ad slug üretemez → 400, store'a gidilmez.
 func TestSlugCannotBeDerived(t *testing.T) {
 	t.Run("kitap: başlıktan boş slug", func(t *testing.T) {
-		fake := &fakeModeration{book: db.Book{ID: 1}}
+		fake := &fakeModeration{book: db.BookView{ID: 1}}
 		rec := do(t, adminRouter(deps{moderation: fake}), http.MethodPost, "/api/admin/books", `{"title":"🙂🙂","author":"a"}`)
 		if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "validation_error" || !strings.Contains(rec.Body.String(), "slug zorunlu") {
 			t.Errorf("400 'slug zorunlu' bekleniyordu: %d %s", rec.Code, rec.Body)
@@ -48,7 +48,7 @@ func TestSlugCannotBeDerived(t *testing.T) {
 // httpURL'nin u.Host == "" yarısı.
 func TestCoverURLNeedsHost(t *testing.T) {
 	for _, u := range []string{"https://", "http:///resim.jpg"} {
-		fake := &fakeModeration{book: db.Book{ID: 1}}
+		fake := &fakeModeration{book: db.BookView{ID: 1}}
 		rec := do(t, adminRouter(deps{moderation: fake}), http.MethodPost, "/api/admin/books", `{"title":"T","slug":"t","author":"a","cover_url":"`+u+`"}`)
 		if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "validation_error" {
 			t.Errorf("%q → 400 validation_error bekleniyordu: %d %s", u, rec.Code, rec.Body)

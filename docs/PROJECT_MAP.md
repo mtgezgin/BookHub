@@ -5,8 +5,8 @@
 > **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
 > "Hangi sırayla?" sorusunun cevabı: **[ROADMAP.md](ROADMAP.md)**.
 >
-> Son güncelleme: 2026-10-25 — Faz 15 kişisel kitaplık (migration `0010`, `internal/library`,
-> `/api/me/library…`, Kitaplığım sayfası). Faz 1–15 canlıda.
+> Son güncelleme: 2026-11-12 — Faz 16 eser ve baskı, genişletme PR'ı (migration `0011`–`0012`,
+> `book_view`, `internal/editions`, baskı uçları, "Diğer baskılar" şeridi). Faz 1–15 canlıda.
 
 ---
 
@@ -107,6 +107,7 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `validate.go` | `validator` (hataları biriktirir), alan sınırları, slug/dil/URL kuralları |
 | `books.go` | public kitap uçları, public DTO, `createBookRequest`, ortak alan kontrolleri (`checkTitle`…) |
 | `moderation.go` | öneri ucu + admin kitap uçları, admin DTO, durum geçişleri (method expression) |
+| `editions.go` | baskılar (Faz 16): `editionService`, `editionResponse`, detay DTO'ları (`bookDetailResponse`, `adminBookDetailResponse`: + `editions`), admin uçları (ekle / PATCH / sil / varsayılan yap), ISBN temizleme |
 | `community.go` | yorum + puan + top-rated uçları |
 | `library.go` | kişisel kitaplık uçları (`/api/me/library…`, Faz 15): `libraryStore` arayüzü, PUT/DELETE kayıt, toplu durum (`parseBookIDs`, en çok 100), süzülen liste (`parseLibraryFilter`) |
 | `genres.go` | tür uçları |
@@ -136,7 +137,8 @@ bağlanmaz, sır kullanmaz; adres `BOOKHUB_API_URL` (varsayılan `http://localho
 | `config` | env → `Config`, fail-fast doğrulama (JWT ≥32 bayt, TTL'ler, proxy CIDR'ları, `JWT_SESSION_MAX_AGE ≥ JWT_REFRESH_TTL`, `COOKIE_NAME` RFC 6265 token + `__Host-`/`__Secure-` önek kuralları) |
 | `database` | pgxpool (`New`), `Migrate` (goose + advisory lock), `WithTx`, Postgres hata kodları |
 | `db` | **sqlc'nin ürettiği** kod — elle düzenlenmez (`make sqlc`) |
-| `books` | kitap repository'si (public okuma yalnız APPROVED), statüler, `ParseStatus` |
+| `books` | kitap repository'si (public okuma yalnız APPROVED), statüler, `ParseStatus`; `CreateParams`/`UpdateParams` (kapak ve sayfa varsayılan baskıya), `Editions` (baskı okuma) |
+| `editions` | baskı servisi (Faz 16): tek varsayılan kuralı (ilk baskı varsayılan, varsayılan silinemez, önce temizle sonra ata), kitap kilidi, denetim kaydı (`edition.*`), önbellek kancası; "eski kolonlar yokmuş gibi" testi burada |
 | `genres` | tür repository'si |
 | `auth` | bcrypt, JWT (`TokenManager`), refresh token **aileleri**, `Service` (ilk servis katmanı). Repository: `StartRefreshFamily` (girişte `FOR SHARE` hash kontrolü), `RotateRefreshToken` (→ `Rotation{UserID, FamilyID, ExpiresAt, User}`), `RevokeRefreshFamily`, `CleanupRefreshTokens`, `ChangePassword`; hata tipi `ReuseError` (`Unwrap → ErrInvalidToken`), sentinel `ErrWrongPassword` |
 | `moderation` | durum makinesi (`Next`, veri olarak), öneri/onay/red/arşiv, `WithPublicChangeHook` |
@@ -163,6 +165,8 @@ bağlanmaz, sır kullanmaz; adres `BOOKHUB_API_URL` (varsayılan `http://localho
 | `0008` | refresh token **aileleri**: `refresh_token_families` (`id`, `user_id`, `created_at`, `absolute_expires_at`, `revoked_at`) + `refresh_tokens.family_id` (NOT NULL, CASCADE) ve `refresh_tokens.used_at`; `TRUNCATE refresh_tokens` (eski token'ların ailesi yok) |
 | `0009` | demo kataloğun gerçek kapakları (veri): slug + yazar eşleşen kitapta boş `cover_url`'i Open Library kapak adresiyle doldurur; Down yok, `make demo-seed` ve ilk kurulum da çalıştırır ([phase-14](phases/phase-14-ui-redesign.md)) |
 | `0010` | `library_entries` (Faz 15): `PRIMARY KEY (user_id, book_id)`, dört durum `TEXT + CHECK`; Up sonunda `tr-x-icu` koruması (kural yoksa Deploy migration'da durur) ([phase-15](phases/phase-15-personal-library.md)) |
+| `0011` | `editions` (Faz 16): kitap başına tek varsayılanı garanti eden kısmi benzersiz index, her kitaba bir varsayılan baskı açan taşıma, **`book_view`** (kitap + varsayılan baskının kapağı ve sayfası; kitap okuyan her sorgu buradan) ([phase-16](phases/phase-16-works-editions.md)) |
+| `0012` | demo baskılar (veri): varsayılan baskıların dili / yayınevi / çevirmeni / yılı (Open Library) + 8 özgün dil baskısı; Down yok, `make demo-seed` seed → 0009 → 0012 sırasıyla çalıştırır |
 
 `sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
 
@@ -193,7 +197,7 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
 | `src/pages/` | Home (katalog + en iyiler), BookDetail, **Library** ("Kitaplığım", Faz 15), Auth, Suggest, **Account** ("Hesabım": parola değiştirme, Faz 13), admin/Moderation |
 | `src/styles.css` | Tailwind + **tasarım token'ları** (açık/koyu tema, OKLCH); değeri değişince `node scripts/check-contrast.mjs` — [Faz 14](phases/phase-14-ui-redesign.md) |
 | `src/components/ui/` | shadcn/ui yaklaşımıyla repoya kopyalanmış temel bileşenler (Button, Input, Card, Badge, Alert, Skeleton, Label, Dialog) |
-| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `BookCard`, `EmptyState`, `NotFound`, `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged`, `LibraryButton` (kitap sayfasındaki kontrol; giriş yoksa bağlantı) + `LibraryMenu` (tembel parça: bölünmüş düğme, menü, onay), `LibraryBadge` + `useLibraryStatuses` (kart rozeti, tek toplu istek), `filters.tsx` (katalog ve Kitaplığım'ın ortak `Chip`, `GRID`, `useParamUpdater`; adresten okunan süzgeçleri sunucunun sınırlarıyla temizleyen `asGenre`/`asQuery`/`asOffset`), `ui/dropdown-menu.tsx` (Radix menüsü), `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
+| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `EditionStrip` + `PrimaryEditionNote` (Faz 16: "Diğer baskılar" şeridi, kapak altı baskı notu), `BookCard`, `EmptyState`, `NotFound`, `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged`, `LibraryButton` (kitap sayfasındaki kontrol; giriş yoksa bağlantı) + `LibraryMenu` (tembel parça: bölünmüş düğme, menü, onay), `LibraryBadge` + `useLibraryStatuses` (kart rozeti, tek toplu istek), `filters.tsx` (katalog ve Kitaplığım'ın ortak `Chip`, `GRID`, `useParamUpdater`; adresten okunan süzgeçleri sunucunun sınırlarıyla temizleyen `asGenre`/`asQuery`/`asOffset`), `ui/dropdown-menu.tsx` (Radix menüsü), `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
 | `src/lib/` | `cn()` (sınıf birleştirme), `format.ts` (Türkçe puan, dil adı, göreli zaman, baş harf), `theme.ts` (açık/koyu tema), `chunkReload.ts` (yayından sonra eski parça yüklenemezse bir kez yeniden yükleme; `main.tsx`'teki `vite:preloadError` dinleyicisi) |
 | `public/theme-init.js` | temayı ilk boyamadan önce uygular (CSP satır içi betiğe izin vermediği için ayrı dosya) |
 | `e2e/` | Playwright senaryoları (`catalog`, `auth-flow`, `reuse`, `tabs`, `cross-origin`, `rating-comment`, `moderation`) + `env.ts`, `helpers.ts` (**rate limit bütçesi tablosu**), `global-setup.ts` |
