@@ -2,12 +2,17 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/url"
 	"os"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/pressly/goose/v3"
+
+	"github.com/mtgezgin/bookhub/backend/migrations"
 )
 
 // TestMigrateConcurrentFreshDB: TAZE bir veritabanına aynı anda 4 Migrate çağrısı —
@@ -77,4 +82,23 @@ func freshDatabase(ctx context.Context, t *testing.T, prefix string) string {
 	}
 	u.Path = "/" + name
 	return u.String()
+}
+
+// migratedTo, geçici bir veritabanını (freshDatabase) verilen sürüme kadar kurar; tek bir
+// migration'ın taşımasını sınayan testler eski şemaya veri yazıp sonrakini provider'la uygular.
+func migratedTo(ctx context.Context, t *testing.T, prefix string, version int64) (*sql.DB, *goose.Provider) {
+	t.Helper()
+	conn, err := sql.Open("pgx", freshDatabase(ctx, t, prefix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	provider, err := goose.NewProvider(goose.DialectPostgres, conn, migrations.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(ctx, version); err != nil {
+		t.Fatalf("%d. sürüme kadar: %v", version, err)
+	}
+	return conn, provider
 }

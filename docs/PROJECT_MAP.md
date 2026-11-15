@@ -5,8 +5,9 @@
 > **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
 > "Hangi sırayla?" sorusunun cevabı: **[ROADMAP.md](ROADMAP.md)**.
 >
-> Son güncelleme: 2026-11-12 — Faz 16 eser ve baskı, genişletme PR'ı (migration `0011`–`0012`,
-> `book_view`, `internal/editions`, baskı uçları, "Diğer baskılar" şeridi). Faz 1–15 canlıda.
+> Son güncelleme: 2026-11-15 — Faz 16 eser ve baskı: genişletme PR'ı canlıda (migration `0011`–`0012`,
+> `book_view`, `internal/editions`, baskı uçları, "Diğer baskılar" şeridi); daraltma PR'ı (`0013`,
+> `books.cover_url` ve `books.page_count` silinir). Faz 1–15 canlıda.
 
 ---
 
@@ -138,7 +139,7 @@ bağlanmaz, sır kullanmaz; adres `BOOKHUB_API_URL` (varsayılan `http://localho
 | `database` | pgxpool (`New`), `Migrate` (goose + advisory lock), `WithTx`, Postgres hata kodları |
 | `db` | **sqlc'nin ürettiği** kod — elle düzenlenmez (`make sqlc`) |
 | `books` | kitap repository'si (public okuma yalnız APPROVED), statüler, `ParseStatus`; `CreateParams`/`UpdateParams` (kapak ve sayfa varsayılan baskıya), `Editions` (baskı okuma) |
-| `editions` | baskı servisi (Faz 16): tek varsayılan kuralı (ilk baskı varsayılan, varsayılan silinemez, önce temizle sonra ata), kitap kilidi, denetim kaydı (`edition.*`), önbellek kancası; "eski kolonlar yokmuş gibi" testi burada |
+| `editions` | baskı servisi (Faz 16): tek varsayılan kuralı (ilk baskı varsayılan, varsayılan silinemez, önce temizle sonra ata), kitap kilidi, denetim kaydı (`edition.*`), önbellek kancası |
 | `genres` | tür repository'si |
 | `auth` | bcrypt, JWT (`TokenManager`), refresh token **aileleri**, `Service` (ilk servis katmanı). Repository: `StartRefreshFamily` (girişte `FOR SHARE` hash kontrolü), `RotateRefreshToken` (→ `Rotation{UserID, FamilyID, ExpiresAt, User}`), `RevokeRefreshFamily`, `CleanupRefreshTokens`, `ChangePassword`; hata tipi `ReuseError` (`Unwrap → ErrInvalidToken`), sentinel `ErrWrongPassword` |
 | `moderation` | durum makinesi (`Next`, veri olarak), öneri/onay/red/arşiv, `WithPublicChangeHook` |
@@ -163,10 +164,11 @@ bağlanmaz, sır kullanmaz; adres `BOOKHUB_API_URL` (varsayılan `http://localho
 | `0006` | puan silinince (CASCADE dahil) kitap istatistiklerini yenileyen trigger |
 | `0007` | o trigger önce kitabı kilitlesin (eşzamanlı oyla kayıp güncelleme olmasın) |
 | `0008` | refresh token **aileleri**: `refresh_token_families` (`id`, `user_id`, `created_at`, `absolute_expires_at`, `revoked_at`) + `refresh_tokens.family_id` (NOT NULL, CASCADE) ve `refresh_tokens.used_at`; `TRUNCATE refresh_tokens` (eski token'ların ailesi yok) |
-| `0009` | demo kataloğun gerçek kapakları (veri): slug + yazar eşleşen kitapta boş `cover_url`'i Open Library kapak adresiyle doldurur; Down yok, `make demo-seed` ve ilk kurulum da çalıştırır ([phase-14](phases/phase-14-ui-redesign.md)) |
+| `0009` | demo kataloğun gerçek kapakları (veri): slug + yazar eşleşen kitapta boş `cover_url`'i Open Library kapak adresiyle doldurur; Down yok ([phase-14](phases/phase-14-ui-redesign.md)). Yazdığı kolonu `0013` sildi: `make demo-seed` ve ilk kurulum artık çalıştırmaz, kapakları `0012` taşır |
 | `0010` | `library_entries` (Faz 15): `PRIMARY KEY (user_id, book_id)`, dört durum `TEXT + CHECK`; Up sonunda `tr-x-icu` koruması (kural yoksa Deploy migration'da durur) ([phase-15](phases/phase-15-personal-library.md)) |
 | `0011` | `editions` (Faz 16): kitap başına tek varsayılanı garanti eden kısmi benzersiz index, her kitaba bir varsayılan baskı açan taşıma, **`book_view`** (kitap + varsayılan baskının kapağı ve sayfası; kitap okuyan her sorgu buradan) ([phase-16](phases/phase-16-works-editions.md)) |
-| `0012` | demo baskılar (veri): varsayılan baskıların dili / yayınevi / çevirmeni / yılı (Open Library) + 8 özgün dil baskısı; Down yok, `make demo-seed` seed → 0009 → 0012 sırasıyla çalıştırır |
+| `0012` | demo baskılar (veri): varsayılan baskıların dili / yayınevi / çevirmeni / yılı (Open Library) + 8 özgün dil baskısı; Down yok, `make demo-seed` ve ilk kurulum seed'den sonra yeniden çalıştırır |
+| `0013` | daraltma (Faz 16): varsayılan baskısı olmayan kitaba eski kolonlardan baskı açar, sonra `books.cover_url` ve `books.page_count`'u siler; Down kolonları varsayılan baskıdan geri doldurur |
 
 `sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
 

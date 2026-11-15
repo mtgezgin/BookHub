@@ -176,10 +176,14 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 
 Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 
-1. **Şimdi — Faz 16, eser ve baskı** (CAT-02, [#36](https://github.com/mtgezgin/BookHub/issues/36)). İlk adım
-   [spec](phases/phase-16-works-editions.md)'in incelenmesi ve kararları; ardından iki PR: **genişlet**
-   (0011 tablo + taşıma, 0012 demo baskılar) → canlıda doğrula → **daralt** (eski iki kolonu silen
-   migration). Daraltma, genişletme yayını canlıda doğrulanmadan birleştirilmez.
+1. **Şimdi — Faz 16, eser ve baskı** (CAT-02, [#36](https://github.com/mtgezgin/BookHub/issues/36),
+   [spec](phases/phase-16-works-editions.md)). İki PR:
+   - **Genişlet** (#73, 0011 tablo + taşıma, 0012 demo baskılar): canlıda ve doğrulandı (2026-11-15).
+     53 kitabın kapak, sayfa ve puan görüntüsü yayından önce, migration'dan sonra ve yeni kodla birebir
+     aynı; 8 kitapta "Diğer baskılar" şeridi.
+   - **Daralt** (0013, eski iki kolonu siler): PR'da. Yayından sonra aynı görüntü yine karşılaştırılır,
+     #36 elle kapanır.
+   - Ardından: kullanıcının baskı önermesi için ayrı issue.
 2. **Sonra:**
    - Faz 17, okuma takibi ve inceleme.
    - Faz 18, katkı döngüsü ve hesap (gerçek kullanıcı kararıyla öne alınır).

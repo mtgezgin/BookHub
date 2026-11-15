@@ -25,9 +25,7 @@ type Book struct {
 	Slug            string     `json:"slug"`
 	Author          string     `json:"author"`
 	Description     string     `json:"description"`
-	CoverUrl        string     `json:"cover_url"`
 	PublicationYear *int32     `json:"publication_year"`
-	PageCount       *int32     `json:"page_count"`
 	Language        string     `json:"language"`
 	Status          string     `json:"status"`
 	CreatedAt       time.Time  `json:"created_at"`
