@@ -5,10 +5,6 @@ import (
 	"database/sql"
 	"testing"
 	"time"
-
-	"github.com/pressly/goose/v3"
-
-	"github.com/mtgezgin/bookhub/backend/migrations"
 )
 
 // TestMigration0013DropsLegacyBookColumns: daraltma (Faz 16, Doğrulama 7'nin şema tarafı). Taze bir
@@ -24,18 +20,7 @@ func TestMigration0013DropsLegacyBookColumns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	conn, err := sql.Open("pgx", freshDatabase(ctx, t, "bookhub_m0013"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = conn.Close() })
-	provider, err := goose.NewProvider(goose.DialectPostgres, conn, migrations.FS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := provider.UpTo(ctx, 12); err != nil {
-		t.Fatalf("0012'ye kadar: %v", err)
-	}
+	conn, provider := migratedTo(ctx, t, "bookhub_m0013", 12)
 
 	exec := func(q string, args ...any) {
 		t.Helper()
