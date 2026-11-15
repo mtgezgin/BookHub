@@ -238,6 +238,14 @@ Mevcut moderasyon servisi:
    DEPLOYMENT.md ilk kurulum, PROJECT_MAP ve STATUS güncellenir.
 4. 0009 dosyasının kendisi değiştirilmez ve silinmez (canlıya çıkmış migration).
 
+> **Uygulama notları (PR 2, 2026-11-15):** migration `0013_drop_book_cover_pages.sql`. Seed'deki
+> kitap listesi önce geçici bir tabloya (`seed_books`) yazılır, oradan `books`'a (`ORDER BY` ile,
+> katalog sırası korunur) ve sayfa sayısı varsayılan baskıya dağıtılır; satırların biçimi aynı
+> kaldığı için `migrations_test.go` seed'i yine okur. "Eski kolonlar yokmuş gibi" testi kaldırıldı:
+> kolonlar artık gerçekten yok, bütün entegrasyon testleri kolonsuz şemada koşuyor. Yerine
+> `migrate_0013_integration_test.go`: yayın aralığında eklenmiş baskısız kitap tamamlanır, baskılı
+> kitaba dokunulmaz, Down değerleri geri getirir (tamamlama adımı çıkarılınca kırmızı).
+
 ## ⚠️ Önemli noktalar
 
 - **PR 1 kodunda iki eski kolonun adı geçmez.** Kanıtı "eski kolonlar yokmuş gibi" testi (Doğrulama 2).
