@@ -15,7 +15,7 @@ import (
 func TestLibraryItemContract(t *testing.T) {
 	added := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
 	fake := &fakeLibrary{total: 1, rows: []db.ListLibraryRow{{
-		Book:      db.Book{ID: 1, Title: "Dune", Slug: "dune", Author: "Frank Herbert", Status: "APPROVED", CreatedAt: added, UpdatedAt: added},
+		BookView:  db.BookView{ID: 1, Title: "Dune", Slug: "dune", Author: "Frank Herbert", Status: "APPROVED", CreatedAt: added, UpdatedAt: added},
 		Status:    "READ",
 		AddedAt:   added,
 		MyRating:  ptr(int16(9)),

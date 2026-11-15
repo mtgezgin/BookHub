@@ -55,3 +55,17 @@ test("kitap detayında yazar ve tür etiketleri görünür", async ({ page }) =>
   await expect(header).toContainText("Frank Herbert");
   await expect(header.getByRole("link", { name: "Bilim Kurgu" })).toBeVisible();
 });
+
+// Faz 16: demo katalogda Suç ve Ceza'nın Türkçe varsayılan baskısı ve Rusça özgün baskısı var
+// (0012; CI'daki e2e işi make demo-seed çalıştırıyor). Kapak altındaki not sayfadaki kapağın hangi
+// baskıdan geldiğini, şerit öteki baskıları gösterir.
+test("kitap detayında diğer baskılar ve varsayılan baskı notu", async ({ page }) => {
+  await page.goto("/?q=Su%C3%A7%20ve%20Ceza");
+  await results(page).getByRole("link", { name: "Suç ve Ceza", exact: true }).click();
+
+  const article = page.getByRole("article", { name: "Suç ve Ceza" });
+  await expect(article).toContainText("Türkçe baskı · Yediveren Yayınları");
+  const strip = article.getByRole("list", { name: "Diğer baskılar" });
+  await expect(strip).toContainText("Rusça");
+  await expect(strip.getByRole("listitem")).toHaveCount(1);
+});

@@ -77,35 +77,82 @@ func NewRepository(dbtx db.DBTX) *Repository {
 // Admin'in tüm statüleri okuması gerektiğinde AYRI bir sorgu + metot eklenecek
 // (Faz 4), bu metodun davranışı gevşetilmeyecek.
 // ctx'i sorguya İLETİR (iptal/deadline zinciri).
-func (r *Repository) Get(ctx context.Context, id int64) (db.Book, error) {
+func (r *Repository) Get(ctx context.Context, id int64) (db.BookView, error) {
 	book, err := r.q.GetApprovedBook(ctx, id)
 	if err != nil {
 		// pgx, ":one" sorgusu boş dönerse ErrNoRows verir — bu bizim için
 		// "hata" değil "yok" demek; domain diline çevir.
 		if errors.Is(err, pgx.ErrNoRows) {
-			return db.Book{}, ErrNotFound
+			return db.BookView{}, ErrNotFound
 		}
 		// Gerçek hata (bağlantı koptu vb.): bağlam ekleyip yukarı sar (%w zinciri).
-		return db.Book{}, fmt.Errorf("kitap sorgusu (id=%d): %w", id, err)
+		return db.BookView{}, fmt.Errorf("kitap sorgusu (id=%d): %w", id, err)
 	}
 	return book, nil
 }
 
-// Create, yeni kitabı ekler ve DB'nin ürettiği hâlini (id + zaman damgaları dolu)
-// geri döner — sorgudaki RETURNING * bunun için var.
+// CreateParams, yeni kitap: eserin alanları (books) + varsayılan baskısının kapağı ve sayfa
+// sayısı (editions). Faz 16'dan beri bu iki alan kitapta değil baskıda durur.
+type CreateParams struct {
+	db.CreateBookParams
+	CoverURL  string
+	PageCount *int32 // nil = bilinmiyor
+}
+
+// UpdateParams, kitap PATCH'i: nil alan = dokunma. Kapak ve sayfa sayısı varsayılan baskıya
+// yazılır; Language yalnız eserin (kitabın) dilidir, baskının dili ayrı uçla değişir.
+type UpdateParams struct {
+	db.UpdateBookDetailsParams
+	CoverURL  *string
+	PageCount *int32
+}
+
+// Create, yeni kitabı varsayılan baskısıyla birlikte ekler ve kitabın tam hâlini (id, zaman
+// damgaları, baskıdan gelen kapak) book_view'dan okuyup döner.
+// İki INSERT tek transaction'da: r bir havuzsa yeni transaction, zaten bir transaction'sa
+// (moderasyon servisi) savepoint açılır — baskısız kitap ya da kitapsız baskı kalmaz.
 // Slug çakışmasını (Postgres 23505) ErrDuplicateSlug'a çevirir; diğer hatalar sarılır.
-func (r *Repository) Create(ctx context.Context, params db.CreateBookParams) (db.Book, error) {
-	book, err := r.q.CreateBook(ctx, params)
-	if err != nil {
-		// Postgres 23505 = unique_violation. books tablosunda istemcinin ihlal
-		// EDEBİLECEĞİ tek benzersizlik kısıtı slug'dır (id'yi DB üretiyor). İkinci bir
-		// UNIQUE kolon eklenirse genres.translateWriteErr gibi kısıt adına bakmalı.
-		if _, ok := database.UniqueViolation(err); ok {
-			return db.Book{}, ErrDuplicateSlug
+func (r *Repository) Create(ctx context.Context, p CreateParams) (db.BookView, error) {
+	var book db.BookView
+	err := database.WithTx(ctx, r.conn, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		id, err := q.CreateBook(ctx, p.CreateBookParams)
+		if err != nil {
+			// Postgres 23505 = unique_violation. books tablosunda istemcinin ihlal
+			// EDEBİLECEĞİ tek benzersizlik kısıtı slug'dır (id'yi DB üretiyor). İkinci bir
+			// UNIQUE kolon eklenirse genres.translateWriteErr gibi kısıt adına bakmalı.
+			if _, ok := database.UniqueViolation(err); ok {
+				return ErrDuplicateSlug
+			}
+			return fmt.Errorf("kitap ekleme sorgusu: %w", err)
 		}
-		return db.Book{}, fmt.Errorf("kitap ekleme sorgusu: %w", err)
+		if err := q.CreatePrimaryEdition(ctx, db.CreatePrimaryEditionParams{
+			BookID:    id,
+			Title:     p.Title,
+			Language:  p.Language,
+			CoverUrl:  p.CoverURL,
+			PageCount: p.PageCount,
+		}); err != nil {
+			return fmt.Errorf("varsayılan baskı eklenemedi (kitap=%d): %w", id, err)
+		}
+		book, err = q.GetBook(ctx, id)
+		if err != nil {
+			return fmt.Errorf("eklenen kitap okunamadı (id=%d): %w", id, err)
+		}
+		return nil
+	})
+	return book, err
+}
+
+// Editions, kitabın baskıları (Faz 16): varsayılan önce, sonra dil, yıl (bilinmeyen sonda), id.
+// Düz okuma; kitabın görünürlüğünü çağıran denetler (public uç önce Get ile onaylı kitabı okur).
+// Baskı YAZIMLARI kurallı olduğu için internal/editions servisinde.
+func (r *Repository) Editions(ctx context.Context, bookID int64) ([]db.Edition, error) {
+	list, err := r.q.ListEditionsByBook(ctx, bookID)
+	if err != nil {
+		return nil, fmt.Errorf("baskılar okunamadı (kitap=%d): %w", bookID, err)
 	}
-	return book, nil
+	return list, nil
 }
 
 // Sort, katalog sırası.
@@ -133,11 +180,11 @@ type ListFilter struct {
 
 // List, filtreye uyan onaylı kitapların bir SAYFASINI ve filtreye uyan TOPLAM sayıyı
 // döner (varsayılan en yeniden eskiye). Boş sonuç hata değildir; ErrNotFound çevirisi yoktur.
-func (r *Repository) List(ctx context.Context, f ListFilter) ([]db.Book, int64, error) {
+func (r *Repository) List(ctx context.Context, f ListFilter) ([]db.BookView, int64, error) {
 	genre, query := optional(f.Genre), optional(EscapeLike(f.Query))
 
 	var (
-		list []db.Book
+		list []db.BookView
 		err  error
 	)
 	if f.Sort == SortRating {

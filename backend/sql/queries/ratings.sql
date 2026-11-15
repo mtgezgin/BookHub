@@ -77,11 +77,11 @@ WHERE status = 'APPROVED' AND rating_count > 0;
 -- Formül internal/ratings.WeightedScore ile AYNI (entegrasyon testi ikisini karşılaştırır).
 -- Eşitlikte daha çok oylu önce, sonra id: sayfalar arası kararlı sıra.
 -- name: ListTopRated :many
-SELECT b.*,
+SELECT sqlc.embed(b),
        ((b.rating_count::float8 / (b.rating_count + sqlc.arg('m')::float8)) * b.average_rating::float8
         + (sqlc.arg('m')::float8 / (b.rating_count + sqlc.arg('m')::float8)) * sqlc.arg('c')::float8
        )::float8 AS weighted_score
-FROM books b
+FROM book_view b
 WHERE b.status = 'APPROVED' AND b.rating_count > 0
 ORDER BY weighted_score DESC, b.rating_count DESC, b.id DESC
 LIMIT sqlc.arg('limit');

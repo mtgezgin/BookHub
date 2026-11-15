@@ -66,6 +66,9 @@ demo-seed: ## Arayüz için örnek katalog (türler, klasikler, puanlar, yorumla
 	@# dosyayı burada yeniden uygula (tek kaynak, yalnız boş cover_url'leri doldurur). Kapak için yeni
 	@# bir migration gelirse o da buraya eklenir.
 	docker exec -i bookhub-postgres psql -U bookhub -d bookhub -v ON_ERROR_STOP=1 -q < backend/migrations/0009_demo_book_covers.sql
+	@# Baskılar (Faz 16): varsayılan baskıların kapağı ve bilgisi + özgün dil baskıları. Sıra önemli:
+	@# seed varsayılan baskıları açar, 0012 onları doldurur.
+	docker exec -i bookhub-postgres psql -U bookhub -d bookhub -v ON_ERROR_STOP=1 -q < backend/migrations/0012_demo_editions.sql
 	@# Seed uygulamayı atlayıp DB'ye doğrudan yazdı → top-rated cache'i bayat; sil (TTL'i beklemeden).
 	@# Desenle siliyoruz (ratings.TopRatedCacheKey'in sürüm eki v1→v2 olsa da çalışsın).
 	@# "|| true": Redis kapalıysa seed yine de tamamlansın (cache 60 sn'de kendiliğinden tazelenir).

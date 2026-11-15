@@ -87,7 +87,7 @@ func TestListComments(t *testing.T) {
 		{ID: 2, BookID: 5, UserID: ptr(int64(7)), AuthorName: ptr("Ayşe"), Content: "<b>güzel</b>", CreatedAt: now},
 		{ID: 1, BookID: 5, Content: "yazarı silinmiş", CreatedAt: now}, // user_id NULL
 	}}
-	rec := do(t, newRouter(deps{books: fakeBooks{book: db.Book{ID: 5}}, comments: fake}), http.MethodGet, "/api/books/5/comments", "")
+	rec := do(t, newRouter(deps{books: fakeBooks{book: db.BookView{ID: 5}}, comments: fake}), http.MethodGet, "/api/books/5/comments", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d (%s)", rec.Code, rec.Body)
 	}
@@ -223,7 +223,7 @@ func TestRatingReadAndRemove(t *testing.T) {
 func TestTopRated(t *testing.T) {
 	avg := 8.5
 	fake := &fakeRatings{top: ratings.TopRated{M: 10, C: 7.123456, Books: []ratings.TopRatedBook{
-		{Book: db.Book{ID: 2, Title: "Çok oylu", AverageRating: &avg, RatingCount: 2000}, WeightedScore: 8.49253731},
+		{Book: db.BookView{ID: 2, Title: "Çok oylu", AverageRating: &avg, RatingCount: 2000}, WeightedScore: 8.49253731},
 	}}}
 	rec := do(t, newRouter(deps{books: fakeBooks{}, ratings: fake}), http.MethodGet, "/api/books/top-rated", "")
 	if rec.Code != http.StatusOK || fake.gotLimit != defaultTopRatedLimit {
@@ -286,7 +286,7 @@ func TestTopRatedServiceErrorIs500WithoutDetail(t *testing.T) {
 }
 
 func TestTopRatedGenresErrorIs500(t *testing.T) {
-	fake := &fakeRatings{top: ratings.TopRated{Books: []ratings.TopRatedBook{{Book: db.Book{ID: 2}}}}}
+	fake := &fakeRatings{top: ratings.TopRated{Books: []ratings.TopRatedBook{{Book: db.BookView{ID: 2}}}}}
 	rec := do(t, newRouter(deps{books: fakeBooks{genreErr: errors.New("db")}, ratings: fake}), http.MethodGet, "/api/books/top-rated", "")
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("GenresForBooks hatası 500 olmalı: %d %s", rec.Code, rec.Body)
@@ -295,7 +295,7 @@ func TestTopRatedGenresErrorIs500(t *testing.T) {
 
 func TestListCommentsServiceErrorIs500(t *testing.T) {
 	fake := &fakeComments{err: errors.New("db")}
-	rec := do(t, newRouter(deps{books: fakeBooks{book: db.Book{ID: 5}}, comments: fake}), http.MethodGet, "/api/books/5/comments", "")
+	rec := do(t, newRouter(deps{books: fakeBooks{book: db.BookView{ID: 5}}, comments: fake}), http.MethodGet, "/api/books/5/comments", "")
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("svc.List hatası 500 olmalı: %d %s", rec.Code, rec.Body)
 	}

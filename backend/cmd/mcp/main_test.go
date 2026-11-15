@@ -149,6 +149,27 @@ func TestToolCalls(t *testing.T) {
 	}
 }
 
+// get_book baskıları (Faz 16) da modele taşır: MCP tarafında DTO kopyası olmadığı için API'ye
+// eklenen alan araca kendiliğinden ulaşır. Bu test o varsayımı sabitler.
+func TestGetBookCarriesEditions(t *testing.T) {
+	const body = `{"id":7,"title":"Suç ve Ceza","editions":[{"id":1,"language":"tr","is_primary":true},{"id":2,"language":"ru","translator":"","is_primary":false}]}`
+	cs := connect(t, &fakeAPI{status: http.StatusOK, body: body})
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "get_book", Arguments: map[string]any{"id": 7}})
+	if err != nil || res.IsError {
+		t.Fatalf("araç başarısız: %v", err)
+	}
+	sc, ok := res.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent nesne olmalı: %T", res.StructuredContent)
+	}
+	if eds, ok := sc["editions"].([]any); !ok || len(eds) != 2 {
+		t.Errorf("editions iki öğeyle taşınmalı: %v", sc["editions"])
+	}
+	if textOf(t, res) != body {
+		t.Errorf("metin API gövdesiyle aynı olmalı: %s", textOf(t, res))
+	}
+}
+
 // structuredContent standartta (2025-06-18) bir JSON nesnesi: nesne cevap orada da durur, dizi
 // cevap (ör. /api/genres) yalnız metin olarak gider — iki durumda da model gövdeyi aynen okur.
 func TestStructuredContentOnlyForObjects(t *testing.T) {

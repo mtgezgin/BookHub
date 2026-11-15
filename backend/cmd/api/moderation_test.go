@@ -16,8 +16,8 @@ import (
 
 // fakeModeration, moderationService sahtesi: dönecek değerler + çağrı kaydı.
 type fakeModeration struct {
-	book  db.Book
-	list  []db.Book
+	book  db.BookView
+	list  []db.BookView
 	total int64
 	logs  []db.AuditLog
 	err   error
@@ -25,8 +25,8 @@ type fakeModeration struct {
 	calls     []string
 	gotActor  int64
 	gotID     int64
-	gotCreate db.CreateBookParams
-	gotUpdate db.UpdateBookDetailsParams
+	gotCreate books.CreateParams
+	gotUpdate books.UpdateParams
 	gotReason string
 	gotStatus string
 	gotLimit  int32
@@ -37,43 +37,43 @@ func (f *fakeModeration) rec(call string, actor, id int64) {
 	f.gotActor, f.gotID = actor, id
 }
 
-func (f *fakeModeration) Suggest(_ context.Context, user int64, p db.CreateBookParams) (db.Book, error) {
+func (f *fakeModeration) Suggest(_ context.Context, user int64, p books.CreateParams) (db.BookView, error) {
 	f.rec("Suggest", user, 0)
 	f.gotCreate = p
 	return f.book, f.err
 }
-func (f *fakeModeration) CreateApproved(_ context.Context, actor int64, p db.CreateBookParams) (db.Book, error) {
+func (f *fakeModeration) CreateApproved(_ context.Context, actor int64, p books.CreateParams) (db.BookView, error) {
 	f.rec("CreateApproved", actor, 0)
 	f.gotCreate = p
 	return f.book, f.err
 }
-func (f *fakeModeration) Update(_ context.Context, actor, id int64, p db.UpdateBookDetailsParams) (db.Book, error) {
+func (f *fakeModeration) Update(_ context.Context, actor, id int64, p books.UpdateParams) (db.BookView, error) {
 	f.rec("Update", actor, id)
 	f.gotUpdate = p
 	return f.book, f.err
 }
-func (f *fakeModeration) Approve(_ context.Context, actor, id int64) (db.Book, error) {
+func (f *fakeModeration) Approve(_ context.Context, actor, id int64) (db.BookView, error) {
 	f.rec("Approve", actor, id)
 	return f.book, f.err
 }
-func (f *fakeModeration) Reject(_ context.Context, actor, id int64, reason string) (db.Book, error) {
+func (f *fakeModeration) Reject(_ context.Context, actor, id int64, reason string) (db.BookView, error) {
 	f.rec("Reject", actor, id)
 	f.gotReason = reason
 	return f.book, f.err
 }
-func (f *fakeModeration) Archive(_ context.Context, actor, id int64) (db.Book, error) {
+func (f *fakeModeration) Archive(_ context.Context, actor, id int64) (db.BookView, error) {
 	f.rec("Archive", actor, id)
 	return f.book, f.err
 }
-func (f *fakeModeration) Restore(_ context.Context, actor, id int64) (db.Book, error) {
+func (f *fakeModeration) Restore(_ context.Context, actor, id int64) (db.BookView, error) {
 	f.rec("Restore", actor, id)
 	return f.book, f.err
 }
-func (f *fakeModeration) Get(_ context.Context, id int64) (db.Book, error) {
+func (f *fakeModeration) Get(_ context.Context, id int64) (db.BookView, error) {
 	f.rec("Get", 0, id)
 	return f.book, f.err
 }
-func (f *fakeModeration) List(_ context.Context, status string, limit, _ int32) ([]db.Book, int64, error) {
+func (f *fakeModeration) List(_ context.Context, status string, limit, _ int32) ([]db.BookView, int64, error) {
 	f.rec("List", 0, 0)
 	f.gotStatus, f.gotLimit = status, limit
 	return f.list, f.total, f.err
@@ -95,7 +95,7 @@ func userRouter(d deps) http.Handler {
 
 func TestSuggestBook(t *testing.T) {
 	t.Run("giriş yapmış kullanıcı → 201 + PENDING, öneren token'dan", func(t *testing.T) {
-		fake := &fakeModeration{book: db.Book{ID: 9, Title: "Öneri", Status: books.StatusPending}}
+		fake := &fakeModeration{book: db.BookView{ID: 9, Title: "Öneri", Status: books.StatusPending}}
 		rec := do(t, userRouter(deps{moderation: fake}), http.MethodPost, "/api/books/suggestions", `{"title":"Öneri","author":"Yazar"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status: istenen 201, gelen %d (%s)", rec.Code, rec.Body)
@@ -134,7 +134,7 @@ func TestSuggestBook(t *testing.T) {
 func TestAdminListBooks(t *testing.T) {
 	t.Run("varsayılan statü PENDING, admin alanları görünür", func(t *testing.T) {
 		reason := "kaynak yok"
-		fake := &fakeModeration{list: []db.Book{{ID: 3, Status: books.StatusRejected, RejectionReason: &reason}}, total: 1}
+		fake := &fakeModeration{list: []db.BookView{{ID: 3, Status: books.StatusRejected, RejectionReason: &reason}}, total: 1}
 		rec := do(t, adminRouter(deps{moderation: fake, books: fakeBooks{}}), http.MethodGet, "/api/admin/books", "")
 		if rec.Code != http.StatusOK || fake.gotStatus != books.StatusPending || fake.gotLimit != defaultPageLimit {
 			t.Fatalf("status %d, statü %q, limit %d", rec.Code, fake.gotStatus, fake.gotLimit)
@@ -190,7 +190,7 @@ func TestModerationActions(t *testing.T) {
 	for _, a := range actions {
 		for _, c := range errCases {
 			t.Run(a.method+" "+a.path+" "+a.body+"/"+c.name, func(t *testing.T) {
-				fake := &fakeModeration{book: db.Book{ID: 5, Status: books.StatusApproved}, err: c.err}
+				fake := &fakeModeration{book: db.BookView{ID: 5, Status: books.StatusApproved}, err: c.err}
 				rec := do(t, adminRouter(deps{moderation: fake, books: fakeBooks{}}), a.method, a.path, a.body)
 				if rec.Code != c.wantStatus {
 					t.Fatalf("status: istenen %d, gelen %d (%s)", c.wantStatus, rec.Code, rec.Body)
@@ -209,7 +209,7 @@ func TestModerationActions(t *testing.T) {
 }
 
 func TestRejectReasonHandling(t *testing.T) {
-	fake := &fakeModeration{book: db.Book{ID: 5}}
+	fake := &fakeModeration{book: db.BookView{ID: 5}}
 	do(t, adminRouter(deps{moderation: fake, books: fakeBooks{}}), http.MethodPost, "/api/admin/books/5/reject", `{"reason":"  eksik kaynak  "}`)
 	if fake.gotReason != "eksik kaynak" {
 		t.Errorf("gerekçe kırpılmış iletilmeli, gelen %q", fake.gotReason)
@@ -237,7 +237,7 @@ func TestAdminUpdateBookValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fake := &fakeModeration{book: db.Book{ID: 5}}
+			fake := &fakeModeration{book: db.BookView{ID: 5}}
 			rec := do(t, adminRouter(deps{moderation: fake, books: fakeBooks{}}), http.MethodPatch, "/api/admin/books/5", tt.body)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status: istenen %d, gelen %d (%s)", tt.wantStatus, rec.Code, rec.Body)
@@ -270,7 +270,7 @@ func TestBookHistory(t *testing.T) {
 func TestAdminGetBook(t *testing.T) {
 	for _, status := range []string{books.StatusPending, books.StatusApproved, books.StatusRejected, books.StatusArchived} {
 		t.Run(status, func(t *testing.T) {
-			fake := &fakeModeration{book: db.Book{ID: 5, Status: status}}
+			fake := &fakeModeration{book: db.BookView{ID: 5, Status: status}}
 			store := fakeBooks{genres: map[int64][]db.Genre{5: {{ID: 1, Name: "Roman", Slug: "roman"}}}}
 			rec := do(t, adminRouter(deps{moderation: fake, books: store}), http.MethodGet, "/api/admin/books/5", "")
 			if rec.Code != http.StatusOK {
@@ -328,7 +328,7 @@ func TestAdminListBooksErrors(t *testing.T) {
 		}
 	})
 	t.Run("GenresForBooks hatası → 500", func(t *testing.T) {
-		fake := &fakeModeration{list: []db.Book{{ID: 3}}, total: 1}
+		fake := &fakeModeration{list: []db.BookView{{ID: 3}}, total: 1}
 		rec := do(t, adminRouter(deps{moderation: fake, books: fakeBooks{genreErr: errors.New("db")}}), http.MethodGet, "/api/admin/books", "")
 		if rec.Code != http.StatusInternalServerError {
 			t.Errorf("500 bekleniyordu: %d %s", rec.Code, rec.Body)
@@ -343,7 +343,7 @@ func TestWriteAdminBookGenresError(t *testing.T) {
 		{http.MethodPatch, "/api/admin/books/5", `{"title":"Yeni"}`},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			fake := &fakeModeration{book: db.Book{ID: 5}}
+			fake := &fakeModeration{book: db.BookView{ID: 5}}
 			rec := do(t, adminRouter(deps{moderation: fake, books: fakeBooks{genreErr: errors.New("db")}}), tc.method, tc.path, tc.body)
 			if rec.Code != http.StatusInternalServerError || len(fake.calls) != 1 {
 				t.Errorf("500 bekleniyordu (servis bir kez çağrılmış): %d %v %s", rec.Code, fake.calls, rec.Body)

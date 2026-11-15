@@ -31,7 +31,7 @@ func (c *countingBooks) GenresForBooks(ctx context.Context, ids []int64) (map[in
 // Birisi döngü içinde tekil sorguya dönerse bu test kırılır.
 func TestListBooksLoadsGenresInOneQuery(t *testing.T) {
 	store := &countingBooks{fakeBooks: fakeBooks{
-		list: []db.Book{{ID: 1}, {ID: 2}, {ID: 3}},
+		list: []db.BookView{{ID: 1}, {ID: 2}, {ID: 3}},
 		genres: map[int64][]db.Genre{
 			1: {{ID: 10, Name: "Roman", Slug: "roman"}},
 			3: {{ID: 11, Name: "Tarih", Slug: "tarih"}, {ID: 10, Name: "Roman", Slug: "roman"}},
@@ -63,7 +63,7 @@ func TestListBooksLoadsGenresInOneQuery(t *testing.T) {
 
 func TestGetBookIncludesGenres(t *testing.T) {
 	store := fakeBooks{
-		book:   db.Book{ID: 5, Title: "Dune"},
+		book:   db.BookView{ID: 5, Title: "Dune"},
 		genres: map[int64][]db.Genre{5: {{ID: 1, Name: "Bilim Kurgu", Slug: "bilim-kurgu"}}},
 	}
 	rec := do(t, newRouter(deps{books: store}), http.MethodGet, "/api/books/5", "")
@@ -75,7 +75,7 @@ func TestGetBookIncludesGenres(t *testing.T) {
 		t.Errorf("türler yanlış: %+v", got.Genres)
 	}
 
-	failing := fakeBooks{book: db.Book{ID: 5}, genreErr: errors.New("x")}
+	failing := fakeBooks{book: db.BookView{ID: 5}, genreErr: errors.New("x")}
 	if rec := do(t, newRouter(deps{books: failing}), http.MethodGet, "/api/books/5", ""); rec.Code != http.StatusInternalServerError {
 		t.Errorf("tür sorgusu hatası: istenen 500, gelen %d", rec.Code)
 	}

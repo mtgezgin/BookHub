@@ -47,11 +47,10 @@ func (q *Queries) CountBooksByStatus(ctx context.Context, status string) (int64,
 
 const createBook = `-- name: CreateBook :one
 INSERT INTO books (
-    title, slug, author, description, cover_url, publication_year,
-    page_count, language, status, submitted_by
+    title, slug, author, description, publication_year, language, status, submitted_by
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count
+    $1, $2, $3, $4, $5, $6, $7, $8
+) RETURNING id
 `
 
 type CreateBookParams struct {
@@ -59,55 +58,35 @@ type CreateBookParams struct {
 	Slug            string `json:"slug"`
 	Author          string `json:"author"`
 	Description     string `json:"description"`
-	CoverUrl        string `json:"cover_url"`
 	PublicationYear *int32 `json:"publication_year"`
-	PageCount       *int32 `json:"page_count"`
 	Language        string `json:"language"`
 	Status          string `json:"status"`
 	SubmittedBy     *int64 `json:"submitted_by"`
 }
 
 // submitted_by: kitabı kim getirdi (öneren kullanıcı ya da doğrudan ekleyen admin).
-func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (Book, error) {
+// Kapak ve sayfa sayısı kitaba değil varsayılan baskıya yazılır (editions.sql → CreatePrimaryEdition,
+// aynı transaction'da). Faz 16'dan beri kitap yazımları yalnız id döner; kitabın tam hâli
+// book_view'dan okunur. RETURNING * books.cover_url'ü anardı, daraltmadan sonra kırılırdı.
+func (q *Queries) CreateBook(ctx context.Context, arg CreateBookParams) (int64, error) {
 	row := q.db.QueryRow(ctx, createBook,
 		arg.Title,
 		arg.Slug,
 		arg.Author,
 		arg.Description,
-		arg.CoverUrl,
 		arg.PublicationYear,
-		arg.PageCount,
 		arg.Language,
 		arg.Status,
 		arg.SubmittedBy,
 	)
-	var i Book
-	err := row.Scan(
-		&i.ID,
-		&i.Title,
-		&i.Slug,
-		&i.Author,
-		&i.Description,
-		&i.CoverUrl,
-		&i.PublicationYear,
-		&i.PageCount,
-		&i.Language,
-		&i.Status,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.SubmittedBy,
-		&i.RejectionReason,
-		&i.ModeratedBy,
-		&i.ModeratedAt,
-		&i.AverageRating,
-		&i.RatingCount,
-	)
-	return i, err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getApprovedBook = `-- name: GetApprovedBook :one
 
-SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM books
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM book_view
 WHERE id = $1
   AND status = 'APPROVED'
 `
@@ -132,9 +111,11 @@ WHERE id = $1
 // handler'daki bir "if" hatasıyla açılamasın. Bulunmayan satır = 404: onaylanmamış
 // bir kitabın VARLIĞINI bile sızdırmıyoruz.
 // (Admin'in tüm statüleri görmesi ileride AYRI bir sorgu + /api/admin rotası olur.)
-func (q *Queries) GetApprovedBook(ctx context.Context, id int64) (Book, error) {
+// Faz 16: kitap okuyan sorgular books'tan değil book_view'dan okur (kapak ve sayfa sayısı
+// varsayılan baskıdan gelir; tanım 0011_editions.sql'de).
+func (q *Queries) GetApprovedBook(ctx context.Context, id int64) (BookView, error) {
 	row := q.db.QueryRow(ctx, getApprovedBook, id)
-	var i Book
+	var i BookView
 	err := row.Scan(
 		&i.ID,
 		&i.Title,
@@ -159,15 +140,15 @@ func (q *Queries) GetApprovedBook(ctx context.Context, id int64) (Book, error) {
 }
 
 const getBook = `-- name: GetBook :one
-SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM books WHERE id = $1
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM book_view WHERE id = $1
 `
 
 // ADMIN tekil okuma: statüden bağımsız. Public GetApprovedBook'un ayrı kalması bilinçli —
 // görünürlük kuralı bir parametreye ("includeHidden bool") indirgenirse bir handler'ın
 // yanlış değeri geçmesi BOLA'yı geri getirir. İki sorgu, iki ayrı niyet.
-func (q *Queries) GetBook(ctx context.Context, id int64) (Book, error) {
+func (q *Queries) GetBook(ctx context.Context, id int64) (BookView, error) {
 	row := q.db.QueryRow(ctx, getBook, id)
-	var i Book
+	var i BookView
 	err := row.Scan(
 		&i.ID,
 		&i.Title,
@@ -192,7 +173,7 @@ func (q *Queries) GetBook(ctx context.Context, id int64) (Book, error) {
 }
 
 const listBooks = `-- name: ListBooks :many
-SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count FROM books b
+SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count FROM book_view b
 WHERE b.status = 'APPROVED'
   AND ($1::text IS NULL OR EXISTS (
         SELECT 1 FROM book_genres bg
@@ -226,7 +207,7 @@ type ListBooksParams struct {
 // Sıralamada id ikincil anahtar: aynı created_at'e sahip iki kitap sayfalar arasında
 // yer değiştirmesin (kararlı sayfalama). Partial index (created_at DESC) WHERE
 // status='APPROVED' bu sorguya hizmet ediyor.
-func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]Book, error) {
+func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]BookView, error) {
 	rows, err := q.db.Query(ctx, listBooks,
 		arg.Genre,
 		arg.Query,
@@ -237,9 +218,9 @@ func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]Book, e
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Book
+	var items []BookView
 	for rows.Next() {
-		var i Book
+		var i BookView
 		if err := rows.Scan(
 			&i.ID,
 			&i.Title,
@@ -271,7 +252,7 @@ func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]Book, e
 }
 
 const listBooksByRating = `-- name: ListBooksByRating :many
-SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count FROM books b
+SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count FROM book_view b
 WHERE b.status = 'APPROVED'
   AND ($1::text IS NULL OR EXISTS (
         SELECT 1 FROM book_genres bg
@@ -305,7 +286,7 @@ type ListBooksByRatingParams struct {
 // Oysuz kitap NULL → en sonda (kendi aralarında en yeni önce). CASE, m = 0 iken oysuz
 // kitapta 0/0 bölmesini de önler (RATING_MIN_VOTES 0 olabilir).
 // Filtreler ListBooks ile birebir aynı; birini değiştiren ikisini de değiştirir.
-func (q *Queries) ListBooksByRating(ctx context.Context, arg ListBooksByRatingParams) ([]Book, error) {
+func (q *Queries) ListBooksByRating(ctx context.Context, arg ListBooksByRatingParams) ([]BookView, error) {
 	rows, err := q.db.Query(ctx, listBooksByRating,
 		arg.Genre,
 		arg.Query,
@@ -318,9 +299,9 @@ func (q *Queries) ListBooksByRating(ctx context.Context, arg ListBooksByRatingPa
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Book
+	var items []BookView
 	for rows.Next() {
-		var i Book
+		var i BookView
 		if err := rows.Scan(
 			&i.ID,
 			&i.Title,
@@ -352,7 +333,7 @@ func (q *Queries) ListBooksByRating(ctx context.Context, arg ListBooksByRatingPa
 }
 
 const listBooksByStatus = `-- name: ListBooksByStatus :many
-SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM books
+SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM book_view
 WHERE status = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $3 OFFSET $2
@@ -365,15 +346,15 @@ type ListBooksByStatusParams struct {
 }
 
 // Admin listesi: tek statüye göre (bekleyen kuyruğu, arşiv, reddedilenler...).
-func (q *Queries) ListBooksByStatus(ctx context.Context, arg ListBooksByStatusParams) ([]Book, error) {
+func (q *Queries) ListBooksByStatus(ctx context.Context, arg ListBooksByStatusParams) ([]BookView, error) {
 	rows, err := q.db.Query(ctx, listBooksByStatus, arg.Status, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Book
+	var items []BookView
 	for rows.Next() {
-		var i Book
+		var i BookView
 		if err := rows.Scan(
 			&i.ID,
 			&i.Title,
@@ -405,38 +386,22 @@ func (q *Queries) ListBooksByStatus(ctx context.Context, arg ListBooksByStatusPa
 }
 
 const lockBookForModeration = `-- name: LockBookForModeration :one
-SELECT id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count FROM books WHERE id = $1 FOR UPDATE
+SELECT status FROM books WHERE id = $1 FOR UPDATE
 `
 
 // Moderasyon için kilitli okuma: statü kontrolü + güncelleme arasına başka bir admin
 // giremesin (iki admin aynı anda approve/reject → ikisi de "PENDING" görüp ikisi de yazardı).
-func (q *Queries) LockBookForModeration(ctx context.Context, id int64) (Book, error) {
+// Kilit book_view'da değil books'ta: Postgres, LEFT JOIN'in boş olabilen tarafını (baskı)
+// kilitleyemez. Yalnız statü döner. Baskı servisi de aynı kilidi alır (kitabın baskıları
+// arasındaki "tek varsayılan" kuralı için).
+func (q *Queries) LockBookForModeration(ctx context.Context, id int64) (string, error) {
 	row := q.db.QueryRow(ctx, lockBookForModeration, id)
-	var i Book
-	err := row.Scan(
-		&i.ID,
-		&i.Title,
-		&i.Slug,
-		&i.Author,
-		&i.Description,
-		&i.CoverUrl,
-		&i.PublicationYear,
-		&i.PageCount,
-		&i.Language,
-		&i.Status,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.SubmittedBy,
-		&i.RejectionReason,
-		&i.ModeratedBy,
-		&i.ModeratedAt,
-		&i.AverageRating,
-		&i.RatingCount,
-	)
-	return i, err
+	var status string
+	err := row.Scan(&status)
+	return status, err
 }
 
-const setBookStatus = `-- name: SetBookStatus :one
+const setBookStatus = `-- name: SetBookStatus :exec
 UPDATE books
 SET status           = $1,
     rejection_reason = $2,
@@ -444,7 +409,6 @@ SET status           = $1,
     moderated_at     = now(),
     updated_at       = now()
 WHERE id = $4
-RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count
 `
 
 type SetBookStatusParams struct {
@@ -454,35 +418,14 @@ type SetBookStatusParams struct {
 	ID              int64   `json:"id"`
 }
 
-func (q *Queries) SetBookStatus(ctx context.Context, arg SetBookStatusParams) (Book, error) {
-	row := q.db.QueryRow(ctx, setBookStatus,
+func (q *Queries) SetBookStatus(ctx context.Context, arg SetBookStatusParams) error {
+	_, err := q.db.Exec(ctx, setBookStatus,
 		arg.Status,
 		arg.RejectionReason,
 		arg.ModeratedBy,
 		arg.ID,
 	)
-	var i Book
-	err := row.Scan(
-		&i.ID,
-		&i.Title,
-		&i.Slug,
-		&i.Author,
-		&i.Description,
-		&i.CoverUrl,
-		&i.PublicationYear,
-		&i.PageCount,
-		&i.Language,
-		&i.Status,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.SubmittedBy,
-		&i.RejectionReason,
-		&i.ModeratedBy,
-		&i.ModeratedAt,
-		&i.AverageRating,
-		&i.RatingCount,
-	)
-	return i, err
+	return err
 }
 
 const updateBookDetails = `-- name: UpdateBookDetails :one
@@ -491,13 +434,11 @@ SET title            = COALESCE($1, title),
     slug             = COALESCE($2, slug),
     author           = COALESCE($3, author),
     description      = COALESCE($4, description),
-    cover_url        = COALESCE($5, cover_url),
-    publication_year = COALESCE($6, publication_year),
-    page_count       = COALESCE($7, page_count),
-    language         = COALESCE($8, language),
+    publication_year = COALESCE($5, publication_year),
+    language         = COALESCE($6, language),
     updated_at       = now()
-WHERE id = $9
-RETURNING id, title, slug, author, description, cover_url, publication_year, page_count, language, status, created_at, updated_at, submitted_by, rejection_reason, moderated_by, moderated_at, average_rating, rating_count
+WHERE id = $7
+RETURNING id
 `
 
 type UpdateBookDetailsParams struct {
@@ -505,9 +446,7 @@ type UpdateBookDetailsParams struct {
 	Slug            *string `json:"slug"`
 	Author          *string `json:"author"`
 	Description     *string `json:"description"`
-	CoverUrl        *string `json:"cover_url"`
 	PublicationYear *int32  `json:"publication_year"`
-	PageCount       *int32  `json:"page_count"`
 	Language        *string `json:"language"`
 	ID              int64   `json:"id"`
 }
@@ -515,38 +454,18 @@ type UpdateBookDetailsParams struct {
 // Kısmi güncelleme (PATCH): gönderilmeyen alan (NULL) mevcut değeri korur.
 // Sınır: bu desenle bir alanı NULL'A ÇEKMEK mümkün değil (publication_year'ı "bilinmiyor"
 // yapmak gibi) — NULL "dokunma" anlamına geliyor. Gerekirse ayrı bir "clear" bayrağı gerekir.
-func (q *Queries) UpdateBookDetails(ctx context.Context, arg UpdateBookDetailsParams) (Book, error) {
+// Kapak ve sayfa sayısı varsayılan baskıdadır (editions.sql → PatchPrimaryEdition).
+func (q *Queries) UpdateBookDetails(ctx context.Context, arg UpdateBookDetailsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, updateBookDetails,
 		arg.Title,
 		arg.Slug,
 		arg.Author,
 		arg.Description,
-		arg.CoverUrl,
 		arg.PublicationYear,
-		arg.PageCount,
 		arg.Language,
 		arg.ID,
 	)
-	var i Book
-	err := row.Scan(
-		&i.ID,
-		&i.Title,
-		&i.Slug,
-		&i.Author,
-		&i.Description,
-		&i.CoverUrl,
-		&i.PublicationYear,
-		&i.PageCount,
-		&i.Language,
-		&i.Status,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.SubmittedBy,
-		&i.RejectionReason,
-		&i.ModeratedBy,
-		&i.ModeratedAt,
-		&i.AverageRating,
-		&i.RatingCount,
-	)
-	return i, err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

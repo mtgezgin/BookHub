@@ -24,16 +24,17 @@ import (
 // "-er" soneki tek metotlu interface konvansiyonudur. Kitap OLUŞTURMA/moderasyon ise
 // Faz 4'ten beri moderationService'te (her yazım bir denetim kaydıyla birlikte).
 type bookStore interface {
-	Get(ctx context.Context, id int64) (db.Book, error)
-	List(ctx context.Context, f books.ListFilter) ([]db.Book, int64, error)
+	Get(ctx context.Context, id int64) (db.BookView, error)
+	List(ctx context.Context, f books.ListFilter) ([]db.BookView, int64, error)
 	GenresForBook(ctx context.Context, bookID int64) ([]db.Genre, error)
 	GenresForBooks(ctx context.Context, bookIDs []int64) (map[int64][]db.Genre, error)
 	SetGenres(ctx context.Context, bookID int64, genreIDs []int64) error
+	Editions(ctx context.Context, bookID int64) ([]db.Edition, error)
 }
 
 // bookResponse, kitabın HERKESE AÇIK temsili (response DTO).
 //
-// db.Book'u doğrudan serileştirmiyoruz: o struct sqlc'nin TABLODAN ürettiği şeydir ve
+// db.BookView'u doğrudan serileştirmiyoruz: o struct sqlc'nin görünümden (Faz 16'ya kadar tablodan) ürettiği şeydir ve
 // şemaya eklenen her kolon (ör. Faz 4'ün moderasyon notu) kimse karar vermeden public
 // API'ye sızardı. createBookRequest'in giriş tarafında yaptığını bu, çıkış tarafında yapar:
 // istemciye ne gideceğine BİZ karar veririz. `status` bilerek yok — public uçlar zaten
@@ -57,7 +58,7 @@ type bookResponse struct {
 
 // toBookResponse, kitabı türleriyle birlikte DTO'ya çevirir. Türsüz kitapta bile
 // genres "[]" olur (null değil) — istemci her zaman diziyle çalışsın.
-func toBookResponse(b db.Book, genreList []db.Genre) bookResponse {
+func toBookResponse(b db.BookView, genreList []db.Genre) bookResponse {
 	return bookResponse{
 		ID:              b.ID,
 		Title:           b.Title,
@@ -116,7 +117,13 @@ func handleGetBook(store bookStore) http.HandlerFunc {
 			writeInternalError(w, "GenresForBook", err)
 			return
 		}
-		writeJSON(w, http.StatusOK, toBookResponse(book, genreList))
+		// 5) Baskılar (Faz 16) yalnız detayda: liste uçları şişmesin.
+		eds, err := store.Editions(r.Context(), book.ID)
+		if err != nil {
+			writeInternalError(w, "Editions", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, bookDetailResponse{bookResponse: toBookResponse(book, genreList), Editions: toEditionResponses(eds)})
 	}
 }
 
@@ -282,17 +289,20 @@ func (req createBookRequest) validate() error {
 // toParams, doğrulanmış gövdeyi sorgu parametrelerine ELLE eşler. Angarya gibi görünür
 // ama asıl korumadır: yeni bir DB kolonu otomatik olarak istemciye AÇILMAZ, buraya
 // bilinçli bir satır eklemek gerekir. Status/SubmittedBy BİLEREK boş: onları servis
-// belirler (admin → APPROVED, öneri → PENDING).
-func (req createBookRequest) toParams() db.CreateBookParams {
-	return db.CreateBookParams{
-		Title:           req.Title,
-		Slug:            req.Slug,
-		Author:          req.Author,
-		Description:     req.Description,
-		CoverUrl:        req.CoverURL,
-		PublicationYear: req.PublicationYear,
-		PageCount:       req.PageCount,
-		Language:        req.Language,
+// belirler (admin → APPROVED, öneri → PENDING). Kapak ve sayfa sayısı varsayılan baskıya
+// gider (Faz 16); dil hem esere hem baskıya yazılır.
+func (req createBookRequest) toParams() books.CreateParams {
+	return books.CreateParams{
+		CreateBookParams: db.CreateBookParams{
+			Title:           req.Title,
+			Slug:            req.Slug,
+			Author:          req.Author,
+			Description:     req.Description,
+			PublicationYear: req.PublicationYear,
+			Language:        req.Language,
+		},
+		CoverURL:  req.CoverURL,
+		PageCount: req.PageCount,
 	}
 }
 
@@ -346,17 +356,7 @@ func checkPageCount(v *validator, n *int32) {
 
 // readBookRequest, create ve öneri uçlarının ortak gövde okuma + doğrulama adımı.
 func readBookRequest(w http.ResponseWriter, r *http.Request) (createBookRequest, bool) {
-	var req createBookRequest
-	if err := readJSON(w, r, &req); err != nil {
-		writeRequestError(w, err)
-		return req, false
-	}
-	req.normalize()
-	if err := req.validate(); err != nil {
-		writeRequestError(w, err)
-		return req, false
-	}
-	return req, true
+	return readBody[createBookRequest](w, r)
 }
 
 // handleCreateBook, POST /api/admin/books — admin doğrudan (onaylı) kitap ekler.

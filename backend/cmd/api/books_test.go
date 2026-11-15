@@ -18,18 +18,21 @@ import (
 // fakeBooks, bookStore'un SAHTE uygulaması: ne dönmesi söylendiyse onu döner.
 // Gerçek DB yok → saf birim testi. (Interface'i tüketen tarafta tanımlamanın meyvesi.)
 type fakeBooks struct {
-	book     db.Book
-	list     []db.Book
+	book     db.BookView
+	list     []db.BookView
 	total    int64
 	filter   *books.ListFilter // List'e gelen filtreyi yakalamak için (nil = yakalama)
 	genres   map[int64][]db.Genre
 	err      error
 	setErr   error
 	genreErr error
+	// Faz 16: detay uçlarının baskı listesi.
+	editions    []db.Edition
+	editionsErr error
 }
 
-func (f fakeBooks) Get(context.Context, int64) (db.Book, error) { return f.book, f.err }
-func (f fakeBooks) List(_ context.Context, lf books.ListFilter) ([]db.Book, int64, error) {
+func (f fakeBooks) Get(context.Context, int64) (db.BookView, error) { return f.book, f.err }
+func (f fakeBooks) List(_ context.Context, lf books.ListFilter) ([]db.BookView, int64, error) {
 	if f.filter != nil {
 		*f.filter = lf
 	}
@@ -42,6 +45,9 @@ func (f fakeBooks) GenresForBooks(context.Context, []int64) (map[int64][]db.Genr
 	return f.genres, f.genreErr
 }
 func (f fakeBooks) SetGenres(context.Context, int64, []int64) error { return f.setErr }
+func (f fakeBooks) Editions(context.Context, int64) ([]db.Edition, error) {
+	return f.editions, f.editionsErr
+}
 
 func do(t *testing.T, h http.Handler, method, url, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -70,7 +76,7 @@ func TestHandleGetBook(t *testing.T) {
 		wantStatus int
 		wantCode   string // "" = başarı beklenir
 	}{
-		{name: "geçerli id → 200", url: "/api/books/1", fake: fakeBooks{book: db.Book{ID: 1, Title: "Clean Code"}}, wantStatus: http.StatusOK},
+		{name: "geçerli id → 200", url: "/api/books/1", fake: fakeBooks{book: db.BookView{ID: 1, Title: "Clean Code"}}, wantStatus: http.StatusOK},
 		{name: "olmayan id → 404", url: "/api/books/999", fake: fakeBooks{err: books.ErrNotFound}, wantStatus: http.StatusNotFound, wantCode: "not_found"},
 		{name: "sayı olmayan id → 400 (sorguya gitmeden)", url: "/api/books/abc", wantStatus: http.StatusBadRequest, wantCode: "invalid_id"},
 		{name: "sıfır id → 400", url: "/api/books/0", wantStatus: http.StatusBadRequest, wantCode: "invalid_id"},
@@ -140,7 +146,7 @@ func TestHandleListBooks(t *testing.T) {
 	})
 
 	t.Run("dolu sayfa → içerik, sıra ve toplam korunur", func(t *testing.T) {
-		fake := fakeBooks{total: 42, list: []db.Book{
+		fake := fakeBooks{total: 42, list: []db.BookView{
 			{ID: 7, Title: "The Go Programming Language"},
 			{ID: 3, Title: "Clean Code"},
 		}}
@@ -215,7 +221,7 @@ func TestHandleCreateBook(t *testing.T) {
 		wantStatus int
 		wantCode   string // "" = başarı
 	}{
-		{name: "geçerli gövde → 201", body: valid, fake: fakeModeration{book: db.Book{ID: 7}}, wantStatus: http.StatusCreated},
+		{name: "geçerli gövde → 201", body: valid, fake: fakeModeration{book: db.BookView{ID: 7}}, wantStatus: http.StatusCreated},
 		{name: "yayın yılı alt sınırı 1450 kabul", body: `{"title":"T","slug":"t","author":"a","publication_year":1450}`, wantStatus: http.StatusCreated},
 		{name: "tam sınırda başlık (300 karakter) kabul", body: `{"title":"` + strings.Repeat("ş", maxTitleLen) + `","slug":"t","author":"a"}`, wantStatus: http.StatusCreated},
 
@@ -264,7 +270,7 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 	year, pages := int32(2015), int32(380)
 
 	t.Run("tüm alanlar aynen, trim uygulanmış, statü handler'da belirlenmiyor", func(t *testing.T) {
-		fake := &fakeModeration{book: db.Book{ID: 1}}
+		fake := &fakeModeration{book: db.BookView{ID: 1}}
 		body := `{"title":"  The Go Programming Language  ","slug":"gopl","author":" Donovan ",
 			"description":" Go'nun kutsal kitabı ","cover_url":"https://example.test/gopl.jpg",
 			"publication_year":2015,"page_count":380,"language":"en"}`
@@ -272,10 +278,12 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("durum kodu: istenen 201, gelen %d (gövde: %s)", rec.Code, rec.Body)
 		}
-		want := db.CreateBookParams{
-			Title: "The Go Programming Language", Slug: "gopl", Author: "Donovan",
-			Description: "Go'nun kutsal kitabı", CoverUrl: "https://example.test/gopl.jpg",
-			PublicationYear: &year, PageCount: &pages, Language: "en",
+		want := books.CreateParams{
+			CreateBookParams: db.CreateBookParams{
+				Title: "The Go Programming Language", Slug: "gopl", Author: "Donovan",
+				Description: "Go'nun kutsal kitabı", PublicationYear: &year, Language: "en",
+			},
+			CoverURL: "https://example.test/gopl.jpg", PageCount: &pages,
 		}
 		assertParams(t, fake.gotCreate, want)
 		if fake.gotActor != 1 || fake.calls[0] != "CreateApproved" {
@@ -284,7 +292,7 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 	})
 
 	t.Run("slug gönderilmezse başlıktan türetilir (Türkçe karakterler dahil)", func(t *testing.T) {
-		fake := &fakeModeration{book: db.Book{ID: 1}}
+		fake := &fakeModeration{book: db.BookView{ID: 1}}
 		rec := do(t, adminRouter(deps{moderation: fake}), http.MethodPost, "/api/admin/books", `{"title":"Şeker Portakalı","author":"José Mauro"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("durum kodu: istenen 201, gelen %d (%s)", rec.Code, rec.Body)
@@ -297,7 +305,7 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 	// REGRESYON (review bulgusu F4): 300 karakterlik GEÇERLİ bir başlıktan türetilen slug
 	// 120 sınırını aşıp isteği reddettiriyordu — istemci slug göndermemişken.
 	t.Run("uzun başlıktan türetilen slug sınıra kesilir", func(t *testing.T) {
-		fake := &fakeModeration{book: db.Book{ID: 1}}
+		fake := &fakeModeration{book: db.BookView{ID: 1}}
 		title := strings.TrimSpace(strings.Repeat("Çok Uzun Bir Başlık ", 15)) // ~300 karakter
 		rec := do(t, adminRouter(deps{moderation: fake}), http.MethodPost, "/api/admin/books", `{"title":"`+title+`","author":"a"}`)
 		if rec.Code != http.StatusCreated {
@@ -309,7 +317,7 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 	})
 
 	t.Run("language gönderilmezse varsayılan tr (DB DEFAULT devreye girmez)", func(t *testing.T) {
-		fake := &fakeModeration{book: db.Book{ID: 1}}
+		fake := &fakeModeration{book: db.BookView{ID: 1}}
 		rec := do(t, adminRouter(deps{moderation: fake}), http.MethodPost, "/api/admin/books", `{"title":"T","slug":"t","author":"a"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("durum kodu: istenen 201, gelen %d", rec.Code)
@@ -322,7 +330,7 @@ func TestHandleCreateBookWritesExactParams(t *testing.T) {
 
 // assertParams, pointer alanlar yüzünden struct'lar == ile karşılaştırılamadığı için
 // alan alan kıyaslar.
-func assertParams(t *testing.T, got, want db.CreateBookParams) {
+func assertParams(t *testing.T, got, want books.CreateParams) {
 	t.Helper()
 	deref := func(p *int32) string {
 		if p == nil {
@@ -336,7 +344,7 @@ func assertParams(t *testing.T, got, want db.CreateBookParams) {
 		{"Slug", got.Slug, want.Slug},
 		{"Author", got.Author, want.Author},
 		{"Description", got.Description, want.Description},
-		{"CoverUrl", got.CoverUrl, want.CoverUrl},
+		{"CoverURL", got.CoverURL, want.CoverURL},
 		{"PublicationYear", deref(got.PublicationYear), deref(want.PublicationYear)},
 		{"PageCount", deref(got.PageCount), deref(want.PageCount)},
 		{"Language", got.Language, want.Language},
@@ -351,7 +359,7 @@ func assertParams(t *testing.T, got, want db.CreateBookParams) {
 // TestHandleListBooksGenresError: kitap listesi geldi ama toplu tür yüklemesi
 // (GenresForBooks) başarısız → türleri eksik bir sayfa değil, 500 internal.
 func TestHandleListBooksGenresError(t *testing.T) {
-	fake := fakeBooks{total: 1, list: []db.Book{{ID: 7, Title: "Go"}}, genreErr: errors.New("tür sorgusu koptu")}
+	fake := fakeBooks{total: 1, list: []db.BookView{{ID: 7, Title: "Go"}}, genreErr: errors.New("tür sorgusu koptu")}
 	rec := do(t, newRouter(deps{books: fake}), http.MethodGet, "/api/books", "")
 	if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
 		t.Errorf("500 internal bekleniyordu: %d %s", rec.Code, rec.Body)

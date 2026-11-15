@@ -126,6 +126,33 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) error {
 	}
 }
 
+// requestBody, okunduktan sonra temizlenip (normalize) doğrulanan istek gövdeleri.
+type requestBody interface {
+	normalize()
+	validate() error
+}
+
+// readBody, yazım uçlarının ortak gövde adımı: oku (readJSON) → temizle → doğrula. Hata varsa
+// cevabı yazar ve ok=false döner. Tip parametresi T gövdenin kendisi; PT onun işaretçisi, çünkü
+// normalize alanları DEĞİŞTİRİR (pointer receiver). Kitap ve baskı uçları aynı adımı kopyalamasın.
+func readBody[T any, PT interface {
+	*T
+	requestBody
+}](w http.ResponseWriter, r *http.Request) (T, bool) {
+	var req T
+	if err := readJSON(w, r, &req); err != nil {
+		writeRequestError(w, err)
+		return req, false
+	}
+	p := PT(&req)
+	p.normalize()
+	if err := p.validate(); err != nil {
+		writeRequestError(w, err)
+		return req, false
+	}
+	return req, true
+}
+
 func isMaxBytes(err error) bool {
 	var maxErr *http.MaxBytesError
 	return errors.As(err, &maxErr)

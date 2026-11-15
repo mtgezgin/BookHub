@@ -108,6 +108,8 @@ Geri dönüş ve yeniden deneme: [PROCESS.md](PROCESS.md) §5.
   docker run --rm -i postgres:16 psql "$DATABASE_URL" < backend/scripts/demo_seed.sql
   # Kapaklar: migration 0009 seed'den ÖNCE boş tabloya uygulandı; seed'den sonra aynı dosyayı yeniden çalıştır.
   docker run --rm -i postgres:16 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 < backend/migrations/0009_demo_book_covers.sql
+  # Baskılar (Faz 16): aynı nedenle 0012 de seed'den sonra yeniden (seed varsayılan baskıları açar, 0012 doldurur).
+  docker run --rm -i postgres:16 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 < backend/migrations/0012_demo_editions.sql
   unset DATABASE_URL
   ```
   Bugün elle migration gerekirse (yalnız acil durumda, [CLAUDE.md](../CLAUDE.md)): önce

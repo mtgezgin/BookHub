@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 // Tema: <html data-theme="light|dark">. İlk boyamadan önce public/theme-init.js aynı kuralla
 // uygular (CSP satır içi betiğe izin vermiyor); bu modül yalnız sonradan değiştirir.
-export type Theme = "light" | "dark";
+type Theme = "light" | "dark";
 const KEY = "bookhub.theme";
 
 function stored(): Theme | null {

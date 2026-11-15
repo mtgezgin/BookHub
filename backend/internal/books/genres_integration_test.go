@@ -155,11 +155,11 @@ func TestListFiltersRealDB(t *testing.T) {
 	ctx := context.Background()
 	marker := testdb.Unique("isaret")
 
-	mk := func(title, author, status string) db.Book {
+	mk := func(title, author, status string) db.BookView {
 		t.Helper()
-		b, err := f.repo.Create(ctx, db.CreateBookParams{
+		b, err := f.repo.Create(ctx, CreateParams{CreateBookParams: db.CreateBookParams{
 			Title: title, Slug: testdb.Unique("liste"), Author: author, Language: "tr", Status: status,
-		})
+		}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -180,7 +180,7 @@ func TestListFiltersRealDB(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ids := func(list []db.Book) []int64 {
+	ids := func(list []db.BookView) []int64 {
 		out := make([]int64, 0, len(list))
 		for _, b := range list {
 			out = append(out, b.ID)

@@ -30,7 +30,7 @@ SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publicatio
        (b.status = 'APPROVED')::boolean AS in_catalog,
        count(*) OVER () AS total
 FROM library_entries le
-JOIN books b ON b.id = le.book_id
+JOIN book_view b ON b.id = le.book_id
 LEFT JOIN ratings r ON r.user_id = le.user_id AND r.book_id = le.book_id
 WHERE le.user_id = $1
   AND ($2::text IS NULL OR le.status = $2)
@@ -61,7 +61,7 @@ type ListLibraryParams struct {
 }
 
 type ListLibraryRow struct {
-	Book      Book      `json:"book"`
+	BookView  BookView  `json:"book_view"`
 	Status    string    `json:"status"`
 	AddedAt   time.Time `json:"added_at"`
 	MyRating  *int16    `json:"my_rating"`
@@ -97,24 +97,24 @@ func (q *Queries) ListLibrary(ctx context.Context, arg ListLibraryParams) ([]Lis
 	for rows.Next() {
 		var i ListLibraryRow
 		if err := rows.Scan(
-			&i.Book.ID,
-			&i.Book.Title,
-			&i.Book.Slug,
-			&i.Book.Author,
-			&i.Book.Description,
-			&i.Book.CoverUrl,
-			&i.Book.PublicationYear,
-			&i.Book.PageCount,
-			&i.Book.Language,
-			&i.Book.Status,
-			&i.Book.CreatedAt,
-			&i.Book.UpdatedAt,
-			&i.Book.SubmittedBy,
-			&i.Book.RejectionReason,
-			&i.Book.ModeratedBy,
-			&i.Book.ModeratedAt,
-			&i.Book.AverageRating,
-			&i.Book.RatingCount,
+			&i.BookView.ID,
+			&i.BookView.Title,
+			&i.BookView.Slug,
+			&i.BookView.Author,
+			&i.BookView.Description,
+			&i.BookView.CoverUrl,
+			&i.BookView.PublicationYear,
+			&i.BookView.PageCount,
+			&i.BookView.Language,
+			&i.BookView.Status,
+			&i.BookView.CreatedAt,
+			&i.BookView.UpdatedAt,
+			&i.BookView.SubmittedBy,
+			&i.BookView.RejectionReason,
+			&i.BookView.ModeratedBy,
+			&i.BookView.ModeratedAt,
+			&i.BookView.AverageRating,
+			&i.BookView.RatingCount,
 			&i.Status,
 			&i.AddedAt,
 			&i.MyRating,

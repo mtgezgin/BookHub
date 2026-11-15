@@ -99,6 +99,15 @@ ON CONFLICT DO NOTHING;
 -- etmez; demo veride "bilinmiyor" (NULL) yapıyoruz.
 UPDATE books SET publication_year = NULL WHERE slug = 'devlet';
 
+-- Faz 16: her kitabın bir varsayılan baskısı olur; kitabın kapağı ve sayfa sayısı ondan gelir.
+-- Migration'lar seed'den ÖNCE koştuğu için 0011'in taşıması boş tabloyu gördü; baskıları burada
+-- açıyoruz. Kapağı ve baskı bilgisini (dil, yayınevi, çevirmen, yıl) make demo-seed'de sonra çalışan
+-- 0012 doldurur; özgün dil baskılarını da o ekler.
+INSERT INTO editions (book_id, title, language, page_count, is_primary)
+SELECT b.id, b.title, b.language, b.page_count, true
+FROM books b
+WHERE NOT EXISTS (SELECT 1 FROM editions e WHERE e.book_id = b.id AND e.is_primary);
+
 -- Bilim Kurgu'da en fazla 12 kitap (bir sayfa): catalog.spec.ts Dune ve Vakıf'ı türün İLK
 -- sayfasında arıyor, ikisi de listede eski kalıyor.
 INSERT INTO book_genres (book_id, genre_id)

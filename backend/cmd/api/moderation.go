@@ -16,15 +16,15 @@ import (
 // moderationService, kitap yaşam döngüsü uçlarının servisten beklediği davranışlar.
 // *moderation.Service bunu sağlar.
 type moderationService interface {
-	Suggest(ctx context.Context, userID int64, p db.CreateBookParams) (db.Book, error)
-	CreateApproved(ctx context.Context, actorID int64, p db.CreateBookParams) (db.Book, error)
-	Update(ctx context.Context, actorID, bookID int64, p db.UpdateBookDetailsParams) (db.Book, error)
-	Approve(ctx context.Context, actorID, bookID int64) (db.Book, error)
-	Reject(ctx context.Context, actorID, bookID int64, reason string) (db.Book, error)
-	Archive(ctx context.Context, actorID, bookID int64) (db.Book, error)
-	Restore(ctx context.Context, actorID, bookID int64) (db.Book, error)
-	Get(ctx context.Context, bookID int64) (db.Book, error)
-	List(ctx context.Context, status string, limit, offset int32) ([]db.Book, int64, error)
+	Suggest(ctx context.Context, userID int64, p books.CreateParams) (db.BookView, error)
+	CreateApproved(ctx context.Context, actorID int64, p books.CreateParams) (db.BookView, error)
+	Update(ctx context.Context, actorID, bookID int64, p books.UpdateParams) (db.BookView, error)
+	Approve(ctx context.Context, actorID, bookID int64) (db.BookView, error)
+	Reject(ctx context.Context, actorID, bookID int64, reason string) (db.BookView, error)
+	Archive(ctx context.Context, actorID, bookID int64) (db.BookView, error)
+	Restore(ctx context.Context, actorID, bookID int64) (db.BookView, error)
+	Get(ctx context.Context, bookID int64) (db.BookView, error)
+	List(ctx context.Context, status string, limit, offset int32) ([]db.BookView, int64, error)
 	History(ctx context.Context, bookID int64) ([]db.AuditLog, error)
 }
 
@@ -32,7 +32,7 @@ type moderationService interface {
 //
 // İki ayrı DTO'nun karşılığı burada görülüyor: Faz 4 books tablosuna 4 kolon ekledi ve
 // bunların HİÇBİRİ public cevaba sızmadı — çünkü public bookResponse alanları elle
-// seçiyor. Faz 2'de db.Book'u doğrudan serileştirseydik, rejection_reason ("spam
+// seçiyor. Faz 2'de db.Book'u (bugün db.BookView) doğrudan serileştirseydik, rejection_reason ("spam
 // hesabı") gibi iç notlar herkese açık API'de yayınlanırdı.
 //
 // Gömülü (embedded) struct: bookResponse'un alanları JSON'da AYNI seviyeye açılır.
@@ -45,7 +45,7 @@ type adminBookResponse struct {
 	ModeratedAt     *time.Time `json:"moderated_at"`
 }
 
-func toAdminBookResponse(b db.Book, genreList []db.Genre) adminBookResponse {
+func toAdminBookResponse(b db.BookView, genreList []db.Genre) adminBookResponse {
 	return adminBookResponse{
 		bookResponse:    toBookResponse(b, genreList),
 		Status:          b.Status,
@@ -80,6 +80,16 @@ type auditEntryResponse struct {
 
 // actorFrom, işlemi yapanın kimliğini okur. Rota requireAuth arkasında değilse (yanlış
 // kurulum) 401 yazar — kimliksiz bir yazım asla "aktörsüz" denetim kaydına dönüşmesin.
+// actorAndID, tek kaynağa yazan admin uçlarının ortak girişi: işlemi yapan (token'dan) ve URL'deki
+// {id}. Hata varsa cevabı yazar ve ok=false döner (önce kimlik: 401, sonra id: 400).
+func actorAndID(w http.ResponseWriter, r *http.Request) (actor, id int64, ok bool) {
+	if actor, ok = actorFrom(w, r); !ok {
+		return 0, 0, false
+	}
+	id, ok = parseID(w, r)
+	return actor, id, ok
+}
+
 func actorFrom(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	p, ok := principalFrom(r.Context())
 	if !ok {
@@ -166,14 +176,19 @@ func handleAdminListBooks(svc moderationService, store bookStore) http.HandlerFu
 	}
 }
 
-// writeAdminBook, tek kitabı türleriyle admin DTO'su olarak yazar.
-func writeAdminBook(w http.ResponseWriter, r *http.Request, store bookStore, b db.Book) {
+// writeAdminBook, tek kitabı türleri ve baskılarıyla admin DTO'su olarak yazar.
+func writeAdminBook(w http.ResponseWriter, r *http.Request, store bookStore, b db.BookView) {
 	genreList, err := store.GenresForBook(r.Context(), b.ID)
 	if err != nil {
 		writeInternalError(w, "GenresForBook", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toAdminBookResponse(b, genreList))
+	eds, err := store.Editions(r.Context(), b.ID)
+	if err != nil {
+		writeInternalError(w, "Editions", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, adminBookDetailResponse{adminBookResponse: toAdminBookResponse(b, genreList), Editions: toEditionResponses(eds)})
 }
 
 // handleAdminGetBook, GET /api/admin/books/{id} — statüden bağımsız.
@@ -247,38 +262,30 @@ func (req updateBookRequest) validate() error {
 	return v.err()
 }
 
-func (req updateBookRequest) toParams() db.UpdateBookDetailsParams {
-	return db.UpdateBookDetailsParams{
-		Title:           req.Title,
-		Slug:            req.Slug,
-		Author:          req.Author,
-		Description:     req.Description,
-		CoverUrl:        req.CoverURL,
-		PublicationYear: req.PublicationYear,
-		PageCount:       req.PageCount,
-		Language:        req.Language,
+func (req updateBookRequest) toParams() books.UpdateParams {
+	return books.UpdateParams{
+		UpdateBookDetailsParams: db.UpdateBookDetailsParams{
+			Title:           req.Title,
+			Slug:            req.Slug,
+			Author:          req.Author,
+			Description:     req.Description,
+			PublicationYear: req.PublicationYear,
+			Language:        req.Language,
+		},
+		CoverURL:  req.CoverURL,
+		PageCount: req.PageCount,
 	}
 }
 
 // handleAdminUpdateBook, PATCH /api/admin/books/{id} — onay öncesi düzeltme gibi.
 func handleAdminUpdateBook(svc moderationService, store bookStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		actor, ok := actorFrom(w, r)
+		actor, id, ok := actorAndID(w, r)
 		if !ok {
 			return
 		}
-		id, ok := parseID(w, r)
+		req, ok := readBody[updateBookRequest](w, r)
 		if !ok {
-			return
-		}
-		var req updateBookRequest
-		if err := readJSON(w, r, &req); err != nil {
-			writeRequestError(w, err)
-			return
-		}
-		req.normalize()
-		if err := req.validate(); err != nil {
-			writeRequestError(w, err)
 			return
 		}
 		b, err := svc.Update(r.Context(), actor, id, req.toParams())
@@ -296,7 +303,7 @@ func handleAdminUpdateBook(svc moderationService, store bookStore) http.HandlerF
 // parametre yapan sıradan bir fonksiyon verir: func(svc, ctx, actorID, bookID). Böylece
 // üç handler'ı tek fonksiyonla, string anahtarsız ("approve" yazım hatası derlenirdi)
 // ve servis nil olsa bile (yalnız bir alanı dolduran testler) güvenle kurarız.
-type transitionFunc func(svc moderationService, ctx context.Context, actorID, bookID int64) (db.Book, error)
+type transitionFunc func(svc moderationService, ctx context.Context, actorID, bookID int64) (db.BookView, error)
 
 // handleTransition, gövdesiz bir durum geçişini HTTP'ye bağlar.
 // DELETE /api/admin/books/{id} de buraya (Archive) bağlı: "silme" = yumuşak silme —

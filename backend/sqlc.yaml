@@ -83,6 +83,14 @@ sql:
             go_type:
               type: "int64"
               pointer: true
+          # NULL olabilen integer (Faz 16: editions ve book_view'daki yıl / sayfa) → *int32; nil =
+          # bilinmiyor. Kolon bazlı kurallar (books.*) yukarıda; bu genel kural yeni tablolarda
+          # ve görünümlerde tek tek kolon yazmayı gereksiz kılar.
+          - db_type: "pg_catalog.int4"
+            nullable: true
+            go_type:
+              type: "int32"
+              pointer: true
           # NULL olabilen smallint (Faz 15: LEFT JOIN'den gelen "puanım") → *int16; nil = puan yok.
           - db_type: "pg_catalog.int2"
             nullable: true
