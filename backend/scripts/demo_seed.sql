@@ -25,11 +25,27 @@ JOIN (VALUES (1,'Ayşe'),(2,'Mehmet'),(3,'Zeynep'),(4,'Can'),(5,'Elif'),(6,'Bura
              (7,'Deniz'),(8,'Selin'),(9,'Emre'),(10,'Ece'),(11,'Kaan'),(12,'Naz')) AS d(i, name) ON d.i = g
 ON CONFLICT DO NOTHING;
 
--- SIRA ÖNEMLİ: katalog `created_at DESC, id DESC` sıralı ve bu INSERT'in satırları aynı
--- created_at'i paylaşır (tek transaction) → ilk sayfada (12 kitap) EN SONDAKİ satırlar,
--- sondan başa doğru görünür. Son satır (Aylak Adam) frontend/e2e/catalog.spec.ts'in
--- "olmaması gereken" kitabıdır: türü yalnız roman kalmalı ve hep en sonda durmalı.
-INSERT INTO books (title, slug, author, description, publication_year, page_count, language, status) VALUES
+-- Kitaplar önce geçici bir tabloya yazılır: sayfa sayısı books'ta değil kitabın varsayılan
+-- baskısında (Faz 16, 0013 kolonu sildi). Tek liste iki tabloya dağıtılır (books + editions).
+CREATE TEMP TABLE seed_books (
+    ord              integer GENERATED ALWAYS AS IDENTITY, -- listedeki sıra (aşağıdaki SIRA kuralı)
+    title            text NOT NULL,
+    slug             text NOT NULL,
+    author           text NOT NULL,
+    description      text NOT NULL,
+    publication_year integer,
+    page_count       integer,
+    language         text NOT NULL,
+    status           text NOT NULL,
+    submitter_email  text                                  -- yalnız PENDING öneriler
+) ON COMMIT DROP;
+
+-- SIRA ÖNEMLİ: katalog `created_at DESC, id DESC` sıralı ve kitapların hepsi aynı created_at'i
+-- paylaşır (tek transaction) → ilk sayfada (12 kitap) bu listenin EN SONDAKİ satırları, sondan
+-- başa doğru görünür (books'a `ORDER BY ord` ile yazılır, id'ler liste sırasıyla artar). Son satır
+-- (Aylak Adam) frontend/e2e/catalog.spec.ts'in "olmaması gereken" kitabıdır: türü yalnız roman
+-- kalmalı ve hep en sonda durmalı.
+INSERT INTO seed_books (title, slug, author, description, publication_year, page_count, language, status) VALUES
     ('Tutunamayanlar', 'tutunamayanlar', 'Oğuz Atay', 'Türk edebiyatının modernist başyapıtı: Selim Işık''ın ardından Turgut Özben''in arayışı.', 1972, 724, 'tr', 'APPROVED'),
     ('İnce Memed', 'ince-memed', 'Yaşar Kemal', 'Çukurova''da ağalara karşı dağa çıkan bir gencin destanı.', 1955, 436, 'tr', 'APPROVED'),
     ('Kürk Mantolu Madonna', 'kurk-mantolu-madonna', 'Sabahattin Ali', 'Raif Efendi''nin Berlin''de başlayan sessiz aşk hikâyesi.', 1943, 160, 'tr', 'APPROVED'),
@@ -81,18 +97,19 @@ INSERT INTO books (title, slug, author, description, publication_year, page_coun
     ('Benim Adım Kırmızı', 'benim-adim-kirmizi', 'Orhan Pamuk', '16. yüzyıl İstanbul''unda nakkaşlar arasında işlenen bir cinayet; Doğu ile Batı resim sanatının çatışması.', 1998, 472, 'tr', 'APPROVED'),
     ('Yabancı', 'yabanci', 'Albert Camus', 'Annesinin ölümüne bile kayıtsız kalan Meursault''nun absürt dünyası.', 1942, 112, 'fr', 'APPROVED'),
     ('Fahrenheit 451', 'fahrenheit-451', 'Ray Bradbury', 'Kitapların yasak olduğu ve itfaiyecilerin onları yaktığı bir gelecek.', 1953, 208, 'en', 'APPROVED'),
-    ('Aylak Adam', 'aylak-adam', 'Yusuf Atılgan', 'Ailesinden kalan mirasla aylak bir hayat süren C.''nin, düşlediği kadını İstanbul sokaklarında arayışı.', 1959, 152, 'tr', 'APPROVED')
-ON CONFLICT DO NOTHING;
+    ('Aylak Adam', 'aylak-adam', 'Yusuf Atılgan', 'Ailesinden kalan mirasla aylak bir hayat süren C.''nin, düşlediği kadını İstanbul sokaklarında arayışı.', 1959, 152, 'tr', 'APPROVED');
 
 -- Admin kuyruğu boş görünmesin: okurların önerdiği, onay bekleyen iki kitap. PENDING
 -- kitaplar katalogda görünmez, yani yukarıdaki sıra kuralını etkilemezler.
-INSERT INTO books (title, slug, author, description, publication_year, page_count, language, status, submitted_by)
-SELECT x.title, x.slug, x.author, x.description, x.year, x.pages, x.lang, 'PENDING', u.id
-FROM (VALUES
-    ('Simyacı', 'simyaci', 'Paulo Coelho', 'Hazinesini bulmak için Endülüs''ten Mısır piramitlerine yola çıkan çoban Santiago''nun yolculuğu.', 1988, 188, 'pt', 'okur7@demo.bookhub'),
-    ('Martin Eden', 'martin-eden', 'Jack London', 'Kendini yetiştirerek yazar olmaya çalışan genç bir denizcinin başarı ve yalnızlıkla sınavı.', 1909, 480, 'en', 'okur9@demo.bookhub')
-) AS x(title, slug, author, description, year, pages, lang, email)
-JOIN users u ON u.email = x.email
+INSERT INTO seed_books (title, slug, author, description, publication_year, page_count, language, status, submitter_email) VALUES
+    ('Simyacı', 'simyaci', 'Paulo Coelho', 'Hazinesini bulmak için Endülüs''ten Mısır piramitlerine yola çıkan çoban Santiago''nun yolculuğu.', 1988, 188, 'pt', 'PENDING', 'okur7@demo.bookhub'),
+    ('Martin Eden', 'martin-eden', 'Jack London', 'Kendini yetiştirerek yazar olmaya çalışan genç bir denizcinin başarı ve yalnızlıkla sınavı.', 1909, 480, 'en', 'PENDING', 'okur9@demo.bookhub');
+
+INSERT INTO books (title, slug, author, description, publication_year, language, status, submitted_by)
+SELECT s.title, s.slug, s.author, s.description, s.publication_year, s.language, s.status, u.id
+FROM seed_books s
+LEFT JOIN users u ON u.email = s.submitter_email
+ORDER BY s.ord
 ON CONFLICT DO NOTHING;
 
 -- Platon'un tarihi (MÖ) CHECK'e takılmaz ama uygulama doğrulaması 1450'den öncesini kabul
@@ -101,11 +118,12 @@ UPDATE books SET publication_year = NULL WHERE slug = 'devlet';
 
 -- Faz 16: her kitabın bir varsayılan baskısı olur; kitabın kapağı ve sayfa sayısı ondan gelir.
 -- Migration'lar seed'den ÖNCE koştuğu için 0011'in taşıması boş tabloyu gördü; baskıları burada
--- açıyoruz. Kapağı ve baskı bilgisini (dil, yayınevi, çevirmen, yıl) make demo-seed'de sonra çalışan
--- 0012 doldurur; özgün dil baskılarını da o ekler.
+-- açıyoruz, sayfa sayısı yukarıdaki listeden. Kapağı ve baskı bilgisini (dil, yayınevi, çevirmen,
+-- yıl) make demo-seed'de sonra çalışan 0012 doldurur; özgün dil baskılarını da o ekler.
 INSERT INTO editions (book_id, title, language, page_count, is_primary)
-SELECT b.id, b.title, b.language, b.page_count, true
+SELECT b.id, b.title, b.language, s.page_count, true
 FROM books b
+LEFT JOIN seed_books s ON s.slug = b.slug
 WHERE NOT EXISTS (SELECT 1 FROM editions e WHERE e.book_id = b.id AND e.is_primary);
 
 -- Bilim Kurgu'da en fazla 12 kitap (bir sayfa): catalog.spec.ts Dune ve Vakıf'ı türün İLK

@@ -106,9 +106,9 @@ Geri dönüş ve yeniden deneme: [PROCESS.md](PROCESS.md) §5.
   go -C backend run ./cmd/manage migrate
   go -C backend run ./cmd/manage create-admin -email <e-posta>     # parola gizli sorulur
   docker run --rm -i postgres:16 psql "$DATABASE_URL" < backend/scripts/demo_seed.sql
-  # Kapaklar: migration 0009 seed'den ÖNCE boş tabloya uygulandı; seed'den sonra aynı dosyayı yeniden çalıştır.
-  docker run --rm -i postgres:16 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 < backend/migrations/0009_demo_book_covers.sql
-  # Baskılar (Faz 16): aynı nedenle 0012 de seed'den sonra yeniden (seed varsayılan baskıları açar, 0012 doldurur).
+  # Kapaklar ve baskılar (Faz 16): migration 0012 seed'den ÖNCE boş tabloya uygulandı; seed'den sonra
+  # yeniden çalıştır (seed varsayılan baskıları açar, 0012 kapak ve bilgileriyle doldurur). 0009 artık
+  # çalıştırılmaz: yazdığı books.cover_url kolonunu 0013 sildi.
   docker run --rm -i postgres:16 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 < backend/migrations/0012_demo_editions.sql
   unset DATABASE_URL
   ```
