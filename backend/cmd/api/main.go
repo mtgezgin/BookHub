@@ -102,7 +102,7 @@ func run() int {
 	ratingSvc := ratings.NewCached(ratings.NewService(pool, int64(cfg.RatingMinVotes)), appCache)
 	moderationSvc := moderation.NewService(pool, moderation.WithPublicChangeHook(ratingSvc.InvalidateTopRated))
 	// Baskılar (Faz 16) kapak taşıyor; top-rated cache'i de onları gösterir.
-	editionSvc := editions.NewService(pool, editions.WithPublicChangeHook(ratingSvc.InvalidateTopRated))
+	editionSvc := editions.NewService(pool, ratingSvc.InvalidateTopRated)
 
 	d := deps{
 		books:      books.NewRepository(pool),

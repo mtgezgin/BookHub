@@ -1,21 +1,7 @@
-import { act } from "react";
-import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { Edition } from "../api/types";
+import { render } from "../test/render";
 import { EditionStrip, PrimaryEditionNote } from "./EditionStrip";
-
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-const cleanup: (() => void)[] = [];
-afterEach(() => cleanup.splice(0).forEach((f) => f()));
-
-function render(node: React.ReactNode) {
-  const el = document.createElement("div");
-  const root = createRoot(el);
-  act(() => root.render(node));
-  cleanup.push(() => act(() => root.unmount()));
-  return el;
-}
 
 const ed = (over: Partial<Edition>): Edition => ({
   id: 1, title: "Suç ve Ceza", language: "tr", translator: "", publisher: "", publication_year: null,

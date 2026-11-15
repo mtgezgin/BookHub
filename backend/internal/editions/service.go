@@ -43,31 +43,27 @@ type Service struct {
 	conn db.DBTX
 	q    *db.Queries
 	// onPublicChange: public görünümü etkileyen bir yazım commit edilince çağrılır (en iyi
-	// puanlılar önbelleği kapak taşıyor). Moderasyon servisindeki kancanın aynısı.
+	// puanlılar önbelleği kapak taşıyor). nil olabilir.
 	onPublicChange func(ctx context.Context)
 }
 
-// Option, Service'i kurarken opsiyonel davranış ekler.
-type Option func(*Service)
-
-// WithPublicChangeHook, her başarılı yazımdan sonra fn'i çağırır.
-func WithPublicChangeHook(fn func(ctx context.Context)) Option {
-	return func(s *Service) { s.onPublicChange = fn }
+// NewService, verilen bağlantıyla bir Service kurar. onPublicChange her başarılı yazımdan
+// sonra çağrılır; kanca gerekmiyorsa nil verilir.
+//
+// Neden functional options değil (moderation.NewService'in aksine): tek bir opsiyon var ve
+// moderasyondaki Option/With… iskeletini kopyalamak SonarCloud'un tekrar kapısını düşürüyordu
+// (PR #73). Tek parametre daha az kod ve aynı esneklik.
+func NewService(conn db.DBTX, onPublicChange func(ctx context.Context)) *Service {
+	return &Service{conn: conn, q: db.New(conn), onPublicChange: onPublicChange}
 }
 
-// NewService, verilen bağlantıyla bir Service kurar.
-func NewService(conn db.DBTX, opts ...Option) *Service {
-	s := &Service{conn: conn, q: db.New(conn)}
-	for _, o := range opts {
-		o(s)
-	}
-	return s
-}
-
+// publicChanged, kancayı yalnız BAŞARILI commit'ten sonra çağırır. ctx iptalden
+// bağımsızlaştırılır: yazım commit edildi, istemcinin kopması kancayı yarıda bırakmamalı.
 func (s *Service) publicChanged(ctx context.Context, err error) {
-	if err == nil && s.onPublicChange != nil {
-		s.onPublicChange(context.WithoutCancel(ctx))
+	if err != nil || s.onPublicChange == nil {
+		return
 	}
+	s.onPublicChange(context.WithoutCancel(ctx))
 }
 
 // ListByBook, kitabın baskıları: varsayılan önce, sonra dil, yıl (bilinmeyen sonda), id.

@@ -52,7 +52,7 @@ func TestCodeWorksWithoutLegacyBookColumns(t *testing.T) {
 
 	bookRepo := books.NewRepository(tx)
 	mod := moderation.NewService(tx)
-	ed := editions.NewService(tx)
+	ed := editions.NewService(tx, nil)
 	rat := ratings.NewService(tx, 1)
 	lib := library.NewRepository(tx)
 

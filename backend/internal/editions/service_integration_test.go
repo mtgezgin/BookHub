@@ -48,7 +48,7 @@ func TestBookCreateOpensPrimaryEdition(t *testing.T) {
 	if b.CoverUrl != "https://example.test/suc.jpg" || b.PageCount == nil || *b.PageCount != 687 {
 		t.Errorf("kitap kapağı ve sayfası varsayılan baskıdan gelmeli: %q %v", b.CoverUrl, b.PageCount)
 	}
-	list, err := editions.NewService(pool).ListByBook(context.Background(), b.ID)
+	list, err := editions.NewService(pool, nil).ListByBook(context.Background(), b.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestEditionLifecycle(t *testing.T) {
 	ctx := context.Background()
 	admin := testdb.CreateUser(t, pool, "Admin")
 	hookCalls := 0
-	svc := editions.NewService(pool, editions.WithPublicChangeHook(func(context.Context) { hookCalls++ }))
+	svc := editions.NewService(pool, func(context.Context) { hookCalls++ })
 	b := newBook(t, pool, "https://example.test/tr.jpg", 687)
 
 	ru, err := svc.Create(ctx, admin, b.ID, editions.CreateParams{Title: "Преступление и наказание", Language: "ru", PublicationYear: ptr(int32(1866))})
@@ -170,7 +170,7 @@ func TestEditionNotFound(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	admin := testdb.CreateUser(t, pool, "Admin")
-	svc := editions.NewService(pool)
+	svc := editions.NewService(pool, nil)
 
 	if _, err := svc.Create(ctx, admin, 0, editions.CreateParams{Title: "x", Language: "tr"}); !errors.Is(err, books.ErrNotFound) {
 		t.Errorf("olmayan kitap: books.ErrNotFound bekleniyordu, gelen %v", err)
@@ -198,7 +198,7 @@ func TestBookWithoutEdition(t *testing.T) {
 	if b.CoverUrl != "" || b.PageCount != nil {
 		t.Errorf("baskısız kitap: kapak '' ve sayfa nil olmalı: %q %v", b.CoverUrl, b.PageCount)
 	}
-	ed, err := editions.NewService(pool).Create(ctx, admin, id, editions.CreateParams{Title: "İlk", Language: "tr"})
+	ed, err := editions.NewService(pool, nil).Create(ctx, admin, id, editions.CreateParams{Title: "İlk", Language: "tr"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,9 +3,6 @@ package database
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"net/url"
-	"os"
 	"testing"
 	"time"
 
@@ -21,34 +18,10 @@ import (
 //   - görünüm (book_view) eski kolonlardaki değerleri aynen verir; puan istatistikleri değişmez;
 //   - Down görünümü ve tabloyu kaldırır, books dokunulmamış kalır.
 func TestMigration0011CopiesBooksIntoEditions(t *testing.T) {
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL tanımlı değil → entegrasyon testi atlanıyor")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	admin, err := New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("bağlantı: %v", err)
-	}
-	t.Cleanup(admin.Close)
-	name := fmt.Sprintf("bookhub_m0011_%d", time.Now().UnixNano())
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Skipf("geçici veritabanı açılamadı (yetki?): %v", err)
-	}
-	t.Cleanup(func() {
-		if _, err := admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)"); err != nil {
-			t.Errorf("geçici veritabanı silinemedi: %v", err)
-		}
-	})
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN: %v", err)
-	}
-	u.Path = "/" + name
-
-	conn, err := sql.Open("pgx", u.String())
+	conn, err := sql.Open("pgx", freshDatabase(ctx, t, "bookhub_m0011"))
 	if err != nil {
 		t.Fatal(err)
 	}
