@@ -1,6 +1,6 @@
 # Faz 16 — Eser ve baskı (works / editions)
 
-> Durum: 🔨 uygulamada (spec onayı 2026-11-12; sorgular için görünüm kararı aynı gün, § 3) —
+> Durum: ✅ canlıda (2026-11-15; PR #73 genişletme, PR #74 daraltma; spec onayı 2026-11-12) —
 > [ROADMAP](../ROADMAP.md) · Backlog: [CAT-02](../FEATURE_REQUESTS.md) · Issue: [#36](https://github.com/mtgezgin/BookHub/issues/36) ·
 > İlgili: [0001_books_genres.sql](../../backend/migrations/0001_books_genres.sql),
 > [books.sql](../../backend/sql/queries/books.sql), [BookDetail.tsx](../../frontend/src/pages/BookDetail.tsx)
@@ -53,7 +53,7 @@ veri ve mevcut API bozulmadan, **genişlet → daralt** sırasıyla, iki PR'da.
 
 ## 🚫 Kapsam dışı
 
-- Kullanıcının baskı önermesi (moderasyonlu) — ayrı issue.
+- Kullanıcının baskı önermesi (moderasyonlu) — ayrı issue: [#79](https://github.com/mtgezgin/BookHub/issues/79).
 - Admin baskı ekranı; kitap sayfasında baskı seçip ana kapağı değiştirmek.
 - Baskı bazında puan / yorum; Open Library'den toplu içe aktarma.
 - ISBN sağlama kontrolü; baskı adıyla arama (arama bugünkü gibi eser adı ve yazarda).

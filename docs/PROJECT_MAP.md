@@ -5,9 +5,9 @@
 > **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
 > "Hangi sırayla?" sorusunun cevabı: **[ROADMAP.md](ROADMAP.md)**.
 >
-> Son güncelleme: 2026-11-15 — Faz 16 eser ve baskı: genişletme PR'ı canlıda (migration `0011`–`0012`,
-> `book_view`, `internal/editions`, baskı uçları, "Diğer baskılar" şeridi); daraltma PR'ı (`0013`,
-> `books.cover_url` ve `books.page_count` silinir). Faz 1–15 canlıda.
+> Son güncelleme: 2026-11-16 — Faz 16 eser ve baskı canlıda (migration `0011`–`0013`, `book_view`,
+> `internal/editions`, baskı uçları, "Diğer baskılar" şeridi; `books.cover_url` ve `books.page_count`
+> silindi). Faz 1–16 canlıda.
 
 ---
 

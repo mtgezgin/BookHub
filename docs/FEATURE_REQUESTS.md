@@ -15,7 +15,7 @@ Kodla karşılaştırma (origin/main, Faz 14 sonrası). 34 maddenin hiçbiri tam
 | ID | Durum | Var olan | Eksik |
 | --- | --- | --- | --- |
 | CAT-01 | kısmen | Detayda kapak (yüklenemezse üretilmiş kapak), yazar, yıl, sayfa, dil, türler, açıklama; kendi puanı topluluk ortalamasından ayrı; benzer kitaplar | Detaydan kitaplığa ekleme (LIB-01), kendi incelemesi (REV-01), yayınevi |
-| CAT-02 | karar verildi | Tasarım: [phase-16-works-editions.md](phases/phase-16-works-editions.md), [#36](https://github.com/mtgezgin/BookHub/issues/36) | Uygulama (Faz 16) |
+| CAT-02 | tamamlandı (Faz 16) | Eser/baskı ayrımı, admin baskı uçları, "Diğer baskılar" şeridi ([phase-16](phases/phase-16-works-editions.md), [#36](https://github.com/mtgezgin/BookHub/issues/36)) | Kullanıcının baskı önermesi ([#79](https://github.com/mtgezgin/BookHub/issues/79)); okuma kaydının baskıya bağlanması (Faz 17) |
 | MOD-02 | kısmen | Backend: tekil kayıt, düzenleme (PATCH), onay/red/arşiv/geri yayın, denetim geçmişi. Arayüz: durum sekmeleri, red diyaloğu | Arayüzde bütün alanlar, öneren ve geçmiş; onay öncesi düzeltme; zorunlu red gerekçesi; eşzamanlı düzenleme uyarısı |
 | DISC-01 | kısmen | Başlık/yazar araması, tür filtresi, "En yeni" ve "En yüksek puan" sıralaması; filtre URL'de, bayat yanıt koruması, boş sonuçta "filtreleri temizle" | Dil ve sayfa aralığı filtresi, başlığa göre sıralama, aktif filtre etiketleri |
 | DISC-02 | kısmen | Detayda ilk türe göre benzer kitaplar, gerekçe başlıkta | Ortak türlerin birlikte değerlendirilmesi, ağırlıklı puanla sıralama |
@@ -31,6 +31,10 @@ DATA-02, NOTIF-01.
 (PR [#43](https://github.com/mtgezgin/BookHub/pull/43), canlı doğrulama 25 Ekim). Aynı fazda SOC-02'nin "varsayılan gizli" yarısı (kitaplığı yalnız sahibi
 görür; herkese açık uç yok) ve CAT-01'in "detaydan kitaplığa ekleme" eksiği de kapandı. Arama
 Kitaplığım'da Enter ile çalışır (katalogdaki gibi yazarken değil).
+
+**Güncelleme (16 Kasım 2026, Faz 16 — [#36](https://github.com/mtgezgin/BookHub/issues/36)):** CAT-02 canlıda
+(PR [#73](https://github.com/mtgezgin/BookHub/pull/73) ve [#74](https://github.com/mtgezgin/BookHub/pull/74), canlı doğrulama 15 Kasım).
+Baskıları yalnız admin ekler; kullanıcının baskı önermesi [#79](https://github.com/mtgezgin/BookHub/issues/79)'da, Faz 18'le birlikte.
 
 ## 1. Ürün yönü ve temel ihtiyaç
 
@@ -162,7 +166,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### CAT-02 — Eser ve baskı kimliği kararı
 
-- [ ] **P0 karar / P1 tam uygulama · Karar verildi (17 Ekim 2026) · Planlandı: Faz 16**
+- [x] **P0 karar / P1 tam uygulama · Tamamlandı** (Faz 16, [#36](https://github.com/mtgezgin/BookHub/issues/36); canlıda doğrulandı 2026-11-15)
 - **Karar kaydı:** [phases/phase-16-works-editions.md](phases/phase-16-works-editions.md) ·
   [#36](https://github.com/mtgezgin/BookHub/issues/36). `books` eser olarak kalır; yeni `editions`
   tablosu, kitap başına bir varsayılan baskı; puan ve yorum eser düzeyinde; genişlet → daralt, iki PR.
