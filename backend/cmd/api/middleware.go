@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
 	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
@@ -227,7 +228,12 @@ func requestLogger(next http.Handler) http.Handler {
 		}
 		dbQueries, dbTime := stats.DB()
 		_, redisTime := stats.Redis()
-		slog.Log(r.Context(), level, "http",
+		attrs := []any{}
+		// trace_id: bu satırdan Grafana'daki ize geçmenin anahtarı (telemetri kapalıyken yok).
+		if sc := trace.SpanContextFromContext(r.Context()); sc.IsValid() {
+			attrs = append(attrs, "trace_id", sc.TraceID().String())
+		}
+		slog.Log(r.Context(), level, "http", append(attrs,
 			"method", r.Method,
 			"path", r.URL.Path, // query BİLEREK yok: arama terimleri kişisel veri olabilir
 			"status", status,
@@ -238,7 +244,7 @@ func requestLogger(next http.Handler) http.Handler {
 			"redis_ms", ms(redisTime),
 			"remote", clientIP(r),
 			"request_id", id,
-		)
+		)...)
 	})
 }
 

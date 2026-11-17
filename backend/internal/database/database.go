@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/multitracer"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/mtgezgin/bookhub/backend/internal/reqstats"
@@ -40,12 +41,13 @@ SET lock_timeout = '3s';
 SET idle_in_transaction_session_timeout = '15s';`
 
 // New, verilen DSN ile bir bağlantı havuzu açar ve bağlantıyı doğrular. maxConns <= 0 ise
-// DefaultMaxConns kullanılır.
+// DefaultMaxConns kullanılır. tracers: istek sayacına EK sorgu izleyicileri (OpenTelemetry;
+// internal/telemetry). Bu paket onları tanımaz; yalnız pgx'in arayüzünü bilir.
 //
 // NEDEN HAVUZ: her HTTP isteğinde sıfırdan bağlantı açmak (TCP + auth el sıkışması)
 // çok pahalı. Havuz, açık bağlantıları hazır tutar ve eşzamanlı isteklere dağıtır;
 // iş bitince bağlantı kapanmaz, havuza geri döner. (JS'teki pg.Pool'un karşılığı.)
-func New(ctx context.Context, databaseURL string, maxConns int32) (*pgxpool.Pool, error) {
+func New(ctx context.Context, databaseURL string, maxConns int32, tracers ...pgx.QueryTracer) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		// Buraya DSN parse hatasıyla düşülür (bozuk URL vb.).
@@ -60,7 +62,8 @@ func New(ctx context.Context, databaseURL string, maxConns int32) (*pgxpool.Pool
 	// Boşta kalan fazladan bağlantılar 30 dakika (varsayılan) değil 5 dakika sonra kapanır: paylaşılan
 	// havuzlayıcıda kullanılmayan yuvaları tutmayalım.
 	cfg.MaxConnIdleTime = 5 * time.Minute
-	cfg.ConnConfig.Tracer = queryTracer{}
+	// pgx tek izleyici kabul eder; multitracer birden çoğunu sırayla çağırır.
+	cfg.ConnConfig.Tracer = multitracer.New(append([]pgx.QueryTracer{queryTracer{}}, tracers...)...)
 	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		if _, err := conn.Exec(ctx, sessionLimits); err != nil {
 			return fmt.Errorf("oturum süre sınırları ayarlanamadı: %w", err)

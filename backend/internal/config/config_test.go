@@ -429,3 +429,41 @@ func TestLoadDBMaxConns(t *testing.T) {
 		})
 	}
 }
+
+// TestLoadTelemetry: telemetri adresi opsiyoneldir; verilmişse http(s) bir adres olmalıdır. Hata
+// mesajı değeri TAŞIMAZ (adres kimlik bilgisi içerebilir).
+func TestLoadTelemetry(t *testing.T) {
+	tests := []struct {
+		name, endpoint, service string
+		wantErr                 bool
+		wantService             string
+	}{
+		{"kapalı (varsayılan)", "", "", false, "bookhub-api"},
+		{"yerel toplayıcı", "http://lgtm:4318", "", false, "bookhub-api"},
+		{"bulut ve özel ad", "https://otlp-gateway.example.net/otlp", "bookhub-api-deneme", false, "bookhub-api-deneme"},
+		{"şemasız adres", "lgtm:4318", "", true, ""},
+		{"gRPC şeması desteklenmez", "grpc://lgtm:4317", "", true, ""},
+		{"kimlik içeren bozuk adres", "https://kullanici:gizli-parola@", "", true, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("JWT_SECRET", testJWTSecret)
+			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", tt.endpoint)
+			t.Setenv("OTEL_SERVICE_NAME", tt.service)
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("hata beklentisi %v, gelen %v", tt.wantErr, err)
+			}
+			if err != nil {
+				if strings.Contains(err.Error(), "gizli-parola") {
+					t.Errorf("hata mesajı adresi taşımamalı: %v", err)
+				}
+				return
+			}
+			if cfg.OTLPEndpoint != tt.endpoint || cfg.ServiceName != tt.wantService {
+				t.Errorf("gelen %q / %q", cfg.OTLPEndpoint, cfg.ServiceName)
+			}
+		})
+	}
+}

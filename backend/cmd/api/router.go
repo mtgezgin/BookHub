@@ -46,6 +46,7 @@ func newRouter(d deps) http.Handler {
 	// Middleware: her isteğe, yukarıdan aşağı SIRAYLA uygulanan ara katmanlar.
 	r.Use(middleware.RequestID)              // her isteğe benzersiz bir ID ekle (log korelasyonu)
 	r.Use(resolveClientIP(d.trustedProxies)) // gerçek istemci IP'si (proxy arkasında da)
+	r.Use(observe())                         // iz + süre metriği (OpenTelemetry); kapalıyken hiçbir şey yapmaz
 	r.Use(requestLogger)                     // her istek için tek yapılandırılmış log satırı + X-Request-Id (12-factor XI)
 	r.Use(recoverer)                         // bir handler panik ederse hata zarfıyla 500 dön, sunucu çökmesin
 	r.Use(requestBudget)                     // süre bütçesi; okumalar istemci iptalinden ayrılır

@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -52,6 +53,13 @@ type Config struct {
 	// Bağlantı adresine (pool_max_conns) YAZILMAZ: aynı adresi migration aracı da açar ve pgx
 	// tanımadığı anahtarı sunucuya iletir.
 	DBMaxConns int
+
+	// OTLPEndpoint: OpenTelemetry toplayıcısının adresi (OTEL_EXPORTER_OTLP_ENDPOINT, http/https).
+	// OPSİYONEL: boşsa iz ve metrik üretilmez, ağ bağlantısı açılmaz (internal/telemetry).
+	// Ad OpenTelemetry'nin standart değişkenidir; SDK aynı değişkeni kendisi de okur.
+	OTLPEndpoint string
+	// ServiceName: telemetride bu sürecin adı (OTEL_SERVICE_NAME; varsayılan bookhub-api).
+	ServiceName string
 
 	// RedisURL: OPSİYONEL. Boşsa cache kapalı (Noop) ve rate limit bellek içi — uygulama
 	// Redis'siz de doğru çalışır. Doluysa açılışta PING atılır (fail-fast).
@@ -137,6 +145,8 @@ func Load() (Config, error) {
 		CookieName:      getenv("COOKIE_NAME", DefaultCookieName),
 		RatingMinVotes:  minVotes,
 		RedisURL:        os.Getenv("REDIS_URL"),
+		OTLPEndpoint:    os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		ServiceName:     getenv("OTEL_SERVICE_NAME", "bookhub-api"),
 		AuthRateLimit:   authLimit,
 		LogFormat:       getenv("LOG_FORMAT", "text"),
 		TrustedProxies:  proxies,
@@ -178,6 +188,13 @@ func (c *Config) validate() error {
 	}
 	if c.DBMaxConns < 1 || c.DBMaxConns > 100 {
 		return fmt.Errorf("DB_MAX_CONNS 1-100 arasında olmalı, gelen %d", c.DBMaxConns)
+	}
+	if c.OTLPEndpoint != "" {
+		u, err := url.Parse(c.OTLPEndpoint)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			// Değer loglanmaz: adres kimlik bilgisi taşıyabilir.
+			return fmt.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT http:// ya da https:// ile başlayan bir adres olmalı")
+		}
 	}
 	if c.AuthRateLimit < 1 {
 		return fmt.Errorf("AUTH_RATE_LIMIT_PER_MIN en az 1 olmalı, gelen %d", c.AuthRateLimit)
