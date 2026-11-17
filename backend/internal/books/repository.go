@@ -3,9 +3,9 @@ package books
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -159,15 +159,23 @@ func (r *Repository) Editions(ctx context.Context, bookID int64) ([]db.Edition, 
 type Sort string
 
 const (
-	SortNewest Sort = ""       // varsayılan: en yeni önce
-	SortRating Sort = "rating" // ağırlıklı (Bayes) puan, oysuzlar sonda
+	// SortDefault: aramasız listede en yeni önce; aramada ilgi sırası (en iyi eşleşme önce).
+	SortDefault Sort = ""
+	// SortRelevance, aramanın ilgi sırası. Aramasız listede karşılığı yoktur, varsayılana düşer.
+	SortRelevance Sort = "relevance"
+	// SortNewest, en yeni önce: aramasız listenin varsayılanı, aramada açıkça istenirse.
+	SortNewest Sort = "newest"
+	// SortRating, ağırlıklı (Bayes) puan; oysuzlar sonda.
+	SortRating Sort = "rating"
 )
 
-// ListFilter, public kitap listesinin filtre, sıra ve sayfalama parametreleri.
+// ListFilter, public kitap listesinin ve aramanın filtre, sıra ve sayfalama parametreleri.
 // Boş string = o filtre yok. Sınırların doğrulanması (limit ≤ 100 vb.) HTTP katmanının işi.
 type ListFilter struct {
 	Genre string // tür slug'ı
-	Query string // başlık/yazar içinde aranan metin
+	// Query, aranan metin (ham hâliyle; katlama ve kelimelere ayırma veritabanında yapılır).
+	// Yalnız Search okur; List bu alana bakmaz.
+	Query string
 	Sort  Sort
 	// Yalnız SortRating için: ağırlıklı skorun m'i ve hiç oy yokken genel ortalamanın yerine
 	// geçen değer. Değerler ratings paketinden gelir; books onu içe aktaramaz (ratings books'u
@@ -180,8 +188,9 @@ type ListFilter struct {
 
 // List, filtreye uyan onaylı kitapların bir SAYFASINI ve filtreye uyan TOPLAM sayıyı
 // döner (varsayılan en yeniden eskiye). Boş sonuç hata değildir; ErrNotFound çevirisi yoktur.
+// Metin araması burada değil Search'tedir.
 func (r *Repository) List(ctx context.Context, f ListFilter) ([]db.BookView, int64, error) {
-	genre, query := optional(f.Genre), optional(EscapeLike(f.Query))
+	genre := optional(f.Genre)
 
 	var (
 		list []db.BookView
@@ -194,19 +203,102 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]db.BookView, int
 			return nil, 0, fmt.Errorf("genel ortalama sorgusu: %w", err)
 		}
 		list, err = r.q.ListBooksByRating(ctx, db.ListBooksByRatingParams{
-			Genre: genre, Query: query, M: f.MinVotes, C: c, Limit: f.Limit, Offset: f.Offset,
+			Genre: genre, M: f.MinVotes, C: c, Limit: f.Limit, Offset: f.Offset,
 		})
 	} else {
-		list, err = r.q.ListBooks(ctx, db.ListBooksParams{Genre: genre, Query: query, Limit: f.Limit, Offset: f.Offset})
+		list, err = r.q.ListBooks(ctx, db.ListBooksParams{Genre: genre, Limit: f.Limit, Offset: f.Offset})
 	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("kitap listeleme sorgusu: %w", err)
 	}
-	total, err := r.q.CountBooks(ctx, db.CountBooksParams{Genre: genre, Query: query})
+	total, err := r.q.CountBooks(ctx, genre)
 	if err != nil {
 		return nil, 0, fmt.Errorf("kitap sayma sorgusu: %w", err)
 	}
 	return list, total, nil
+}
+
+// SearchHit, arama sonucundaki bir kitap: kitabın kendisi ve türleri (aynı sorgudan).
+type SearchHit struct {
+	Book   db.BookView
+	Genres []db.Genre
+}
+
+// Search, f.Query ile eşleşen onaylı kitapların bir SAYFASINI ve eşleşen TOPLAM sayıyı döner.
+// Eşleşme Türkçe harfe, aksana, büyük/küçük harfe ve kelime sırasına duyarsızdır; son kelime önek
+// sayılır (tanım: migrations/0014_book_search.sql, sorgu: sql/queries/books.sql SearchBooks).
+//
+// List'ten farkı: sayfa, toplam ve türler TEK sorguda gelir. Yazarken arama bu ucu sık çağırır ve
+// canlıda her sorgu ayrı bir ağ gidiş-dönüşüdür. Puan sırası tek istisna: genel ortalama (C) ayrı
+// okunur, çünkü tek tanımı ratings.sql'dedir.
+func (r *Repository) Search(ctx context.Context, f ListFilter) ([]SearchHit, int64, error) {
+	p := db.SearchBooksParams{
+		Query: f.Query, Sort: string(searchSort(f.Sort)), Genre: optional(f.Genre),
+		Limit: f.Limit, Offset: f.Offset,
+	}
+	if f.Sort == SortRating {
+		c, err := r.q.GlobalAverageRating(ctx, f.ColdStart)
+		if err != nil {
+			return nil, 0, fmt.Errorf("genel ortalama sorgusu: %w", err)
+		}
+		p.M, p.C = f.MinVotes, c
+	}
+	rows, err := r.q.SearchBooks(ctx, p)
+	if err != nil {
+		return nil, 0, fmt.Errorf("kitap arama sorgusu: %w", err)
+	}
+	hits := make([]SearchHit, 0, len(rows))
+	for _, row := range rows {
+		genres, err := decodeGenres(row.Genres)
+		if err != nil {
+			return nil, 0, fmt.Errorf("arama sonucunun türleri çözülemedi (kitap=%d): %w", row.BookView.ID, err)
+		}
+		hits = append(hits, SearchHit{Book: row.BookView, Genres: genres})
+	}
+	if len(rows) > 0 {
+		return hits, rows[0].Total, nil
+	}
+	if f.Offset == 0 {
+		return hits, 0, nil
+	}
+	// Sayfa sonun ötesinde: satır yok, toplamı taşıyan satır da yok. İlk satırı isteyip toplamı ondan
+	// al (arayüz boşalmış bir sayfadan son gerçek sayfaya bu toplamla döner; kitaplıktaki desen).
+	p.Limit, p.Offset = 1, 0
+	first, err := r.q.SearchBooks(ctx, p)
+	if err != nil {
+		return nil, 0, fmt.Errorf("kitap arama toplamı sorgusu: %w", err)
+	}
+	if len(first) == 0 {
+		return hits, 0, nil
+	}
+	return hits, first[0].Total, nil
+}
+
+// searchSort, aramada geçerli sırayı seçer: belirtilmemişse (ya da tanınmıyorsa) ilgi sırası.
+func searchSort(s Sort) Sort {
+	switch s {
+	case SortNewest, SortRating:
+		return s
+	}
+	return SortRelevance
+}
+
+// decodeGenres, SearchBooks'un jsonb olarak döndürdüğü tür dizisini çözer. Alan adları sorgudaki
+// jsonb_build_object ile eşleşir; db.Genre'nin üretilmiş JSON etiketlerine bağlı değildir.
+func decodeGenres(raw []byte) ([]db.Genre, error) {
+	var rows []struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+		Slug string `json:"slug"`
+	}
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]db.Genre, 0, len(rows))
+	for _, g := range rows {
+		out = append(out, db.Genre{ID: g.ID, Name: g.Name, Slug: g.Slug})
+	}
+	return out, nil
 }
 
 // optional, boş string'i NULL'a (nil) çevirir: SQL'deki `param IS NULL OR ...` deseni
@@ -216,13 +308,6 @@ func optional(s string) *string {
 		return nil
 	}
 	return &s
-}
-
-// EscapeLike, kullanıcının aradığı metindeki LIKE jokerlerini (%, _) ve kaçış karakterini
-// (\) kaçışlar. Güvenlik açığı değil (sorgu zaten parametreli) ama anlam hatası: "%50"
-// araması "50 ile biten her şey" demek olmamalı.
-func EscapeLike(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
 // GenresForBook, tek kitabın türlerini ada göre sıralı döner.

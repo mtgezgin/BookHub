@@ -38,6 +38,18 @@ func (f fakeBooks) List(_ context.Context, lf books.ListFilter) ([]db.BookView, 
 	}
 	return f.list, f.total, f.err
 }
+
+// Search, List ile aynı sahte veriyi arama biçiminde döner: kitaplar f.list'ten, türleri f.genres'ten.
+func (f fakeBooks) Search(_ context.Context, lf books.ListFilter) ([]books.SearchHit, int64, error) {
+	if f.filter != nil {
+		*f.filter = lf
+	}
+	hits := make([]books.SearchHit, 0, len(f.list))
+	for _, b := range f.list {
+		hits = append(hits, books.SearchHit{Book: b, Genres: f.genres[b.ID]})
+	}
+	return hits, f.total, f.err
+}
 func (f fakeBooks) GenresForBook(_ context.Context, id int64) ([]db.Genre, error) {
 	return f.genres[id], f.genreErr
 }
@@ -178,6 +190,13 @@ func TestListBooksQueryParams(t *testing.T) {
 		// Puan sırası ağırlıklı skor ister: m router'dan (config), oy yokken C'nin yerine geçen
 		// değer ratings'ten gelir (books, ratings'i içe aktaramaz: ratings books'u aktarıyor).
 		{"/api/books?sort=rating", books.ListFilter{Sort: books.SortRating, ColdStart: ratings.ColdStartMean, Limit: 20}},
+		// Aramada sıra: verilmezse (ya da relevance) varsayılan = ilgi sırası; newest ve rating açıkça taşınır.
+		{"/api/books?q=dune", books.ListFilter{Query: "dune", Limit: 20}},
+		{"/api/books?q=dune&sort=relevance", books.ListFilter{Query: "dune", Limit: 20}},
+		{"/api/books?q=dune&sort=newest", books.ListFilter{Query: "dune", Sort: books.SortNewest, Limit: 20}},
+		{"/api/books?q=dune&sort=rating", books.ListFilter{Query: "dune", Sort: books.SortRating, ColdStart: ratings.ColdStartMean, Limit: 20}},
+		// Aramasız istekte relevance'ın karşılığı yok: adreste kalmış değer 400 üretmez, varsayılana düşer.
+		{"/api/books?sort=relevance", books.ListFilter{Limit: 20}},
 	}
 	for _, tc := range valid {
 		t.Run(tc.url, func(t *testing.T) {
@@ -197,6 +216,8 @@ func TestListBooksQueryParams(t *testing.T) {
 		"/api/books?offset=-1", "/api/books?offset=10001",
 		"/api/books?genre=Kötü%20Slug", "/api/books?q=" + strings.Repeat("a", maxQueryLen+1),
 		"/api/books?sort=title",
+		// Geçersiz UTF-8 ve NUL: veritabanına ulaşsaydı 500 olurdu (REVIEW_FEEDBACK F30).
+		"/api/books?q=%FF", "/api/books?q=a%00b", "/api/books?q=a%C3",
 	} {
 		t.Run("400: "+url[:min(len(url), 40)], func(t *testing.T) {
 			rec := do(t, newRouter(deps{books: fakeBooks{}}), http.MethodGet, url, "")

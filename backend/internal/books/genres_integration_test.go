@@ -147,38 +147,36 @@ func TestSetGenresConcurrentReplace(t *testing.T) {
 	}
 }
 
-// TestListFiltersRealDB, liste ucunun tür filtresi, metin araması ve sayfalamasını gerçek
-// Postgres'le doğrular. Aramalar bu teste özgü benzersiz bir işaretle yapılır ki DB'deki
-// başka satırlar sonucu kirletmesin.
+// TestListFiltersRealDB, liste ucunun tür filtresini ve sayfalamasını gerçek Postgres'le doğrular.
+// Kitaplar bu teste özgü bir türe bağlanır ki DB'deki başka satırlar sonucu kirletmesin.
+// Metin araması List'te değil Search'tedir (search_integration_test.go).
 func TestListFiltersRealDB(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	marker := testdb.Unique("isaret")
 
-	mk := func(title, author, status string) db.BookView {
+	genre := f.createGenre(t)
+	var genreSlug string
+	if err := f.pool.QueryRow(ctx, "SELECT slug FROM genres WHERE id=$1", genre).Scan(&genreSlug); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(title, status string) db.BookView {
 		t.Helper()
 		b, err := f.repo.Create(ctx, CreateParams{CreateBookParams: db.CreateBookParams{
-			Title: title, Slug: testdb.Unique("liste"), Author: author, Language: "tr", Status: status,
+			Title: title, Slug: testdb.Unique("liste"), Author: "Frank Herbert", Language: "tr", Status: status,
 		}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { testdb.Exec(t, f.pool, "DELETE FROM books WHERE id = $1", b.ID) })
+		if err := f.repo.SetGenres(ctx, b.ID, []int64{genre}); err != nil {
+			t.Fatal(err)
+		}
 		return b
 	}
-	dune := mk("Dune "+marker, "Frank Herbert", StatusApproved)
-	foundation := mk("Vakıf "+marker, "Isaac Asimov", StatusApproved)
-	mk("Gizli "+marker, "Frank Herbert", StatusPending) // görünmemeli
-	percent := mk("%100 Gerçek "+marker, "Anonim", StatusApproved)
-
-	genre := f.createGenre(t)
-	if err := f.repo.SetGenres(ctx, dune.ID, []int64{genre}); err != nil {
-		t.Fatal(err)
-	}
-	var genreSlug string
-	if err := f.pool.QueryRow(ctx, "SELECT slug FROM genres WHERE id=$1", genre).Scan(&genreSlug); err != nil {
-		t.Fatal(err)
-	}
+	dune := mk("Dune", StatusApproved)
+	foundation := mk("Vakıf", StatusApproved)
+	mk("Gizli", StatusPending) // görünmemeli
+	third := mk("Üçüncü", StatusApproved)
 
 	ids := func(list []db.BookView) []int64 {
 		out := make([]int64, 0, len(list))
@@ -189,6 +187,7 @@ func TestListFiltersRealDB(t *testing.T) {
 		return out
 	}
 	sorted := func(v ...int64) []int64 { sort.Slice(v, func(i, j int) bool { return v[i] < v[j] }); return v }
+	all := sorted(dune.ID, foundation.ID, third.ID)
 
 	tests := []struct {
 		name      string
@@ -196,11 +195,9 @@ func TestListFiltersRealDB(t *testing.T) {
 		wantIDs   []int64
 		wantTotal int64
 	}{
-		{"arama: başlıkta işaret → onaylılar (PENDING hariç)", ListFilter{Query: marker, Limit: 50}, sorted(dune.ID, foundation.ID, percent.ID), 3},
-		{"arama: yazar adı, büyük/küçük harf duyarsız", ListFilter{Query: "frank herbert", Limit: 50}, nil, -1},
-		{"tür filtresi", ListFilter{Genre: genreSlug, Limit: 50}, []int64{dune.ID}, 1},
-		{"% joker DEĞİL, düz karakter", ListFilter{Query: "%100 Gerçek " + marker, Limit: 50}, []int64{percent.ID}, 1},
-		{"sayfalama: limit 2 → 2 kayıt ama toplam 3", ListFilter{Query: marker, Limit: 2}, nil, 3},
+		{"tür filtresi: yalnız onaylılar (PENDING hariç)", ListFilter{Genre: genreSlug, Limit: 50}, all, 3},
+		{"sayfalama: limit 2 → 2 kayıt ama toplam 3", ListFilter{Genre: genreSlug, Limit: 2}, nil, 3},
+		{"Query listeyi süzmez (arama Search'te)", ListFilter{Genre: genreSlug, Query: "dune", Limit: 50}, all, 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -211,7 +208,7 @@ func TestListFiltersRealDB(t *testing.T) {
 			if tt.wantIDs != nil && !equalIDs(ids(list), tt.wantIDs) {
 				t.Errorf("id'ler: istenen %v, gelen %v", tt.wantIDs, ids(list))
 			}
-			if tt.wantTotal >= 0 && total != tt.wantTotal {
+			if total != tt.wantTotal {
 				t.Errorf("toplam: istenen %d, gelen %d", tt.wantTotal, total)
 			}
 			if tt.filter.Limit == 2 && len(list) != 2 {
@@ -223,18 +220,5 @@ func TestListFiltersRealDB(t *testing.T) {
 				}
 			}
 		})
-	}
-
-	// Yazar araması: bizim onaylı Dune'umuz sonuçta olmalı, PENDING kopyası olmamalı.
-	list, _, err := f.repo.List(ctx, ListFilter{Query: "frank herbert", Limit: 100})
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, b := range list {
-		found = found || b.ID == dune.ID
-	}
-	if !found {
-		t.Error("yazar araması (küçük harf) Dune'u bulamadı")
 	}
 }

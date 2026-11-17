@@ -172,7 +172,7 @@ func TestListLibrary(t *testing.T) {
 		}
 	})
 
-	for _, q := range []string{"status=DONE", "rated=maybe", "sort=year", "limit=0", "genre=Bilim%20Kurgu", "q=" + strings.Repeat("a", 101)} {
+	for _, q := range []string{"status=DONE", "rated=maybe", "sort=year", "limit=0", "genre=Bilim%20Kurgu", "q=" + strings.Repeat("a", 101), "q=%FF", "q=a%00b"} {
 		t.Run("geçersiz "+q[:min(len(q), 12)], func(t *testing.T) {
 			fake := &fakeLibrary{}
 			rec := do(t, libraryRouter(fake), http.MethodGet, "/api/me/library?"+q, "")

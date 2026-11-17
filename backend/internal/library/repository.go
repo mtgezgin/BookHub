@@ -89,7 +89,7 @@ func (r *Repository) Remove(ctx context.Context, userID, bookID int64) error {
 // List, kullanıcının kitaplığını süzer, sıralar ve sayfalar; ikinci dönüş sayfadan bağımsız toplam.
 func (r *Repository) List(ctx context.Context, userID int64, f ListFilter) ([]db.ListLibraryRow, int64, error) {
 	status, genre, rated := optional(f.Status), optional(f.Genre), optional(f.Rated)
-	query := optional(books.EscapeLike(f.Query))
+	query := optional(f.Query)
 	sort := f.Sort
 	if sort == "" {
 		sort = SortAdded
