@@ -2,6 +2,7 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import { BrandMark } from "./components/BrandMark";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { NotFound } from "./components/NotFound";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { UserMenu } from "./components/UserMenu";
@@ -25,8 +26,16 @@ const Library = lazy(() => import("./pages/Library").then((m) => ({ default: m.L
  * Asıl yetki kontrolü BACKEND'de: bu bileşen atlatılsa bile /api/admin/* 401/403 döner.
  */
 function RequireRole({ role, children }: { role?: "ADMIN"; children: ReactNode }) {
-  const { user, ready } = useAuth();
+  const { user, ready, uncertain } = useAuth();
   const location = useLocation();
+  // Belirsiz oturum: giriş sayfasına ATMA. Sunucuya ulaşılınca sayfa kendiliğinden açılır.
+  if (!ready && uncertain) {
+    return (
+      <p role="status" className="text-muted-foreground">
+        Oturumun doğrulanamadı (sunucuya ulaşılamıyor). Yeniden deneniyor…
+      </p>
+    );
+  }
   if (!ready) return <p className="text-muted-foreground">Yükleniyor…</p>;
   // state.from: girişten sonra bu sayfaya dönülür (Auth.tsx useReturnTo).
   if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
@@ -50,6 +59,7 @@ function NavItem({ to, children, className }: { to: string; children: ReactNode;
 
 export function App() {
   const { user, logout } = useAuth();
+  const { pathname } = useLocation();
   return (
     <div className="flex min-h-svh flex-col">
       {/* Klavye kullanıcısı her sayfada menüyü Tab'la geçmek zorunda kalmasın; odaklanınca görünür. */}
@@ -83,6 +93,8 @@ export function App() {
         </nav>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 outline-none sm:px-6 sm:py-8">
+        {/* key: başka bir sayfaya geçince sınır sıfırlanır (hata o sayfaya aitti). */}
+        <ErrorBoundary key={pathname}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/books/:id" element={<BookDetail />} />
@@ -94,6 +106,7 @@ export function App() {
           <Route path="/admin" element={<RequireRole role="ADMIN"><Suspense fallback={<p className="text-muted-foreground">Yükleniyor…</p>}><Moderation /></Suspense></RequireRole>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   );

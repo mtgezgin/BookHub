@@ -68,6 +68,8 @@ function clearFlag(key: string) {
 }
 
 let accessToken: string | null = null;
+// currentUser: son başarılı giriş ya da yenilemenin döndürdüğü kullanıcı (restore bunu kullanır).
+let currentUser: User | null = null;
 let onSessionChange: (user: User | null) => void = () => {};
 
 /** AuthContext, oturum değiştiğinde (giriş, yenileme, düşme) haberdar olmak için kaydolur. */
@@ -81,6 +83,7 @@ export function subscribeSession(fn: (user: User | null) => void) {
 // kullanıcı "çıkış yaptım" dediği hâlde girişli kalırdı.
 function setSession(s: Session) {
   accessToken = s.access_token;
+  currentUser = s.user;
   onSessionChange(s.user);
 }
 
@@ -99,6 +102,7 @@ let sessionEpoch = 0;
 function dropLocalSession() {
   sessionEpoch++;
   accessToken = null;
+  currentUser = null;
   onSessionChange(null);
 }
 
@@ -216,12 +220,25 @@ function scheduleLogoutRetry(attempt: number) {
   }, LOGOUT_RETRY_DELAYS_MS[attempt]);
 }
 
+// messageForStatus: cevapta API'nin hata zarfı YOKSA gösterilecek metin.
+// NEDEN statusText değil: NGINX'in ve ağ geçidinin kendi hata sayfaları (502, 504) HTML'dir ve
+// HTTP/2'de statusText HER ZAMAN boştur. Canlıda sonuç, içinde yalnız ikon olan kırmızı bir kutuydu;
+// yerelde (HTTP/1.1) "Bad Gateway" yazdığı için fark edilmiyordu (REVIEW_FEEDBACK F34).
+export function messageForStatus(status: number): string {
+  if (status === 429) return "Çok fazla istek gönderildi. Biraz bekleyip yeniden dene.";
+  if (status === 413) return "Gönderilen veri çok büyük.";
+  if (status === 502 || status === 503 || status === 504) return "Sunucuya şu an ulaşılamıyor. Birkaç saniye sonra yeniden dene.";
+  if (status >= 500) return "Sunucuda beklenmeyen bir hata oluştu. Biraz sonra yeniden dene.";
+  return `İstek tamamlanamadı (HTTP ${status}).`;
+}
+
 async function toError(res: Response): Promise<ApiError> {
   try {
     const body = await res.json();
-    return new ApiError(res.status, body?.error?.code ?? "unknown", body?.error?.message ?? res.statusText);
+    // Boş mesaj da "mesaj yok" sayılır (|| bilerek: ?? boş metni geçirirdi).
+    return new ApiError(res.status, body?.error?.code ?? "unknown", body?.error?.message || messageForStatus(res.status));
   } catch {
-    return new ApiError(res.status, "unknown", res.statusText);
+    return new ApiError(res.status, "unknown", messageForStatus(res.status));
   }
 }
 
@@ -346,7 +363,18 @@ export const api = {
     }
     if (!hasFlag(HINT_KEY)) return null;
     if (!(await refreshSession())) return null;
-    return request<User>("GET", "/api/auth/me");
+    // Kullanıcı yenileme cevabında zaten var. Eskiden ayrıca GET /api/auth/me atılıyordu: her açılışa
+    // bir istek ekliyor ve o istek geçici bir hata verirse GEÇERLİ oturum kapalı görünüyordu
+    // (REVIEW_FEEDBACK F36).
+    return currentUser;
+  },
+  /**
+   * Açılışta oturum BELİRSİZ mi: bu tarayıcıda oturum açılmış görünüyor (HINT) ama doğrulanamadı
+   * (yenileme ağ hatası, 429 ya da 5xx ile döndü). "Oturum yok" DEĞİLDİR: çerez hâlâ geçerli olabilir.
+   * AuthContext bu durumda kullanıcıyı giriş sayfasına atmaz, yeniden dener.
+   */
+  sessionUncertain(): boolean {
+    return hasFlag(HINT_KEY) && accessToken === null && !hasFlag(LOGOUT_PENDING_KEY);
   },
 
   // Katalog

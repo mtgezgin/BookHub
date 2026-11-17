@@ -721,14 +721,31 @@ describe("api client — çıkış ve açılış", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/refresh");
   });
 
-  it("restore: yenileme başarılıysa kullanıcıyı GET /api/auth/me ile getirir", async () => {
+  // REVIEW_FEEDBACK F36: kullanıcı yenileme cevabında var; ayrı bir /me isteği atılmaz (her açılışa
+  // bir istek ekliyordu ve geçici hatası geçerli oturumu kapalı gösteriyordu).
+  it("restore: yenileme başarılıysa kullanıcıyı YENİLEME cevabından alır, /me çağırmaz", async () => {
     localStorage.setItem(HINT, "1");
-    const me = session(1).user;
-    fetchMock.mockResolvedValueOnce(json(200, session(1))).mockResolvedValueOnce(json(200, me));
-    expect(await api.restore()).toEqual(me);
-    expect(fetchMock.mock.calls[1][0]).toBe("/api/auth/me");
-    expect(fetchMock.mock.calls[1][1].method).toBe("GET");
-    expect((fetchMock.mock.calls[1][1].headers as Record<string, string>).Authorization).toBe("Bearer access-1");
+    fetchMock.mockResolvedValueOnce(json(200, session(1)));
+    expect(await api.restore()).toEqual(session(1).user);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/refresh");
+    expect(api.sessionUncertain()).toBe(false);
+  });
+
+  it("sessionUncertain: yenileme geçici hatayla dönerse true, 401'de ve HINT yokken false", async () => {
+    expect(api.sessionUncertain()).toBe(false); // HINT yok: anonim
+    localStorage.setItem(HINT, "1");
+    fetchMock.mockResolvedValueOnce(new Response("<html>502</html>", { status: 502 }));
+    expect(await api.restore()).toBeNull();
+    expect(api.sessionUncertain()).toBe(true); // oturum olabilir, sorulamadı
+
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    expect(await api.restore()).toBeNull();
+    expect(api.sessionUncertain()).toBe(true);
+
+    fetchMock.mockResolvedValueOnce(json(401, { error: { code: "invalid_token", message: "" } }));
+    expect(await api.restore()).toBeNull();
+    expect(api.sessionUncertain()).toBe(false); // sunucu reddetti: kesin anonim
   });
 });
 
@@ -791,11 +808,12 @@ describe("api client — oturum kenar durumları", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("JSON olmayan hata gövdesi (NGINX 502 HTML) ApiError(status, unknown, statusText) olur", async () => {
+  // REVIEW_FEEDBACK F34: HTTP/2'de statusText her zaman boştur; mesaj durum kodundan üretilir.
+  it("JSON olmayan hata gövdesi (NGINX 502 HTML) durum koduna göre Türkçe mesaj taşır", async () => {
     fetchMock.mockResolvedValueOnce(new Response("<html>502 Bad Gateway</html>", { status: 502, statusText: "Bad Gateway" }));
     const err = await request("GET", "/api/books").catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
-    expect(err).toMatchObject({ status: 502, code: "unknown", message: "Bad Gateway" });
+    expect(err).toMatchObject({ status: 502, code: "unknown", message: "Sunucuya şu an ulaşılamıyor. Birkaç saniye sonra yeniden dene." });
   });
 
   it("401 sonrası yenileme başarısızsa asıl 401 fırlatılır, tekrar denenmez", async () => {
@@ -889,10 +907,30 @@ describe("api client — uç tablosu", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("zarfsız JSON hata gövdesi ({}) ApiError(status, unknown, statusText) olur", async () => {
+  it("zarfsız JSON hata gövdesi ({}) durum koduna göre mesaj taşır", async () => {
     fetchMock.mockResolvedValueOnce(new Response("{}", { status: 503, statusText: "Service Unavailable" }));
     const err = await api.book(5).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
-    expect(err).toMatchObject({ status: 503, code: "unknown", message: "Service Unavailable" });
+    expect(err).toMatchObject({ status: 503, code: "unknown", message: "Sunucuya şu an ulaşılamıyor. Birkaç saniye sonra yeniden dene." });
+  });
+
+  it("hata mesajı hiçbir durumda boş kalmaz (HTTP/2: statusText boş)", async () => {
+    const cases: [number, string, RegExp][] = [
+      [429, "<html>429</html>", /Çok fazla istek/],
+      [504, "", /ulaşılamıyor/],
+      [500, "", /beklenmeyen bir hata/],
+      [413, "", /çok büyük/],
+      [418, "", /HTTP 418/],
+      // Zarf var ama mesajı boş: yine durum kodunun metni.
+      [502, JSON.stringify({ error: { code: "x", message: "" } }), /ulaşılamıyor/],
+    ];
+    for (const [status, body, want] of cases) {
+      fetchMock.mockResolvedValueOnce(new Response(body, { status, statusText: "" }));
+      const err = await api.book(5).catch((e) => e);
+      expect(err.message, `HTTP ${status}`).toMatch(want);
+    }
+    // Zarfın kendi mesajı varsa o gösterilir.
+    fetchMock.mockResolvedValueOnce(json(409, { error: { code: "slug_conflict", message: "bu slug kullanımda" } }));
+    expect(await api.book(5).catch((e) => e)).toMatchObject({ code: "slug_conflict", message: "bu slug kullanımda" });
   });
 });
