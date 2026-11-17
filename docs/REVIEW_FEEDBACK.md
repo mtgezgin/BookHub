@@ -64,7 +64,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [x] | F35 | Orta | Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir |
 | [x] | F36 | Orta | Açılıştaki geçici hata "çıkış yapılmış" gibi görünüyor |
 | [ ] | F37 | Orta | Kapak görselleri denetlenmeyen adreslerden yükleniyor |
-| [ ] | F38 | Orta | CI taze kurulumu sınıyor, canlı yükseltme yapıyor; migration'da süre sınırı yok |
+| [x] | F38 | Orta | CI taze kurulumu sınıyor, canlı yükseltme yapıyor; migration'da süre sınırı yok |
 | [ ] | F39 | Düşük | Sınanan imaj çalışan imaj değil; geri dönüş denenmedi; CI zorunlu kontrol değil |
 | [ ] | F40 | Düşük | Küçük bulgular |
 
@@ -728,6 +728,8 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 
 **Kabul kriteri:** Dolu veride düşen bir migration PR'da kırmızı olur; sıra dışı numara Kurallar'da yakalanır.
 
+**Durum (17 Kasım 2026, #88, yayın bekliyor):** CI'a "Yükseltme" işi eklendi (`scripts/upgrade-check.sh`): `release`'in şeması ve demo verisi üzerine bu commit'in migration'ları uygulanır; şema sürümü ve kitap sayısı denetlenir. Yerelde çalıştırıldı: şema 13 → 15, 54 kitap yerinde (0014 ve 0015 dolu veride geçiyor). `checks.sh`: yeni migration numarası `main` ve `release`'teki en büyük numaradan büyük olmalı (`check_migration_order`). Migration oturumunda `lock_timeout` 5 sn (`migrate.go`); Deploy işlerinde `timeout-minutes` (15 ve 5). Doğrulanmadı: iş akışları GitHub'da henüz koşmadı; `SET lock_timeout` Supabase havuzlayıcısında denenmedi.
+
 ## F39 — Sınanan imaj çalışan imaj değil; geri dönüş denenmedi; CI zorunlu kontrol değil
 
 **Öncelik:** Düşük · CI/CD
@@ -743,6 +745,8 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 **Öneri:** Geri dönüşü bir kez deneyip adımlarını yazın. CI'da `REQUIRE_INTEGRATION=1` ile atlamayı hataya çevirin. Her zaman çalışan tek bir "kapı" işini zorunlu kontrol yapın. `deploy.yml`'deki action'ları SHA ile sabitleyin.
 
 **Kabul kriteri:** Geri dönüş adımları PROCESS.md'de ve bir kez uygulandı; entegrasyon testlerinin atlandığı bir CI koşusu kırmızı biter.
+
+**İlerleme (17 Kasım 2026, #88, yayın bekliyor):** CI'da `REQUIRE_INTEGRATION=1`: entegrasyon ortamı eksikse `internal/testdb` testi kırmızı biter. `deploy.yml`'deki action'lar commit ile sabitlendi. Açık kalanlar: geri dönüş provası (canlıda, adım listesiyle), zorunlu kontrol ayarı (GitHub paneli), sınanan imajın yayınlanan imaj olması.
 
 ## F40 — Küçük bulgular
 
