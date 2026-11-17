@@ -8,7 +8,7 @@ SHELL := /bin/bash
 ENV := set -a; . ./.env; set +a
 GO := go -C backend
 
-.PHONY: help up down app-up app-down logs run mcp test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build scan web web-test e2e k8s-up k8s-port k8s-status k8s-down
+.PHONY: help up down app-up app-down obs-up obs-down logs run mcp test test-db lint fmt sqlc migrate-status admin demo-seed smoke perf-seed docker-build scan web web-test e2e k8s-up k8s-port k8s-status k8s-down
 
 help: ## Hedefleri listele
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -17,10 +17,17 @@ up: ## Altyapıyı kaldır (Postgres + Redis)
 	docker compose up -d
 
 down: ## Tüm konteynerleri durdur (veri volume'da kalır)
-	docker compose --profile app down
+	docker compose --profile app --profile obs down
 
 app-up: ## Tüm uygulama konteynerde: http://localhost:3000 (NGINX + frontend + API + DB + Redis)
 	docker compose --profile app up -d --build
+
+obs-up: ## Uygulama + gözlemlenebilirlik: Grafana http://localhost:3002 (admin/admin), Prometheus http://localhost:9090
+	OTEL_EXPORTER_OTLP_ENDPOINT=http://lgtm:4318 OTEL_METRIC_EXPORT_INTERVAL=5000 \
+		docker compose --profile app --profile obs up -d --build
+
+obs-down: ## Yalnız gözlemlenebilirlik konteynerini durdur (API telemetriyi kapatmak için: make app-up)
+	docker compose --profile obs stop lgtm
 
 app-down: ## Yalnız API konteynerini durdur
 	docker compose --profile app stop api

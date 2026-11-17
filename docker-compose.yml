@@ -101,6 +101,10 @@ services:
       # Auth rate limit'i dışarıdan ayarlanabilir yap: e2e koşusu (scripts/e2e.sh) bunu
       # yükseltiyor, yoksa bir senaryo dizisi kendi kovasını tüketirdi. Varsayılan prod değeri.
       AUTH_RATE_LIMIT_PER_MIN: ${AUTH_RATE_LIMIT_PER_MIN:-10}
+      # Telemetri (OpenTelemetry): adres boşsa KAPALI. "make obs-up" bunu lgtm servisine çevirir ve
+      # metrik gönderme aralığını 5 sn yapar (deneyde grafiği beklemeden görmek için; varsayılan 60 sn).
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
     ports:
       - "127.0.0.1:8080:8080"
     # "container başladı" değil "Postgres bağlantı kabul ediyor" + "Redis PONG" bekle.
@@ -134,6 +138,27 @@ services:
 
 # Varsayılan ağ için SABİT alt ağ: NGINX'e sabit IP verebilmek (ve API'nin güveneceği adresi
 # yapılandırmada yazabilmek) için gerekli. Bu aralık Docker'ın iç ağıdır, dışarıya açık değil.
+  # ---- Gözlemlenebilirlik deneyi (profil: obs) — "make obs-up" ----
+  # grafana/otel-lgtm TEK imajda dört şeyi getirir (yalnız geliştirme ve öğrenme için):
+  #   OpenTelemetry Collector  API'nin gönderdiği veriyi alır (OTLP, 4318) ve dağıtır
+  #   Prometheus               metrikleri saklar ve sorgular (PromQL)           → http://localhost:9090
+  #   Tempo                    izleri saklar
+  #   Grafana                  hepsini gösterir (kullanıcı admin, parola admin)  → http://localhost:3002
+  # Canlıda bunların hiçbiri çalıştırılmaz: API veriyi doğrudan Grafana Cloud'a gönderir
+  # (docs/DEPLOYMENT.md). Veri kalıcı değildir; konteyner silinince gider.
+  lgtm:
+    profiles: ["obs"]
+    image: grafana/otel-lgtm:0.41.0
+    container_name: bookhub-lgtm
+    ports:
+      - "127.0.0.1:3002:3000" # Grafana (3000 web'de, 3001 kind'da)
+      - "127.0.0.1:9090:9090" # Prometheus'un kendi arayüzü
+      - "127.0.0.1:4318:4318" # OTLP/HTTP: API'yi host'ta ("make run") çalıştırırken de gönderebilmek için
+    volumes:
+      - ./ops/grafana/dashboards:/otel-lgtm/bookhub-dashboards:ro
+      - ./ops/grafana/provisioning.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/bookhub.yaml:ro
+    restart: unless-stopped
+
 networks:
   default:
     ipam:
