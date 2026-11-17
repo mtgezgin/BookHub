@@ -19,6 +19,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 12. [Git'e sızan sır: saklamak değil değiştirmek (rotate)](#12-gite-sızan-sır-saklamak-değil-değiştirmek-rotate)
 13. [bcrypt cost ve küçük CPU: canlıda giriş neden 3–4 saniye?](#13-bcrypt-cost-ve-küçük-cpu-canlıda-giriş-neden-34-saniye)
 14. [Tedarik zinciri: npm install script'leri ve SHA'ya sabitlenmiş Actions](#14-tedarik-zinciri-npm-install-scriptleri-ve-shaya-sabitlenmiş-actions)
+15. [Küçük işlemcide eşzamanlı parola özeti: tek tek yavaş, birlikte çöküyor](#15-küçük-işlemcide-eşzamanlı-parola-özeti-tek-tek-yavaş-birlikte-çöküyor)
 
 ---
 
@@ -765,3 +766,66 @@ yüzden bu kapıların ikisi doğrudan frontend tarafına ait.
 - [.github/workflows/ci.yml](../../.github/workflows/ci.yml) · [frontend/Dockerfile](../../frontend/Dockerfile) · [frontend/package.json](../../frontend/package.json) (`bundle`, `e2e:browsers`)
 - [tooling-and-workflow.md #8 SonarCloud](tooling-and-workflow.md#8-sonarcloud-bulgu-quality-gate-accepted-ve-mcp)
 - [infra-and-devops.md](infra-and-devops.md) #5 Trivy — imaj tarafındaki karşılığı
+
+---
+
+## 15. Küçük işlemcide eşzamanlı parola özeti: tek tek yavaş, birlikte çöküyor
+
+**🗓️ Bağlam:** 2026-11-17, ikinci incelemede (F04'e eklenen kanıt). #13'te tek bir girişin canlıda
+neden 3–4 saniye sürdüğünü yazmıştık. Bu kez "aynı anda birkaç kişi girerse ne olur?" sorusunu
+yerel API'yi 0,1 işlemciyle sınırlayıp denedik.
+
+**⚡ Kısa cevap:** bcrypt bilerek işlemci yakar. 0,1 işlemcide N özet aynı anda çalışınca her biri N
+kat uzar; 10 saniyelik yazma süresi aşılınca cevap hiç gitmez (502) ve o sırada bütün API yavaşlar.
+Pahalı işin önüne bir **sıra** konur: aynı anda bir özet, sınırlı sayıda bekleyen, kuyruk doluysa
+503 ve `Retry-After`.
+
+**📖 Açıklama:**
+
+Ölçüm (yerel, 0,1 işlemci; bu makinede tek özet 2,2 sn, canlıda belgelenen 3,3 sn):
+
+| Eşzamanlı giriş denemesi | Sonuç |
+| --- | --- |
+| 1 | 2,2 sn |
+| 4 | her biri 8,4–9,0 sn |
+| 5 | beşi de 502 (10,4–11,3 sn sonra) |
+| 3 deneme sürerken katalog isteği | 0,1 sn yerine 1,3 sn |
+
+- **Neden 502:** Go sunucusunun yazma süresi (`WriteTimeout`) 10 saniye. Süre dolunca handler
+  durmaz, bağlantı kapanır: iş yapılmıştır (oturum açılmıştır) ama cevap kaybolur. NGINX bunu
+  "upstream prematurely closed connection" diye 502'ye çevirir. Kullanıcı yeniden dener, yük artar.
+- **Hız sınırı neden yetmiyor:** sınır canlıda bütün ziyaretçiler için ortak ve dakikada 20; aynı
+  anda gelen dört istek sınırın çok altında.
+- **Canlıdaki eşik:** tek özet 3,3 sn olduğuna göre üç dört eşzamanlı giriş.
+
+Çare, isteği reddetmek değil **sıraya sokmak** (henüz kodda yok; taslak):
+
+```go
+var hashing = make(chan struct{}, 1) // aynı anda tek özet
+
+func withHashSlot(ctx context.Context, f func() error) error {
+	select {
+	case hashing <- struct{}{}:
+		defer func() { <-hashing }()
+		return f()
+	case <-time.After(3 * time.Second): // bekleme tavanı
+		return ErrBusy // handler: 503 + Retry-After
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+```
+
+Sıra toplam süreyi kısaltmaz; herkesin süreyi aşmasını önler ve işlemciyi diğer isteklere bırakır.
+
+**Yanındaki iki küçük şey:** kayıt iki özet hesaplatıyor (`register`, ardından `login`): kayıt ucu
+oturumu da döndürürse bire iner. Kayıtta özet, e-postanın kayıtlı olup olmadığına bakılmadan önce
+hesaplanıyor: kayıtlı adres için yapılan iş boşa gidiyor. Kayıt ucu adresin kayıtlı olduğunu zaten
+409 ile söylediği için önce bakmak yeni bir bilgi sızdırmaz; asıl güvence yine veritabanındaki
+benzersizlik kısıtıdır.
+
+**🔗 İlgili:**
+- [#13 bcrypt cost ve küçük CPU](#13-bcrypt-cost-ve-küçük-cpu-canlıda-giriş-neden-34-saniye) — tek girişin süresi
+- [#6 User enumeration](#6-user-enumeration-generic-mesaj-yetmez-süre-de-eşit-olmalı) — var olmayan kullanıcıda da özet hesaplanır; o da sıraya girer
+- [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F04 — ek kanıt ve öneri
+- [DEPLOYMENT.md](../DEPLOYMENT.md) §5 — küçük makine ve ortak hız sınırı
