@@ -44,7 +44,7 @@ func Pool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("test veritabanına migration uygulanamadı (docker compose up -d çalıştı mı?): %v", migrateErr)
 	}
 
-	pool, err := database.New(ctx, dsn)
+	pool, err := database.New(ctx, dsn, 0)
 	if err != nil {
 		t.Fatalf("test veritabanına bağlanılamadı: %v", err)
 	}

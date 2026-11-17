@@ -48,6 +48,11 @@ type Config struct {
 	// sokamazdı. Her yığına ayrı ad (kind: bookhub_refresh_k8s) bu çarpışmayı önler.
 	CookieName string
 
+	// DBMaxConns: bağlantı havuzunun en çok bağlantısı. Varsayılanın hesabı: database.DefaultMaxConns.
+	// Bağlantı adresine (pool_max_conns) YAZILMAZ: aynı adresi migration aracı da açar ve pgx
+	// tanımadığı anahtarı sunucuya iletir.
+	DBMaxConns int
+
 	// RedisURL: OPSİYONEL. Boşsa cache kapalı (Noop) ve rate limit bellek içi — uygulama
 	// Redis'siz de doğru çalışır. Doluysa açılışta PING atılır (fail-fast).
 	RedisURL string
@@ -100,6 +105,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("geçersiz config: %w", err)
 	}
+	dbMaxConns, err := getenvInt("DB_MAX_CONNS", 6) // database.DefaultMaxConns ile aynı; hesabı orada
+	if err != nil {
+		return Config{}, fmt.Errorf("geçersiz config: %w", err)
+	}
 	authLimit, err := getenvInt("AUTH_RATE_LIMIT_PER_MIN", 10)
 	if err != nil {
 		return Config{}, fmt.Errorf("geçersiz config: %w", err)
@@ -117,6 +126,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		Port:        getenv("PORT", "8080"),     // PORT tanımlı değilse varsayılan 8080
 		DatabaseURL: getenv("DATABASE_URL", ""), // DATABASE_URL yoksa boş
+		DBMaxConns:  dbMaxConns,
 		AutoMigrate: autoMigrate,
 
 		JWTSecret:       os.Getenv("JWT_SECRET"), // varsayılan YOK: zayıf bir varsayılan, hiç olmamasından kötüdür
@@ -165,6 +175,9 @@ func (c *Config) validate() error {
 	}
 	if c.LogFormat != "text" && c.LogFormat != "json" {
 		return fmt.Errorf("LOG_FORMAT text ya da json olmalı, gelen %q", c.LogFormat)
+	}
+	if c.DBMaxConns < 1 || c.DBMaxConns > 100 {
+		return fmt.Errorf("DB_MAX_CONNS 1-100 arasında olmalı, gelen %d", c.DBMaxConns)
 	}
 	if c.AuthRateLimit < 1 {
 		return fmt.Errorf("AUTH_RATE_LIMIT_PER_MIN en az 1 olmalı, gelen %d", c.AuthRateLimit)

@@ -40,3 +40,11 @@ func InvalidInput(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && len(pgErr.Code) == 5 && pgErr.Code[:2] == "22"
 }
+
+// TimedOut, err veritabanının süre sınırlarından biriyse true döner: statement_timeout sorguyu
+// iptal etti (57014) ya da lock_timeout doldu (55P03). İsteğin değil o anki yükün hatasıdır;
+// yeniden denenebilir.
+func TimedOut(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "57014" || pgErr.Code == "55P03")
+}

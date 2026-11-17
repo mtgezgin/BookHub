@@ -7,22 +7,73 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/mtgezgin/bookhub/backend/internal/reqstats"
 )
 
-// New, verilen DSN ile bir bağlantı havuzu açar ve bağlantıyı doğrular.
+// DefaultMaxConns, havuzun açabileceği en çok bağlantı (DB_MAX_CONNS verilmezse).
+//
+// Hesap: Supabase'in oturum havuzu varsayılan 15 bağlantı verir ve fazlasını sıraya sokar. Yayın
+// sırasında eski ve yeni örnek birlikte çalışır (2 × 6 = 12), migration bir bağlantı daha açar;
+// geriye elle bağlanmak için iki bağlantı kalır. pgx'in varsayılanı max(4, çekirdek sayısı) idi:
+// konteynerin işlemci kotasını değil DÜĞÜMÜN çekirdek sayısını izler, yani öngörülemez
+// (REVIEW_FEEDBACK F08).
+const DefaultMaxConns = 6
+
+// Bağlantı başına süre sınırları (her yeni bağlantıda SET edilir).
+//
+//   - statement_timeout: tek bir sorgunun tavanı. HTTP katmanının bütçesinden (okuma 5 sn, yazma 9 sn)
+//     büyük seçildi: olağan durumda sorguyu context sonlandırır; bu sınır, context'siz kalan ya da
+//     iptali sunucuya ulaşmayan bir sorgu için son hattır.
+//   - lock_timeout: bir satır kilidini bekleme tavanı. Kilitler burada milisaniyeler sürer; saniyelerce
+//     bekleyen bir yazma büyük olasılıkla takılmış bir işlemin arkasındadır ve beklemek yerine
+//     "şu an olmuyor" demek daha doğrudur.
+//   - idle_in_transaction_session_timeout: BEGIN'den sonra unutulmuş bir işlem kilitlerini sonsuza
+//     kadar tutmasın.
+//
+// NEDEN bağlantı adresinde değil: aynı DATABASE_URL'i migration aracı database/sql üzerinden de açıyor;
+// migration'lar bu sınırlara tabi olmamalı (index kurmak dakikalar sürebilir).
+const sessionLimits = `SET statement_timeout = '10s';
+SET lock_timeout = '3s';
+SET idle_in_transaction_session_timeout = '15s';`
+
+// New, verilen DSN ile bir bağlantı havuzu açar ve bağlantıyı doğrular. maxConns <= 0 ise
+// DefaultMaxConns kullanılır.
 //
 // NEDEN HAVUZ: her HTTP isteğinde sıfırdan bağlantı açmak (TCP + auth el sıkışması)
 // çok pahalı. Havuz, açık bağlantıları hazır tutar ve eşzamanlı isteklere dağıtır;
 // iş bitince bağlantı kapanmaz, havuza geri döner. (JS'teki pg.Pool'un karşılığı.)
-func New(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+func New(ctx context.Context, databaseURL string, maxConns int32) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		// Buraya genelde DSN parse hatasıyla düşülür (bozuk URL vb.).
+		// Buraya DSN parse hatasıyla düşülür (bozuk URL vb.).
 		return nil, fmt.Errorf("havuz yapılandırılamadı: %w", err)
 	}
+	if maxConns <= 0 {
+		maxConns = DefaultMaxConns
+	}
+	cfg.MaxConns = maxConns
+	// Bir bağlantı hep hazır dursun: seyrek trafikte ilk istek TLS + kimlik doğrulama beklemesin.
+	cfg.MinConns = 1
+	// Boşta kalan fazladan bağlantılar 30 dakika (varsayılan) değil 5 dakika sonra kapanır: paylaşılan
+	// havuzlayıcıda kullanılmayan yuvaları tutmayalım.
+	cfg.MaxConnIdleTime = 5 * time.Minute
+	cfg.ConnConfig.Tracer = queryTracer{}
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		if _, err := conn.Exec(ctx, sessionLimits); err != nil {
+			return fmt.Errorf("oturum süre sınırları ayarlanamadı: %w", err)
+		}
+		return nil
+	}
 
-	// pgxpool.New TEMBELDİR: gerçek bağlantıyı ilk sorguya kadar ertelemesi mümkün.
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("havuz açılamadı: %w", err)
+	}
+
+	// Havuz TEMBELDİR: gerçek bağlantıyı ilk sorguya kadar erteleyebilir.
 	// Fail-fast felsefemiz (config'teki gibi) gereği boot'ta Ping ile
 	// "gerçekten bağlanabiliyor muyuz?" sorusunu ŞİMDİ cevaplıyoruz —
 	// yanlış şifreyi ilk müşteri isteğinde değil, açılışta öğren.
@@ -33,4 +84,24 @@ func New(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("veritabanına ulaşılamadı (DATABASE_URL doğru mu? docker compose up -d çalıştı mı?): %w", err)
 	}
 	return pool, nil
+}
+
+// queryTracer, her sorgunun süresini isteğin sayacına (reqstats) yazar. BEGIN/COMMIT de birer sorgu
+// sayılır: canlıda her biri veritabanına ayrı bir gidiş-dönüştür ve sayılması istenen de budur.
+// Sorgu metni ve argümanları KAYDEDİLMEZ (log kuralı: istek verisi loglanmaz).
+type queryTracer struct{}
+
+type queryStartKey struct{}
+
+func (queryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
+	if reqstats.From(ctx) == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, queryStartKey{}, time.Now())
+}
+
+func (queryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryEndData) {
+	if start, ok := ctx.Value(queryStartKey{}).(time.Time); ok {
+		reqstats.From(ctx).AddDB(time.Since(start))
+	}
 }

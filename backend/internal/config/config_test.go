@@ -400,3 +400,32 @@ func TestValidateCookieNameEmpty(t *testing.T) {
 		t.Error("boş çerez adı reddedilmeli")
 	}
 }
+
+// TestLoadDBMaxConns: havuz büyüklüğü env'den gelir, açılışta doğrulanır (REVIEW_FEEDBACK F08).
+func TestLoadDBMaxConns(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    int
+		wantErr bool
+	}{
+		{"", 6, false},
+		{"12", 12, false},
+		{"0", 0, true},
+		{"101", 0, true},
+		{"çok", 0, true},
+	}
+	for _, tt := range tests {
+		t.Run("DB_MAX_CONNS="+tt.value, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://test")
+			t.Setenv("JWT_SECRET", testJWTSecret)
+			t.Setenv("DB_MAX_CONNS", tt.value)
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("hata beklentisi %v, gelen %v", tt.wantErr, err)
+			}
+			if err == nil && cfg.DBMaxConns != tt.want {
+				t.Errorf("istenen %d, gelen %d", tt.want, cfg.DBMaxConns)
+			}
+		})
+	}
+}

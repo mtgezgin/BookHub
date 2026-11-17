@@ -121,7 +121,7 @@ func createAdmin(ctx context.Context, args []string, stdin io.Reader, stdout io.
 			return fmt.Errorf("migration başarısız: %w", err)
 		}
 	}
-	pool, err := database.New(ctx, dsn)
+	pool, err := database.New(ctx, dsn, 2) // tek komut: iki bağlantı yeter
 	if err != nil {
 		return err
 	}
