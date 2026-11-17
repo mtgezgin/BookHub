@@ -191,8 +191,8 @@ type ListBooksParams struct {
 // birleştirerek SQL kurmaya (injection kapısı) hiç gerek kalmaz.
 //
 // Sıralamada id ikincil anahtar: aynı created_at'e sahip iki kitap sayfalar arasında
-// yer değiştirmesin (kararlı sayfalama). Partial index (created_at DESC) WHERE
-// status='APPROVED' bu sorguya hizmet ediyor.
+// yer değiştirmesin (kararlı sayfalama). books_status_recent_idx (status, created_at DESC, id DESC)
+// bu sorguya ve yönetim listelerine (ListBooksByStatus) hizmet ediyor (0015).
 func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]BookView, error) {
 	rows, err := q.db.Query(ctx, listBooks, arg.Genre, arg.Offset, arg.Limit)
 	if err != nil {
