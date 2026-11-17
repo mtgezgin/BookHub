@@ -188,6 +188,28 @@ printf 'FROM golang:latest AS build\n' >backend/Dockerfile
 git add backend/Dockerfile
 expect fail:"golang:<sürüm> satırı bulunamadı" "sürüm okunamazsa kontrol sessizce kapanmaz" staged
 
+echo "▶ NGINX erişim logu"
+new_repo nginxlog
+expect pass "default.conf yoksa kural uygulanmaz" staged
+mkdir -p frontend/nginx
+nginx_conf() { printf '%s\n' "$@" >frontend/nginx/default.conf && git add frontend/nginx/default.conf; }
+good_format="log_format bookhub '\$remote_addr [\$time_local] \"\$request_method \$request_path \$server_protocol\" '"
+good_format2="                   '\$status \"\$http_user_agent\" rt=\$request_time';"
+nginx_conf "$good_format" "$good_format2" 'server {' '    access_log /var/log/nginx/access.log bookhub; # sorgusuz' '    location = /healthz { access_log off; }' '}'
+expect pass "sorgusuz biçim ve onu kullanan access_log geçer (\$request_method, \$request_time serbest)" staged
+nginx_conf 'server {' '    listen 8080;' '}'
+expect fail:"log_format bookhub" "özel biçim tanımlı değilse durur" staged
+nginx_conf "log_format bookhub '\$remote_addr \"\$request\" \$status';" 'server {' '    access_log /var/log/nginx/access.log bookhub;' '}'
+expect fail:"sorgu dizesini ya da referrer" "biçimde \$request varsa durur" staged
+nginx_conf "log_format bookhub '\$remote_addr \"\$request_method \$request_uri\" \$status';" 'server {' '    access_log /var/log/nginx/access.log bookhub;' '}'
+expect fail:"sorgu dizesini ya da referrer" "biçimde \$request_uri varsa durur" staged
+nginx_conf "log_format bookhub '\$remote_addr \$status '" "                   '\"\$http_referer\"';" 'server {' '    access_log /var/log/nginx/access.log bookhub;' '}'
+expect fail:"sorgu dizesini ya da referrer" "ikinci satırdaki \$http_referer de yakalanır" staged
+nginx_conf "$good_format" "$good_format2" 'server {' '    access_log /var/log/nginx/access.log main;' '}'
+expect fail:"biçimini kullanmayan" "varsayılan (main) biçimle loglayan access_log durur" staged
+nginx_conf "$good_format" "$good_format2" 'server {' '    listen 8080;' '}'
+expect fail:"access_log … bookhub;" "biçim tanımlı ama kullanılmıyorsa durur" staged
+
 echo "▶ sır taraması"
 if command -v gitleaks >/dev/null 2>&1; then
 	new_repo secrets
