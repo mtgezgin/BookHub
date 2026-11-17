@@ -238,6 +238,24 @@ check_nginx_log() {
 	fi
 }
 
+# Kural: izler (OpenTelemetry) istek verisi taşımaz (CLAUDE.md "Loglar"; izler üçüncü bir tarafa gider).
+# Yasaklı dört şey, veriyi span'e kendiliğinden yazan kütüphane seçenekleridir:
+#   otelhttp                     isteğin yolunu ve SORGU DİZESİNİ yazar (yerine cmd/api/observe.go)
+#   WithIncludeQueryParameters   SQL argümanlarını yazar (e-posta, arama terimi)
+#   WithFullSQLInSpanName        SQL metnini span adına taşır
+#   WithDBStatement(true)        Redis komutunu anahtarıyla yazar (rate limit anahtarı IP içerir)
+check_telemetry_privacy() {
+	local pattern hits
+	pattern='otelhttp|WithIncludeQueryParameters|WithFullSQLInSpanName|WithDBStatement\(true\)'
+	case "$MODE" in
+	staged) hits="$(git grep --cached -nE "$pattern" -- 'backend/*.go' ':!backend/*_test.go' 2>/dev/null || true)" ;;
+	range) hits="$(git grep -nE "$pattern" "$HEAD" -- 'backend/*.go' ':!backend/*_test.go' 2>/dev/null || true)" ;;
+	esac
+	if [[ -n "$hits" ]]; then
+		fail "telemetri istek verisi taşıyabilir (izler sorgu dizesi, SQL argümanı, Redis anahtarı içermez): $(head -n 3 <<<"$hits" | tr '\n' ' ')"
+	fi
+}
+
 # Kural: sır commit'lenmez.
 check_secrets() {
 	if ! command -v gitleaks >/dev/null 2>&1; then
@@ -294,6 +312,7 @@ staged)
 	check_migrations
 	check_go_version
 	check_nginx_log
+	check_telemetry_privacy
 	check_secrets
 	check_generated
 	check_lint
@@ -324,6 +343,7 @@ range)
 	check_migrations
 	check_go_version
 	check_nginx_log
+	check_telemetry_privacy
 	check_secrets
 	check_generated
 	check_lint

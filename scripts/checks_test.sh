@@ -210,6 +210,23 @@ expect fail:"biçimini kullanmayan" "varsayılan (main) biçimle loglayan access
 nginx_conf "$good_format" "$good_format2" 'server {' '    listen 8080;' '}'
 expect fail:"access_log … bookhub;" "biçim tanımlı ama kullanılmıyorsa durur" staged
 
+echo "▶ telemetri gizliliği"
+new_repo telemetry
+mkdir -p backend/internal/telemetry backend/cmd/api
+go_file() { printf '%s\n' "${@:2}" >"$1" && git add "$1"; }
+go_file backend/internal/telemetry/telemetry.go 'package telemetry' 'var _ = redisotel.WithDBStatement(false)'
+expect pass "istek verisi yazmayan kurulum geçer" staged
+go_file backend/cmd/api/router.go 'package main' 'import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"'
+expect fail:"telemetri istek verisi taşıyabilir" "otelhttp (yolu ve sorgu dizesini yazar) durur" staged
+go_file backend/cmd/api/router.go 'package main'
+go_file backend/internal/telemetry/telemetry.go 'package telemetry' 'var _ = otelpgx.WithIncludeQueryParameters()'
+expect fail:"telemetri istek verisi taşıyabilir" "SQL argümanlarını yazan seçenek durur" staged
+go_file backend/internal/telemetry/telemetry.go 'package telemetry' 'var _ = redisotel.WithDBStatement(true)'
+expect fail:"telemetri istek verisi taşıyabilir" "Redis komutunu anahtarıyla yazan seçenek durur" staged
+go_file backend/internal/telemetry/telemetry.go 'package telemetry'
+go_file backend/internal/telemetry/telemetry_test.go 'package telemetry' '// otelhttp burada yalnız bir test açıklamasında geçiyor'
+expect pass "test dosyaları kuralın dışındadır" staged
+
 echo "▶ sır taraması"
 if command -v gitleaks >/dev/null 2>&1; then
 	new_repo secrets
