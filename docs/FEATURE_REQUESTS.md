@@ -36,6 +36,10 @@ Kitaplığım'da Enter ile çalışır (katalogdaki gibi yazarken değil).
 (PR [#73](https://github.com/mtgezgin/BookHub/pull/73) ve [#74](https://github.com/mtgezgin/BookHub/pull/74), canlı doğrulama 15 Kasım).
 Baskıları yalnız admin ekler; kullanıcının baskı önermesi [#79](https://github.com/mtgezgin/BookHub/issues/79)'da, Faz 18'le birlikte.
 
+**Güncelleme (17 Kasım 2026):** ACC-05 (Google ile giriş) backlog'a eklendi (kullanıcı talebi). Ön koşulu
+özel alan adı: canlı `code.run` adresiyle Google girişi kurulamıyor (gerekçe ve adımlar
+[ACC-05](#acc-05--google-ile-giriş)'te). Sırası [ROADMAP](ROADMAP.md)'te henüz belirlenmedi.
+
 ## 1. Ürün yönü ve temel ihtiyaç
 
 **Ürün sözü:** Okumak istediğin kitapları bul, okumalarını takip et ve düşüncelerini paylaş.
@@ -69,7 +73,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 | Kullanıcı katkısı ve moderasyon | MOD-01–04 | Katkıma ne oldu, hatayı nasıl düzeltebilirim? |
 | Arama, keşif ve öneriler | DISC-01–04 | Sırada ne okuyabilirim? |
 | Profil, görünürlük ve sosyal akış | SOC-01–03 | Kimlerle neyi paylaşacağım? |
-| Hesap erişimi ve oturum kontrolü | ACC-01–04 | Hesabımı nasıl korur ve yönetirim? |
+| Hesap erişimi ve oturum kontrolü | ACC-01–05 | Hesabımı nasıl korur ve yönetirim? |
 | Veri sahipliği ve taşınabilirlik | DATA-01–02 | Verimi alabilir veya hesabımı silebilir miyim? |
 | Uygulama içi bildirimler | NOTIF-01 | Katkımın sonucunu nasıl öğrenirim? |
 | Ortak kullanıcı deneyimi | UX-01–02 | İşlemler anlaşılır ve erişilebilir mi? |
@@ -343,6 +347,31 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **İş kuralları:** Liste yalnız sahibine açıktır; token değerleri gösterilmez. User-Agent kesin cihaz kimliği veya güven kanıtı olarak kullanılmaz. Access token iptal gecikmesi varsa kullanıcıya doğru anlatılır.
 - **Kabul kriterleri:** Seçilen ailenin refresh işlemi reddedilir; diğer aileler korunur. Başka kullanıcının aile ID'siyle sonlandırma yapılamaz. Diğerlerini kapat mevcut oturumu korur.
 - **Bağımlılıklar:** Mevcut refresh aileleri, F01–F03/F06 kararları. Yaklaşık konum gösterimi ilk sürüm dışında.
+
+### ACC-05 — Google ile giriş
+
+- [ ] **P1 · Önerildi** (kullanıcı talebi, 2026-11-17) · **Ön koşul: özel alan adı** (aşağıda)
+- **Kullanıcı ihtiyacı:** Yeni bir parola belirlemeden, var olan Google hesabımla kayıt olmak ve giriş yapmak.
+- **Ekran/akış:** Giriş ya da kayıt ekranı → Google ile devam et → Google'ın onay ekranı → BookHub'a dönüş, oturum açık. İlk girişte hesap oluşur; görünen ad Google'dan gelir.
+- **İlk kapsam:** Yalnız Google ve yalnız kimlik bilgisi (`openid`, `email`, `profile`). Giriş, ilk girişte hesap açma, hesap ayarlarında Google bağlantısını görme. E-posta ve parolayla giriş olduğu gibi kalır.
+- **İş kuralları:**
+  - Hesap, Google'ın değişmeyen kullanıcı kimliğiyle (`sub`) eşlenir; e-posta eşleme anahtarı değildir.
+  - Google'ın doğrulanmış saymadığı e-posta kabul edilmez.
+  - Aynı e-postayla parolalı bir hesap varsa kendiliğinden birleştirilmez: kullanıcı önce parolasıyla girer, bağlantıyı hesap ayarlarından kurar. Neden: e-posta doğrulaması (ACC-01) yokken başkasının e-postasıyla önceden açılmış bir hesap, gerçek sahibinin Google girişiyle ele geçirilebilirdi. ACC-01 geldiğinde bu kural yeniden değerlendirilir.
+  - Yalnız Google'la açılmış hesabın parolası yoktur; parola belirlemek ayrı ve yeniden kimlik doğrulaması isteyen bir adımdır.
+  - Oturum, bugünkü oturum düzeninin aynısıdır (refresh çerezi, aileler, çıkış). Google'ın erişim anahtarları saklanmaz.
+- **Kabul kriterleri:** Yeni kullanıcı Google ile girince hesabı oluşur; ikinci girişte aynı hesaba döner, ikinci hesap oluşmaz. Aynı e-postalı parolalı hesap varken Google girişi o hesaba erişim vermez ve kullanıcıya ne yapacağı söylenir. Onayı iptal eden ya da hata alan kullanıcı giriş ekranına anlaşılır bir mesajla döner. `state` değeri eşleşmeyen dönüş reddedilir (başkasının hesabıyla oturum açtırılamaz). Girişten sonra kullanıcı başladığı sayfaya döner (UX-01). Hesap silme (DATA-02) Google bağlantısını da siler.
+- **Bağımlılıklar:** Özel alan adı (ön koşul); mevcut oturum sistemi; ACC-03 (hesap ayarları); DATA-02. Gizlilik politikası ve kullanım koşulları sayfaları: Google'ın marka doğrulaması bunları ve alan adı sahipliğini ister; doğrulama yapılmazsa onay ekranında uygulama adı yerine alan adı görünür. Yalnız temel kapsamlar istendiği için Google'ın uygulama doğrulaması zorunlu değildir.
+- **İlk sürüm dışında:** Facebook ve X ile giriş (her birinin ayrı uygulama incelemesi var; `code.run` adresiyle davranışları kontrol edilmedi), Google One Tap, profil fotoğrafı, birden çok Google hesabını tek hesaba bağlama.
+- **Ön koşul — özel alan adı** (teknik iş; kullanıcıyla birlikte yapılacak):
+  - **Neden:** Canlı adres `*.code.run`, Public Suffix List'te Northflank'ın joker kuralıyla yer alıyor; adresin kendisi "public suffix" sayıldığı için altında kayıt edilebilir alan adı yok. Google, dönüş adresinde kayıt edilebilir alan adı ister ve bu adresi reddeder ("must use a domain that is a valid top private domain"). 2026-11-17'de liste indirilip algoritma çalıştırılarak doğrulandı; aynı adres biçimiyle yaşanmış bir örnek var. Kendi Google Cloud Console'umuzda denenmedi.
+  - **Adımlar:**
+    1. Alan adını seç ve satın al (kullanıcı).
+    2. Northflank'ta alan adını doğrula ve `web` servisine bağla: DNS'e TXT ve CNAME kaydı; kök alan adı için CNAME düzleştirme gerekir. TLS sertifikası kendiliğinden gelir; ücretsiz planda var.
+    3. Repoda canlı adresi güncelle: `uptime.yml` (`BASE_URL`), README, DEPLOYMENT, STATUS. Eski `code.run` adresinin yeni adrese yönlendirilip yönlendirilmeyeceği karara bağlanır.
+    4. Etkisi: oturum çerezi host'a bağlı olduğundan herkes bir kez yeniden giriş yapar. CSRF koruması ve CSP aynı origin'e göre çalıştığından ayar değişikliği beklenmez; yayından sonra doğrulanır.
+    5. Google tarafı (kullanıcı): Search Console'da alan adı sahipliği; Google Cloud'da onay ekranı, yetkili alan adı, OAuth istemcisi ve dönüş adresi. İstemci sırrı doğrudan Northflank'a girilir, asistana verilmez.
+  - **Yan faydası:** ACC-01 ve ACC-02'nin e-posta gönderimi de kendi alan adını ister (gönderen doğrulaması DNS kaydıyla yapılır; `code.run`'ın DNS'i bizde değil).
 
 ## 13. Veri sahipliği ve taşınabilirlik
 
