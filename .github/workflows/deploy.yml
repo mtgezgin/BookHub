@@ -34,6 +34,8 @@ concurrency:
 permissions:
   contents: read
 
+# Action'lar etiketle değil COMMIT ile sabit: etiket sonradan başka bir commit'e taşınabilir ve bu iş
+# akışı canlı veritabanının sırrıyla koşar. Yükseltirken yeni sürümün commit'i yazılır.
 jobs:
   plan:
     name: Plan + migrate
@@ -47,6 +49,9 @@ jobs:
       github.event.workflow_run.path == '.github/workflows/ci.yml' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
+    # Takılan bir migration (kilit bekleyen ALTER TABLE) işi saatlerce açık tutmasın. Migration
+    # oturumunun kendi kilit sınırı 5 sn (internal/database/migrate.go); bu, işin tamamının tavanı.
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
@@ -57,7 +62,7 @@ jobs:
       SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Checkout (CI'ın test ettiği commit)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0 # release ve main ile karşılaştırmak için tüm geçmiş ve dallar
@@ -119,7 +124,7 @@ jobs:
 
       - name: Set up Go
         if: steps.plan.outputs.skip == 'false' && steps.plan.outputs.migrate == 'true'
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: backend/go.mod
           cache: false # sırla koşan iş, CI koşularının yazdığı önbelleği geri yüklemesin
@@ -146,6 +151,7 @@ jobs:
       needs.plan.outputs.skip == 'false' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write # release dalını ilerletmek için; bu iş repo kodu çalıştırmaz
     env:
@@ -153,7 +159,7 @@ jobs:
       MIGRATE: ${{ needs.plan.outputs.migrate }}
     steps:
       - name: Checkout (yalnız push için)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
