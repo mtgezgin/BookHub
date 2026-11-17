@@ -47,7 +47,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [x] | F18 | Düşük | Dokümanlar mevcut uygulamayla eşitlenmeli |
 | [ ] | F19 | Düşük | `manage migrate` hangi migration'ları uyguladığını yazmıyor |
 | [ ] | F20 | Yüksek | Uygulama ile veri ayrı bölgede; istekler sıralı ve çok sorgulu |
-| [ ] | F21 | Orta | Yarıda kesilen istek veritabanı bağlantısını kapatıyor ve hata olarak loglanıyor |
+| [x] | F21 | Orta | Yarıda kesilen istek veritabanı bağlantısını kapatıyor ve hata olarak loglanıyor |
 | [ ] | F22 | Orta | Yayın akışı canlıda hangi sürümün çalıştığını doğrulamıyor |
 | [ ] | F23 | Orta | Yedek ve geri yükleme tanımlı değil |
 | [ ] | F24 | Orta — ölçekle | Tür süzgeci kalıbı planlayıcının iyi planı kurmasını engelliyor |
@@ -58,7 +58,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [ ] | F29 | Orta | Aynı başlıklı ikinci öneri reddediliyor; yazar düz metin |
 | [x] | F30 | Orta | Geçersiz bayt içeren metin 500 üretiyor |
 | [x] | F31 | Orta | `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor |
-| [ ] | F32 | Orta | Bir isteğin süresinin nereye gittiği görünmüyor |
+| [x] | F32 | Orta | Bir isteğin süresinin nereye gittiği görünmüyor |
 | [ ] | F33 | Orta | Sunucu verisi her sayfada elle çekiliyor |
 | [ ] | F34 | Orta | Hata sınırı yok; NGINX'in ürettiği hatalar boş mesajla görünüyor |
 | [x] | F35 | Orta | Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir |
@@ -211,6 +211,8 @@ HTTP ReadTimeout/WriteTimeout var; normal handler işlemleri için genel context
 **Referans:** [Go WriteTimeout ve request context davranışı](https://github.com/golang/go/issues/59602).
 
 **Ek kanıt (17 Kasım 2026):** Bağlantı havuzu bütünüyle varsayılan ayarlarla kuruluyor (`pgxpool.New`). En çok bağlantı sayısı `max(4, çekirdek sayısı)`: 0,1 vCPU kotasını değil düğümün çekirdek sayısını izler; Supabase'in oturum havuzu ise varsayılan 15 bağlantı ve fazlası bir dakikaya kadar sıraya girer. En az bağlantı 0 ve boşta kalma süresi 30 dakika olduğu için seyrek trafikte ilk istekler yeni bir TLS bağlantısı kurar. Düzeltirken dikkat: `pool_max_conns`'ı `DATABASE_URL`'e yazmak `manage migrate`'i bozar, çünkü aynı adres `database/sql` üzerinden de açılıyor ve pgx bilinmeyen anahtarı sunucuya iletir (pgx kaynağı okunarak); değer koddan verilmeli. Canlıdaki çekirdek sayısı ve havuz ayarı doğrulanmadı. Migration oturumunun süre sınırları için F38.
+
+**İlerleme (17 Kasım 2026, #84, yayın bekliyor):** Süre bütçeleri: okuma 5 sn, yazma 9 sn (ikisi de WriteTimeout'tan kısa); bütçesi dolan istek 503 `timeout` + `Retry-After` döner. Her veritabanı bağlantısı `statement_timeout` 10 sn, `lock_timeout` 3 sn, `idle_in_transaction_session_timeout` 15 sn ile açılır (`AfterConnect`; migration bağlantısı etkilenmez). Havuz koddan kurulur: en çok bağlantı `DB_MAX_CONNS` (varsayılan 6), en az 1, boşta kalma 5 dk. Açık kalanlar: canlıdaki çekirdek sayısı ve Supabase havuz sınırı panelden doğrulanmadı; `SET` komutlarının Supabase oturum havuzlayıcısında kalıcı olduğu yayından sonra `SHOW statement_timeout` ile doğrulanacak.
 
 ## F09 — Cache ve güvenlik sayaçları aynı eviction politikasını paylaşıyor
 
@@ -465,6 +467,8 @@ Her sorguya isteğin context'i veriliyor; bu doğru alışkanlık. pgx'in varsay
 
 **İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), yayın bekliyor):** katalog listesi ve araması (`GET /api/books`) sorgularını istemci iptalinden ayırıyor (`detached`, 5 sn sınır) ve giden istemciyi 499 olarak logluyor. Yerel yığında 500 bin kitapla yarıda kesilen 40 istek: 4 yeni bağlantı (eşzamanlılık için havuz büyümesi), 0 ERROR. Diğer uçlar ve havuz düzeyindeki çözüm açık.
 
+**Durum (17 Kasım 2026, #84, yayın bekliyor):** Bütün okuma istekleri (GET/HEAD) istemci iptalinden ayrıldı ve 5 sn'lik bütçe aldı (`requestBudget` ara katmanı); katalogdaki özel kod kaldırıldı. Giden istemcinin isteği erişim logunda 499 ve INFO; iptalin bir yazma sorgusuna ulaştığı durum `writeInternalError`'da ERROR yerine INFO ve 499. Yazma istekleri bilerek ayrılmadı (istemcinin vazgeçtiği yazma tamamlanmaz). Yerel ölçüm: yarıda kesilen 40 istekten API'ye ulaşanlar 499/INFO olarak loglandı, yeni veritabanı bağlantısı 0, ERROR 0. Ölçümün sınırı: sorgular 1-4 ms sürdüğü için isteklerin çoğu NGINX'te, API'ye ulaşmadan kesildi; davranış birim testleriyle sabit (`budget_test.go`). Havuz düzeyindeki çözüm (`CancelRequestContextWatcherHandler`) yapılmadı: Supabase havuzlayıcısı üzerinden denenmedi.
+
 ## F22 — Yayın akışı canlıda hangi sürümün çalıştığını doğrulamıyor
 
 **Öncelik:** Orta · Yayın
@@ -631,6 +635,10 @@ Erişim satırı toplam süreyi yazıyor. Veritabanı ve Redis süresi, sorgu sa
 **Öneri:** İstek başına sorgu sayısını ve süresini toplayan bir `pgx.QueryTracer`; aynı ölçüm Redis için. Erişim satırına `db_queries`, `db_ms`, `redis_ms` ekleyin. Zarf ve `request_id` yazan küçük bir recoverer yazın. F20'den önce yapılırsa etkisi ölçülebilir.
 
 **Kabul kriteri:** Her erişim satırında sorgu sayısı ve veritabanı süresi var; panik eden bir handler hata zarfı döner.
+
+**Durum (17 Kasım 2026, #84, yayın bekliyor):** Erişim satırında `db_queries`, `db_ms`, `redis_ms` var (`internal/reqstats`; pgx `QueryTracer` ve go-redis hook'u). BEGIN ve COMMIT ayrı gidiş-dönüş sayılır. Sorgu metni ve argümanı kaydedilmez. Panik eden handler hata zarfı ve `X-Request-Id` ile 500 döner (`recoverer`). Havuzdan bağlantı bekleme süresi ve kullanıcı kimliği eklenmedi. Ölçümün ilk faydası aynı gün görüldü: Redis durdurulmuşken `redis_ms` 600 ms gösterdi ve aşağıdaki Redis notuna yol açtı.
+
+**Ek (17 Kasım 2026, #84): Redis kesintisi.** Redis açılışta ulaşılamazsa API artık açılıyor (uyarı loglar; bağlantı sonradan kurulur). Ölçüm sırasında bir sorun bulundu: Redis durdurulmuşken önbellek kullanan tek istek 10 sn'yi aştı, çünkü her komut bağlantı kurmayı baştan deniyordu. Düzeltme: komut başına 600 ms sınır, tek yeniden deneme ve bir devre kesici (başarısız komuttan sonra 5 sn Redis denenmez). Yerel ölçüm: kesinti boyunca 5 sn'de bir tek istek 0,6 sn bekledi, diğerleri 2-4 ms; Redis dönünce önbellek kendiliğinden çalıştı. Kesinti sırasında rate limit açık kalır (uyarı loglanır); NGINX'in sınırı yerinde durur.
 
 ## F33 — Sunucu verisi her sayfada elle çekiliyor
 
