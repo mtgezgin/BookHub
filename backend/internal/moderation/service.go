@@ -11,6 +11,7 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/database"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
+	"github.com/mtgezgin/bookhub/backend/internal/slug"
 )
 
 // Service, kitabın yaşam döngüsündeki YAZMA işlemlerini ve admin okumalarını yönetir.
@@ -55,11 +56,30 @@ func (s *Service) publicChanged(ctx context.Context, err error) {
 
 // Suggest, kullanıcının önerisini PENDING olarak kaydeder. Statü ve öneren BURADA
 // belirlenir; istemci ikisini de seçemez.
+//
+// Slug çakışırsa sayısal ekle yeniden denenir ("secme-siirler-2"). NEDEN: öneri formu slug
+// göstermez; slug başlıktan türetilir ve bütün durumlarda benzersizdir. Aynı başlıklı ikinci kitap
+// (başka bir şairin "Seçme Şiirler"i) ya da reddedilmiş bir başlığın yeniden önerilmesi, kullanıcının
+// hiç yazmadığı bir alan yüzünden 409 alıyordu (REVIEW_FEEDBACK F29). Admin'in doğrudan eklemesi
+// (CreateApproved) böyle değil: orada slug'ı admin seçer, çakışmayı görmek ister.
 func (s *Service) Suggest(ctx context.Context, userID int64, p books.CreateParams) (db.BookView, error) {
 	p.Status = books.StatusPending
 	p.SubmittedBy = &userID
-	return s.create(ctx, userID, "book.suggest", p)
+	base := p.Slug
+	for n := 1; ; n++ {
+		if n > 1 {
+			p.Slug = slug.Numbered(base, n)
+		}
+		book, err := s.create(ctx, userID, "book.suggest", p)
+		if !errors.Is(err, books.ErrDuplicateSlug) || n == maxSlugAttempts {
+			return book, err
+		}
+	}
 }
+
+// maxSlugAttempts, Suggest'in denediği en fazla slug (taban + 19 numaralı kopya). Her deneme ayrı bir
+// transaction'dır; sınır, aynı başlığın yüzlerce kopyasında sonsuza kadar denemeyi önler.
+const maxSlugAttempts = 20
 
 // CreateApproved, admin'in doğrudan eklediği kitabı yayında (APPROVED) başlatır.
 func (s *Service) CreateApproved(ctx context.Context, actorID int64, p books.CreateParams) (db.BookView, error) {

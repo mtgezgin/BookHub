@@ -1,6 +1,7 @@
 package slug
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -60,5 +61,22 @@ func TestTruncate(t *testing.T) {
 	got := Truncate(long, 120)
 	if len(got) > 120 || strings.HasSuffix(got, "-") || !strings.HasPrefix(long, got) {
 		t.Errorf("uzun slug: %d karakter, %q", len(got), got)
+	}
+}
+
+// TestNumbered: kopya adı tabana sayısal ek koyar; taban kısaltılır, ek asla kesilmez.
+func TestNumbered(t *testing.T) {
+	if got := Numbered("secme-siirler", 2); got != "secme-siirler-2" {
+		t.Errorf("gelen %q", got)
+	}
+	long := strings.Repeat("a", MaxLen)
+	for _, n := range []int{2, 19, 100} {
+		got := Numbered(long, n)
+		if len(got) != MaxLen || !strings.HasSuffix(got, fmt.Sprintf("a-%d", n)) {
+			t.Errorf("n=%d: %d karakter, sonu %q", n, len(got), got[len(got)-6:])
+		}
+	}
+	if Numbered(long, 2) == Numbered(long, 3) {
+		t.Error("iki kopya aynı ada düşmemeli (ek kesilmemeli)")
 	}
 }

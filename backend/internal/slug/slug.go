@@ -7,6 +7,7 @@
 package slug
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -76,4 +77,14 @@ func Truncate(s string, max int) string {
 		cut = cut[:i]
 	}
 	return cut
+}
+
+// MaxLen, bir slug'ın en fazla uzunluğu (HTTP katmanındaki doğrulama ve Numbered aynı sınırı kullanır).
+const MaxLen = 120
+
+// Numbered, slug'ın n. kopyasının adını döner: "secme-siirler" → "secme-siirler-2". Sonuç MaxLen'i
+// aşmasın diye önce taban kısaltılır (ek asla kesilmez; kesilseydi iki kopya aynı ada düşerdi).
+func Numbered(base string, n int) string {
+	suffix := fmt.Sprintf("-%d", n)
+	return Truncate(base, MaxLen-len(suffix)) + suffix
 }

@@ -369,3 +369,37 @@ func TestCreateDuplicateSlugRollsBackRealDB(t *testing.T) {
 		t.Errorf("yalnız ilk eklemenin denetim kaydı olmalı: %d kayıt", auditRows)
 	}
 }
+
+// TestSuggestSameTitleTwiceRealDB: aynı başlıklı ikinci öneri reddedilmez (REVIEW_FEEDBACK F29).
+// Öneri formu slug göstermez; slug başlıktan türetilir. İkinci öneri sayısal ekli bir slug alır.
+// Admin'in doğrudan eklemesi ise çakışmayı olduğu gibi bildirir: orada slug'ı admin seçer.
+func TestSuggestSameTitleTwiceRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	s := NewService(pool)
+	ctx := context.Background()
+	user := createUser(t, pool)
+
+	p := params(t)
+	first, err := s.Suggest(ctx, user, p)
+	if err != nil {
+		t.Fatalf("ilk öneri: %v", err)
+	}
+	cleanupBook(t, pool, first.ID)
+	second, err := s.Suggest(ctx, user, p)
+	if err != nil {
+		t.Fatalf("aynı başlıklı ikinci öneri kaydedilmeliydi: %v", err)
+	}
+	cleanupBook(t, pool, second.ID)
+	third, err := s.Suggest(ctx, user, p)
+	if err != nil {
+		t.Fatalf("üçüncü öneri: %v", err)
+	}
+	cleanupBook(t, pool, third.ID)
+
+	if first.Slug != p.Slug || second.Slug != p.Slug+"-2" || third.Slug != p.Slug+"-3" {
+		t.Errorf("slug'lar: %q, %q, %q; istenen taban, -2, -3", first.Slug, second.Slug, third.Slug)
+	}
+	if _, err := s.CreateApproved(ctx, user, p); !errors.Is(err, books.ErrDuplicateSlug) {
+		t.Errorf("admin eklemesi çakışmayı bildirmeli, gelen %v", err)
+	}
+}

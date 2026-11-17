@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/mtgezgin/bookhub/backend/internal/slug"
 )
 
 // Alan uzunluk sınırları — KARAKTER (rune) cinsinden, bayt değil: "ğ" UTF-8'de 2
@@ -17,7 +19,7 @@ import (
 const (
 	maxTitleLen       = 300
 	maxAuthorLen      = 200
-	maxSlugLen        = 120
+	maxSlugLen        = slug.MaxLen
 	maxNameLen        = 100
 	maxDescriptionLen = 5000
 	maxURLLen         = 2048
