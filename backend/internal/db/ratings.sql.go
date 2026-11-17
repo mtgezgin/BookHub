@@ -27,6 +27,25 @@ func (q *Queries) DeleteRating(ctx context.Context, arg DeleteRatingParams) (int
 	return result.RowsAffected(), nil
 }
 
+const getBookRatingStats = `-- name: GetBookRatingStats :one
+SELECT average_rating, rating_count FROM books WHERE id = $1
+`
+
+type GetBookRatingStatsRow struct {
+	AverageRating *float64 `json:"average_rating"`
+	RatingCount   int32    `json:"rating_count"`
+}
+
+// Puan SİLİNDİKTEN sonra istatistiği okur. Yeniden hesaplamaz: silme tetikleyicisi (0006, 0007) aynı
+// transaction'da zaten hesapladı. İstatistiğin silme yolundaki tek sahibi tetikleyicidir; servis de
+// hesaplasaydı aynı toplama iki kez yapılırdı (REVIEW_FEEDBACK F27).
+func (q *Queries) GetBookRatingStats(ctx context.Context, id int64) (GetBookRatingStatsRow, error) {
+	row := q.db.QueryRow(ctx, getBookRatingStats, id)
+	var i GetBookRatingStatsRow
+	err := row.Scan(&i.AverageRating, &i.RatingCount)
+	return i, err
+}
+
 const getUserRating = `-- name: GetUserRating :one
 SELECT score, created_at, updated_at FROM ratings
 WHERE user_id = $1 AND book_id = $2
@@ -149,7 +168,7 @@ const lockApprovedBook = `-- name: LockApprovedBook :one
 
 SELECT id FROM books
 WHERE id = $1 AND status = 'APPROVED'
-FOR UPDATE
+FOR NO KEY UPDATE
 `
 
 // ratings.sql — puan sorguları (Faz 5).
@@ -158,6 +177,11 @@ FOR UPDATE
 // yalnız kendi oyuyla hesaplar ve sonra yazan öncekinin sayımını EZER (kayıp güncelleme).
 // Kilitle ikinci işlem, birincinin commit'ini bekler; sonraki deyimleri yeni bir anlık
 // görüntüyle (snapshot) çalışır ve birinci oyu görür.
+// FOR NO KEY UPDATE, FOR UPDATE DEĞİL (REVIEW_FEEDBACK F27): bu transaction kitabın anahtarını
+// değiştirmez ve satırı silmez. FOR UPDATE, yabancı anahtar denetiminin aldığı FOR KEY SHARE ile
+// çakışır: kilit tutulurken aynı kitaba kitaplık kaydı, yorum ya da baskı ekleyen herkes beklerdi
+// (deneyle doğrulandı). FOR NO KEY UPDATE kendisiyle yine çakışır, yani aynı kitabın yazımları
+// sıraya girmeye devam eder. Aynı ayrım: users.sql LockUserPasswordForChange.
 func (q *Queries) LockApprovedBook(ctx context.Context, id int64) (int64, error) {
 	row := q.db.QueryRow(ctx, lockApprovedBook, id)
 	var id_2 int64

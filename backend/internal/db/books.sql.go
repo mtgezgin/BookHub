@@ -363,7 +363,7 @@ func (q *Queries) ListBooksByStatus(ctx context.Context, arg ListBooksByStatusPa
 }
 
 const lockBookForModeration = `-- name: LockBookForModeration :one
-SELECT status FROM books WHERE id = $1 FOR UPDATE
+SELECT status FROM books WHERE id = $1 FOR NO KEY UPDATE
 `
 
 // Moderasyon için kilitli okuma: statü kontrolü + güncelleme arasına başka bir admin
@@ -371,6 +371,7 @@ SELECT status FROM books WHERE id = $1 FOR UPDATE
 // Kilit book_view'da değil books'ta: Postgres, LEFT JOIN'in boş olabilen tarafını (baskı)
 // kilitleyemez. Yalnız statü döner. Baskı servisi de aynı kilidi alır (kitabın baskıları
 // arasındaki "tek varsayılan" kuralı için).
+// Kilit gücü FOR NO KEY UPDATE: gerekçesi ratings.sql LockApprovedBook'ta.
 func (q *Queries) LockBookForModeration(ctx context.Context, id int64) (string, error) {
 	row := q.db.QueryRow(ctx, lockBookForModeration, id)
 	var status string

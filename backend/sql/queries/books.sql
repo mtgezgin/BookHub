@@ -159,8 +159,9 @@ SELECT * FROM book_view WHERE id = $1;
 -- Kilit book_view'da değil books'ta: Postgres, LEFT JOIN'in boş olabilen tarafını (baskı)
 -- kilitleyemez. Yalnız statü döner. Baskı servisi de aynı kilidi alır (kitabın baskıları
 -- arasındaki "tek varsayılan" kuralı için).
+-- Kilit gücü FOR NO KEY UPDATE: gerekçesi ratings.sql LockApprovedBook'ta.
 -- name: LockBookForModeration :one
-SELECT status FROM books WHERE id = $1 FOR UPDATE;
+SELECT status FROM books WHERE id = $1 FOR NO KEY UPDATE;
 
 -- name: SetBookStatus :exec
 UPDATE books

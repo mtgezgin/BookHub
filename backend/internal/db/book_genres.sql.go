@@ -119,7 +119,7 @@ const lockBook = `-- name: LockBook :one
 
 SELECT id FROM books
 WHERE id = $1
-FOR UPDATE
+FOR NO KEY UPDATE
 `
 
 // book_genres.sql — kitap ↔ tür ÇOKA-ÇOK ilişkisi (ara tablo: book_genres).
@@ -130,6 +130,7 @@ FOR UPDATE
 // iki admin aynı anda türleri değiştirirse, kilitsiz iki transaction'ın "sil + ekle"
 // adımları iç içe geçip İKİ listenin birleşimini bırakabilirdi. Kilit, aynı kitap için
 // yazımları sıraya sokar. Satır yoksa → kitap yok (404).
+// Kilit gücü FOR NO KEY UPDATE: gerekçesi ratings.sql LockApprovedBook'ta.
 func (q *Queries) LockBook(ctx context.Context, id int64) (int64, error) {
 	row := q.db.QueryRow(ctx, lockBook, id)
 	var id_2 int64
