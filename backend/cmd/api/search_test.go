@@ -147,8 +147,8 @@ func TestListBooksQueryOutlivesClient(t *testing.T) {
 			if store.ctxErr != nil {
 				t.Errorf("sorgunun context'i istemci iptalinden ayrılmış olmalı, gelen %v", store.ctxErr)
 			}
-			if !store.hasDeadline || store.untilDeadline <= 0 || store.untilDeadline > listQueryTimeout {
-				t.Errorf("sorgunun kendi süre sınırı olmalı (≤ %v), gelen %v (var mı: %v)", listQueryTimeout, store.untilDeadline, store.hasDeadline)
+			if !store.hasDeadline || store.untilDeadline <= 0 || store.untilDeadline > readBudget {
+				t.Errorf("sorgunun kendi süre sınırı olmalı (≤ %v), gelen %v (var mı: %v)", readBudget, store.untilDeadline, store.hasDeadline)
 			}
 			if rec.Code != statusClientClosedRequest || rec.Body.Len() != 0 {
 				t.Errorf("gitmiş istemciye gövdesiz %d bekleniyordu, gelen %d %q", statusClientClosedRequest, rec.Code, rec.Body)

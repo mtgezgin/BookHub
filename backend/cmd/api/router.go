@@ -47,7 +47,8 @@ func newRouter(d deps) http.Handler {
 	r.Use(middleware.RequestID)              // her isteğe benzersiz bir ID ekle (log korelasyonu)
 	r.Use(resolveClientIP(d.trustedProxies)) // gerçek istemci IP'si (proxy arkasında da)
 	r.Use(requestLogger)                     // her istek için tek yapılandırılmış log satırı + X-Request-Id (12-factor XI)
-	r.Use(middleware.Recoverer)              // bir handler panik ederse 500 dön, sunucu çökmesin
+	r.Use(recoverer)                         // bir handler panik ederse hata zarfıyla 500 dön, sunucu çökmesin
+	r.Use(requestBudget)                     // süre bütçesi; okumalar istemci iptalinden ayrılır
 	// CSRF koruması (bkz. crossOriginProtection). SIRA ÖNEMLİ: RequestID + requestLogger'dan
 	// SONRA → reddedilen istek de erişim log'una düşer ve cevabı X-Request-Id taşır. Zincirin
 	// başında olsaydı ret, log'a hiç ulaşmadan zinciri keserdi: "neden 403 aldım?" sorusu izsiz kalırdı.
