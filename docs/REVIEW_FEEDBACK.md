@@ -54,7 +54,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [ ] | F25 | Orta — ölçekle | Her listede tam sayım, derin sayfa maliyeti ve 10.000 sınırı |
 | [ ] | F26 | Orta — ölçekle | Puana göre sıralama ve "en sevilenler" önbelleği |
 | [x] | F27 | Düşük | Kitap satırı kilidi gereğinden güçlü; puan istatistiği iki yerde hesaplanıyor |
-| [ ] | F28 | Düşük | Index'siz yabancı anahtarlar ve küçük index düzeltmeleri |
+| [x] | F28 | Düşük | Index'siz yabancı anahtarlar ve küçük index düzeltmeleri |
 | [ ] | F29 | Orta | Aynı başlıklı ikinci öneri reddediliyor; yazar düz metin |
 | [x] | F30 | Orta | Geçersiz bayt içeren metin 500 üretiyor |
 | [x] | F31 | Orta | `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor |
@@ -576,6 +576,8 @@ Ağırlıklı skor sorgu anında hesaplanıyor. Karar bilinçli ve "yavaşladı�
 - **Kullanıcı silmede puan tetikleyicisi** satır başına çalışıyor ve kitapları rastgele sırada kilitliyor. DATA-02 için deyim düzeyinde, kitapları sırayla kilitleyen bir tetikleyici gerekir.
 
 **Kabul kriteri:** Yabancı anahtar kolonu hiçbir index'in ilk kolonu olmayan kısıt kalmaz (katalog sorgusu bir testte).
+
+**Durum (17 Kasım 2026, #85, yayın bekliyor):** Migration `0015`: `comments.deleted_by` (kısmi), `comments (book_id, created_at, id)` (tam; eski kısmi index'in yerine), `library_entries.book_id`, `ratings (book_id, score)` ve `books (status, created_at, id)` (iki kısmi index'in yerine). Son karar ölçüldü (500 bin kitap): tek index dört durumun listesine 0,1–0,5 ms'de hizmet ediyor, herkese açık liste yavaşlamıyor, boyut 24 MB (eski ikisi 30 MB). Kural artık testte: `TestEveryForeignKeyHasIndex` 0014'te üç kolonu yakalıyor, 0015'te temiz. Yapılmayan: kullanıcı silmede deyim düzeyinde puan tetikleyicisi (DATA-02 ile birlikte).
 
 ## F29 — Aynı başlıklı ikinci öneri reddediliyor; yazar düz metin
 

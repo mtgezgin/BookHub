@@ -81,3 +81,5 @@ Bu kurallar rastgeleliği önlemek için var:
   - Migration `0014` aramaya verildi; Faz 17'nin migration'ları `0015`–`0017` oldu (goose sırasız
     migration'ı reddeder; [spec](phases/phase-17-reading-reviews.md) güncellendi).
   - İkinci kapsamlı inceleme yapıldı: bulgular [REVIEW_FEEDBACK](REVIEW_FEEDBACK.md) F20–F40.
+  - İnceleme düzeltmeleri Faz 17'den önce, partiler hâlinde yapılıyor (kullanıcı kararı): A (#83), B (#84),
+    index'ler (#85). Migration `0015` index düzeltmelerine verildi; Faz 17'nin migration'ları `0016`–`0018` oldu.
