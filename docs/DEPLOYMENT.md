@@ -56,6 +56,7 @@ imaja girer). `web` servisinin env değişkeni yok.
 | `TRUSTED_PROXIES` | (boş) | Bilinen sınır: aşağıda §5 |
 | `JWT_ACCESS_TTL` · `JWT_REFRESH_TTL` · `JWT_SESSION_MAX_AGE` | varsayılanlar (15m · 168h · 720h) | `JWT_SESSION_MAX_AGE`, `JWT_REFRESH_TTL`'den kısa olamaz (açılışta doğrulanır) |
 | `DB_MAX_CONNS` | (varsayılan `6`) | Havuzun en çok bağlantısı. 2 × değer + 1 (yayın sırasında iki örnek + migration), Supabase oturum havuzunun sınırını (varsayılan 15) aşmamalı. Adrese `pool_max_conns` yazılmaz |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` · `OTEL_SERVICE_NAME` | (boş → telemetri **kapalı**) · varsayılan `bookhub-api` | OpenTelemetry iz ve metrikleri. Canlıda henüz açılmadı ([#87](https://github.com/mtgezgin/BookHub/issues/87) yalnız yerel deney). Açılırken ayrıca `OTEL_EXPORTER_OTLP_HEADERS` (kimlik, **sır**), `OTEL_TRACES_SAMPLER` + `OTEL_TRACES_SAMPLER_ARG` (örnekleme) ve `OTEL_RESOURCE_ATTRIBUTES` (`service.version=…`) gerekir; bunları SDK kendisi okur |
 | `RATING_MIN_VOTES` · `AUTH_RATE_LIMIT_PER_MIN` | varsayılanlar | Ağırlıklı puanın `m`'i · IP başına dakikalık kimlik isteği kotası |
 
 Deploy iş akışı için GitHub secret'ı: `PROD_DATABASE_URL` (yukarıdaki `DATABASE_URL` ile aynı
