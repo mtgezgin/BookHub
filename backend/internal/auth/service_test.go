@@ -91,15 +91,34 @@ func (m *memStore) UserByID(_ context.Context, id int64) (db.User, error) {
 	return u, nil
 }
 
-func (m *memStore) EnsureAdmin(ctx context.Context, email, name, hash string) (db.User, bool, error) {
+func (m *memStore) EnsureAdmin(ctx context.Context, email, name, hash string, promote bool, _ time.Time) (db.User, bool, error) {
 	u, err := m.UserByEmail(ctx, email)
 	created := false
-	if errors.Is(err, ErrUserNotFound) {
-		u, err = m.CreateUser(ctx, email, name, hash)
+	switch {
+	case errors.Is(err, ErrUserNotFound):
+		if u, err = m.CreateUser(ctx, email, name, hash); err != nil {
+			return db.User{}, false, err
+		}
 		created = true
-	}
-	if err != nil {
+	case err != nil:
 		return db.User{}, false, err
+	case !promote:
+		return db.User{}, false, ErrUserExists
+	default:
+		m.mu.Lock()
+		u.PasswordHash = hash
+		m.users[u.ID] = u
+		for id, fam := range m.families {
+			if fam.userID == u.ID && !fam.revoked {
+				m.revokeLocked(id)
+			}
+		}
+		for k, tok := range m.tokens {
+			if tok.userID == u.ID {
+				delete(m.tokens, k)
+			}
+		}
+		m.mu.Unlock()
 	}
 	m.setRole(u.ID, RoleAdmin)
 	u.Role = RoleAdmin
@@ -687,17 +706,47 @@ func TestEnsureAdmin(t *testing.T) {
 	s, _, _ := newTestService(t)
 	ctx := context.Background()
 
-	if _, _, err := s.EnsureAdmin(ctx, "admin@example.com", "Admin", "kisa"); err == nil {
+	if _, _, err := s.EnsureAdmin(ctx, "admin@example.com", "Admin", "kisa", false); err == nil {
 		t.Error("CLI yolu da parola politikasına tabi olmalı")
 	}
 
-	u, created, err := s.EnsureAdmin(ctx, "admin@example.com", "Admin", goodPassword)
+	u, created, err := s.EnsureAdmin(ctx, "admin@example.com", "Admin", goodPassword, false)
 	if err != nil || !created || u.Role != RoleAdmin {
 		t.Fatalf("yeni admin bekleniyordu: %+v created=%v err=%v", u, created, err)
 	}
-	u2, created, err := s.EnsureAdmin(ctx, "ADMIN@example.com", "Admin", goodPassword)
-	if err != nil || created || u2.ID != u.ID {
-		t.Errorf("var olan hesap yükseltilmeli, yenisi açılmamalı: %+v created=%v err=%v", u2, created, err)
+	// Var olan hesap sessizce yükseltilmez (F31): o adresle önceden kayıt olmuş biri kendi
+	// parolasıyla admin olurdu.
+	if _, _, err := s.EnsureAdmin(ctx, "ADMIN@example.com", "Admin", goodPassword, false); !errors.Is(err, ErrUserExists) {
+		t.Errorf("var olan hesapta ErrUserExists bekleniyordu, gelen %v", err)
+	}
+}
+
+// TestEnsureAdminPromoteTakesOverAccount: -promote, sıradan bir hesabı bilerek devralır. Hesabı
+// açan kişinin parolası ve açık oturumu artık geçersizdir; yeni parolayla girilir.
+func TestEnsureAdminPromoteTakesOverAccount(t *testing.T) {
+	s, _, _ := newTestService(t)
+	ctx := context.Background()
+	const squatterPassword = "onceden-kayit-olanin-parolasi"
+	if _, err := s.Register(ctx, "admin@example.com", "Başkası", squatterPassword); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	old, err := s.Login(ctx, "admin@example.com", squatterPassword)
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	u, created, err := s.EnsureAdmin(ctx, "admin@example.com", "Admin", goodPassword, true)
+	if err != nil || created || u.Role != RoleAdmin {
+		t.Fatalf("devralma: %+v created=%v err=%v", u, created, err)
+	}
+	if _, err := s.Login(ctx, "admin@example.com", squatterPassword); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("eski parola artık geçmemeli, gelen %v", err)
+	}
+	if _, err := s.Refresh(ctx, old.RefreshToken); err == nil {
+		t.Error("devralmadan önce açılmış oturum yenilenememeli")
+	}
+	if _, err := s.Login(ctx, "admin@example.com", goodPassword); err != nil {
+		t.Errorf("yeni parolayla giriş: %v", err)
 	}
 }
 

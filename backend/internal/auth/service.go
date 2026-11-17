@@ -79,7 +79,7 @@ type store interface {
 	CreateUser(ctx context.Context, email, displayName, passwordHash string) (db.User, error)
 	UserByEmail(ctx context.Context, email string) (db.User, error)
 	UserByID(ctx context.Context, id int64) (db.User, error)
-	EnsureAdmin(ctx context.Context, email, displayName, passwordHash string) (db.User, bool, error)
+	EnsureAdmin(ctx context.Context, email, displayName, passwordHash string, promote bool, now time.Time) (db.User, bool, error)
 	// StartRefreshFamily'nin verifiedHash'i: servisin bcrypt ile DOĞRULADIĞI hash. Depo, aileyi
 	// açmadan önce kullanıcının hash'inin kilit altında hâlâ bu olduğunu denetler (bkz. Login).
 	StartRefreshFamily(ctx context.Context, userID int64, verifiedHash string, tokenHash []byte, tokenExp, familyExp time.Time) error
@@ -126,6 +126,58 @@ type Service struct {
 	// compare, "kullanıcı yokken de karşılaştırma yapıldı mı" iddiasını ölçmek için.
 	hashCost int
 	compare  func(hash, password []byte) error
+
+	// hashSlot ve hashWait: parola özetinin kuyruğu (bkz. slow).
+	hashSlot chan struct{}
+	hashWait time.Duration
+}
+
+// ErrBusy, parola özeti kuyruğunda bekleme süresi doldu: sunucu şu an başka girişlerle meşgul.
+// İstemcinin hatası değil; biraz sonra yeniden denenebilir (handler: 503 + Retry-After).
+var ErrBusy = errors.New("sunucu şu an yoğun")
+
+// defaultHashWait, bir isteğin özet sırasını bekleyeceği en uzun süre. Hesap: sunucunun cevap yazma
+// süresi 10 sn (main.go WriteTimeout); canlıda tek özet ~3,3 sn. 5 sn bekleyip sıra gelen bir istek
+// 8,3 sn'de biter, yani süre dolmadan cevabını alır. Daha uzun beklemek, işi yapıp cevabı
+// kaybetmek olurdu.
+const defaultHashWait = 5 * time.Second
+
+// slow, parola özeti gibi bilerek işlemci yakan bir işi SIRAYA sokar: aynı anda yalnız biri çalışır.
+//
+// NEDEN (REVIEW_FEEDBACK F04, ölçüm): 0,1 işlemcide N özet aynı anda çalışınca her biri N kat
+// uzuyor. Beş eşzamanlı giriş denemesinin beşi de 10 sn'lik yazma süresini aşıp 502 aldı ve o
+// sırada katalog istekleri 0,1 sn yerine 1,3 sn sürdü. Sıra toplam işi azaltmaz; herkesin süreyi
+// aşmasını önler ve işlemciyi diğer isteklere bırakır. Bekleme süresi dolan istek ErrBusy alır:
+// yapamayacağı işi hiç başlatmaz.
+func (s *Service) slow(ctx context.Context, f func() error) error {
+	if s.hashSlot == nil {
+		return f()
+	}
+	wait := time.NewTimer(s.hashWait)
+	defer wait.Stop()
+	select {
+	case s.hashSlot <- struct{}{}:
+		defer func() { <-s.hashSlot }()
+		return f()
+	case <-wait.C:
+		return ErrBusy
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// comparePassword ve hash: bcrypt'in iki işlemi, sıradan geçerek.
+func (s *Service) comparePassword(ctx context.Context, hash, password []byte) error {
+	return s.slow(ctx, func() error { return s.compare(hash, password) })
+}
+
+func (s *Service) hash(ctx context.Context, password string) (string, error) {
+	var out string
+	err := s.slow(ctx, func() (err error) {
+		out, err = hashPassword(password, s.hashCost)
+		return err
+	})
+	return out, err
 }
 
 // NewService, üretim ayarlarıyla bir Service kurar ve zamanlama-eşitleme hash'ini ısıtır.
@@ -139,6 +191,8 @@ func NewService(s store, tokens *TokenManager, refreshTTL, sessionMaxAge time.Du
 		now:           time.Now,
 		hashCost:      bcryptCost,
 		compare:       bcrypt.CompareHashAndPassword,
+		hashSlot:      make(chan struct{}, 1),
+		hashWait:      defaultHashWait,
 	}
 }
 
@@ -231,7 +285,7 @@ func (s *Service) Register(ctx context.Context, email, displayName, password str
 	if err := validateRegistration(email, displayName, password); err != nil {
 		return User{}, err
 	}
-	hash, err := hashPassword(password, s.hashCost)
+	hash, err := s.hash(ctx, password)
 	if err != nil {
 		return User{}, err
 	}
@@ -254,17 +308,22 @@ func (s *Service) Login(ctx context.Context, email, password string) (Session, e
 
 	u, err := s.store.UserByEmail(ctx, NormalizeEmail(email))
 	if errors.Is(err, ErrUserNotFound) {
-		// Kullanıcı yok — yine de bir bcrypt karşılaştırması yap (bkz. dummyHash).
-		_ = s.compare(dummyHash(), []byte(password))
+		// Kullanıcı yok — yine de bir bcrypt karşılaştırması yap (bkz. dummyHash). Sıra doluysa
+		// var olan kullanıcıyla AYNI cevabı ver (ErrBusy): "meşgul" cevabı da hesabın varlığını sızdırmasın.
+		if err := s.comparePassword(ctx, dummyHash(), []byte(password)); errors.Is(err, ErrBusy) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return Session{}, err
+		}
 		return Session{}, ErrInvalidCredentials
 	}
 	if err != nil {
 		return Session{}, err
 	}
 
-	switch err := s.compare([]byte(u.PasswordHash), []byte(password)); {
+	switch err := s.comparePassword(ctx, []byte(u.PasswordHash), []byte(password)); {
 	case errors.Is(err, bcrypt.ErrMismatchedHashAndPassword):
 		return Session{}, ErrInvalidCredentials
+	case errors.Is(err, ErrBusy):
+		return Session{}, ErrBusy
 	case err != nil:
 		// Hash bozuk (elle düzenlenmiş DB satırı gibi) — kullanıcının hatası değil.
 		return Session{}, fmt.Errorf("parola karşılaştırılamadı (user %d): %w", u.ID, err)
@@ -327,9 +386,11 @@ func (s *Service) ChangePassword(ctx context.Context, userID int64, current, nex
 	if err != nil {
 		return Session{}, err // ErrUserNotFound olduğu gibi: token geçerli ama hesap silinmiş
 	}
-	switch err := s.compare([]byte(u.PasswordHash), []byte(current)); {
+	switch err := s.comparePassword(ctx, []byte(u.PasswordHash), []byte(current)); {
 	case errors.Is(err, bcrypt.ErrMismatchedHashAndPassword):
 		return Session{}, ErrWrongPassword
+	case errors.Is(err, ErrBusy):
+		return Session{}, ErrBusy
 	case err != nil:
 		return Session{}, fmt.Errorf("parola karşılaştırılamadı (user %d): %w", u.ID, err)
 	}
@@ -342,7 +403,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID int64, current, nex
 	if next == current {
 		return Session{}, &ValidationError{Problems: []string{"yeni parola mevcut paroladan farklı olmalı"}}
 	}
-	newHash, err := hashPassword(next, s.hashCost)
+	newHash, err := s.hash(ctx, next)
 	if err != nil {
 		return Session{}, err
 	}
@@ -424,19 +485,20 @@ func (s *Service) Me(ctx context.Context, userID int64) (User, error) {
 	return toUser(u), nil
 }
 
-// EnsureAdmin, ilk admin'i oluşturur ya da var olan hesabı admin yapar (cmd/manage).
-// Yeni hesap açılıyorsa kayıtla AYNI politika uygulanır.
-func (s *Service) EnsureAdmin(ctx context.Context, email, displayName, password string) (User, bool, error) {
+// EnsureAdmin, admin hesabını oluşturur (cmd/manage). Kayıtla AYNI parola politikası uygulanır.
+// Hesap zaten varsa ErrUserExists döner; promote verilirse hesap devralınır: parolası verilen
+// parola olur, bütün oturumları iptal edilir ve rolü yükselir (gerekçe: Repository.EnsureAdmin).
+func (s *Service) EnsureAdmin(ctx context.Context, email, displayName, password string, promote bool) (User, bool, error) {
 	email = NormalizeEmail(email)
 	displayName = strings.TrimSpace(displayName)
 	if err := validateRegistration(email, displayName, password); err != nil {
 		return User{}, false, err
 	}
-	hash, err := hashPassword(password, s.hashCost)
+	hash, err := s.hash(ctx, password)
 	if err != nil {
 		return User{}, false, err
 	}
-	u, created, err := s.store.EnsureAdmin(ctx, email, displayName, hash)
+	u, created, err := s.store.EnsureAdmin(ctx, email, displayName, hash, promote, s.now())
 	if err != nil {
 		return User{}, false, err
 	}

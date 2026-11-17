@@ -78,9 +78,11 @@ done
 echo "▶ demo katalog"
 make demo-seed
 
+# -promote: hesap önceki koşudan kalmış olabilir. create-admin var olan hesabı artık sessizce
+# yükseltmez (REVIEW_FEEDBACK F31); -promote parolayı da bu koşunun parolası yapar.
 echo "▶ e2e admin: $E2E_ADMIN_EMAIL"
 printf '%s\n' "$E2E_ADMIN_PASSWORD" |
-	docker exec -i bookhub-api /app/manage create-admin -email "$E2E_ADMIN_EMAIL" -name "E2E Admin"
+	docker exec -i bookhub-api /app/manage create-admin -promote -email "$E2E_ADMIN_EMAIL" -name "E2E Admin"
 
 # "exec npm ..." DEĞİL: exec bu kabuğu değiştirirdi ve trap hiç çalışmaz, e2e kullanıcıları
 # veritabanında kalırdı.

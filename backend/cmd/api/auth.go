@@ -186,6 +186,8 @@ func handleRegister(svc authService) http.HandlerFunc {
 		// ("bağlantı gönderdik") bu sızıntı da kapanır.
 		case errors.Is(err, auth.ErrEmailTaken):
 			writeError(w, http.StatusConflict, "email_taken", "bu e-posta zaten kayıtlı")
+		case errors.Is(err, auth.ErrBusy):
+			writeBusy(w)
 		case err != nil:
 			writeInternalError(w, "Register", err)
 		default:
@@ -221,6 +223,8 @@ func handleLogin(svc authService, cookies cookieSettings) http.HandlerFunc {
 		switch {
 		case errors.Is(err, auth.ErrInvalidCredentials):
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", "e-posta veya parola hatalı")
+		case errors.Is(err, auth.ErrBusy):
+			writeBusy(w)
 		case err != nil:
 			writeInternalError(w, "Login", err)
 		default:
@@ -444,6 +448,8 @@ func handleChangePassword(svc authService, cookies cookieSettings) http.HandlerF
 		case errors.Is(err, auth.ErrUserNotFound):
 			// Token geçerli ama hesap silinmiş (handleMe ile aynı duruş).
 			unauthorized(w, "invalid_token", "bu token'ın kullanıcısı artık yok")
+		case errors.Is(err, auth.ErrBusy):
+			writeBusy(w)
 		case err != nil:
 			writeInternalError(w, "ChangePassword", err)
 		default:
@@ -453,4 +459,15 @@ func handleChangePassword(svc authService, cookies cookieSettings) http.HandlerF
 			writeJSON(w, http.StatusOK, toSessionResponse(sess))
 		}
 	}
+}
+
+// busyRetryAfterSeconds, "meşgul" cevabında istemciye önerilen bekleme: bir parola özetinin canlıdaki
+// süresinden biraz uzun.
+const busyRetryAfterSeconds = "5"
+
+// writeBusy, parola özeti kuyruğu dolu olduğunda dönen cevap: 503 + Retry-After. 429 değil: istemci
+// bir sınırı aşmadı, sunucu o an başka girişlerle meşgul (auth.ErrBusy, REVIEW_FEEDBACK F04).
+func writeBusy(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", busyRetryAfterSeconds)
+	writeError(w, http.StatusServiceUnavailable, "busy", "sunucu şu an yoğun; birkaç saniye sonra yeniden dene")
 }

@@ -68,21 +68,52 @@ func TestRepositoryEnsureAdminRealDB(t *testing.T) {
 	ctx := context.Background()
 	email := uniqueEmail(t, pool)
 
-	u, created, err := repo.EnsureAdmin(ctx, email, "Admin", "ilk-hash")
+	now := time.Now()
+	u, created, err := repo.EnsureAdmin(ctx, email, "Admin", "ilk-hash", false, now)
 	if err != nil || !created || u.Role != RoleAdmin {
 		t.Fatalf("yeni admin: %+v created=%v err=%v", u, created, err)
 	}
 
-	u2, created, err := repo.EnsureAdmin(ctx, email, "Admin", "ikinci-hash")
-	if err != nil || created || u2.ID != u.ID {
-		t.Fatalf("var olan yükseltilmeli: %+v created=%v err=%v", u2, created, err)
+	// Var olan hesap, promote olmadan: hata ve hiçbir şey değişmez.
+	if _, _, err := repo.EnsureAdmin(ctx, email, "Admin", "ikinci-hash", false, now); !errors.Is(err, ErrUserExists) {
+		t.Fatalf("ErrUserExists bekleniyordu, gelen %v", err)
 	}
 	stored, err := repo.UserByID(ctx, u.ID)
 	if err != nil {
 		t.Fatalf("UserByID: %v", err)
 	}
-	if stored.Role != RoleAdmin || stored.PasswordHash != "ilk-hash" {
-		t.Errorf("rol ADMIN, parola DEĞİŞMEMİŞ olmalı: role=%q hash=%q", stored.Role, stored.PasswordHash)
+	if stored.PasswordHash != "ilk-hash" {
+		t.Errorf("promote olmadan parola değişmemeli: %q", stored.PasswordHash)
+	}
+
+	// Sıradan bir hesabı devralma: parola değişir, canlı oturum ailesi iptal edilir, rol yükselir.
+	plain := uniqueEmail(t, pool)
+	pu, err := repo.CreateUser(ctx, plain, "Başkası", "onun-hash'i")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if err := repo.StartRefreshFamily(ctx, pu.ID, "onun-hash'i", []byte(testdb.Unique("tok")), now.Add(time.Hour), now.Add(24*time.Hour)); err != nil {
+		t.Fatalf("StartRefreshFamily: %v", err)
+	}
+	u2, created, err := repo.EnsureAdmin(ctx, plain, "Admin", "yeni-hash", true, now)
+	if err != nil || created || u2.ID != pu.ID || u2.Role != RoleAdmin {
+		t.Fatalf("devralma: %+v created=%v err=%v", u2, created, err)
+	}
+	stored, err = repo.UserByID(ctx, pu.ID)
+	if err != nil {
+		t.Fatalf("UserByID: %v", err)
+	}
+	if stored.Role != RoleAdmin || stored.PasswordHash != "yeni-hash" {
+		t.Errorf("rol ADMIN ve parola yeni olmalı: role=%q hash=%q", stored.Role, stored.PasswordHash)
+	}
+	var live, tokens int
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM refresh_token_families WHERE user_id = $1 AND revoked_at IS NULL),
+		(SELECT count(*) FROM refresh_tokens WHERE user_id = $1)`, pu.ID).Scan(&live, &tokens); err != nil {
+		t.Fatal(err)
+	}
+	if live != 0 || tokens != 0 {
+		t.Errorf("devralınan hesabın oturumları kapanmalı: %d canlı aile, %d token", live, tokens)
 	}
 }
 

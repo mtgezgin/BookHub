@@ -105,6 +105,9 @@ Geri dönüş ve yeniden deneme: [PROCESS.md](PROCESS.md) §5.
   export DATABASE_URL="$(security find-generic-password -s bookhub-prod-dsn -w)"
   go -C backend run ./cmd/manage migrate
   go -C backend run ./cmd/manage create-admin -email <e-posta>     # parola gizli sorulur
+  # Bu adresle bir hesap ZATEN varsa komut durur (o hesabı açan kişi kendi parolasıyla admin olmasın
+  # diye). Hesabı bilerek devralmak için -promote ekle: parolası girdiğin parola olur, açık
+  # oturumları kapanır, rolü ADMIN olur.
   docker run --rm -i postgres:16 psql "$DATABASE_URL" < backend/scripts/demo_seed.sql
   # Kapaklar ve baskılar (Faz 16): migration 0012 seed'den ÖNCE boş tabloya uygulandı; seed'den sonra
   # yeniden çalıştır (seed varsayılan baskıları açar, 0012 kapak ve bilgileriyle doldurur). 0009 artık

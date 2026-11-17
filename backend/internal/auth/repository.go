@@ -17,6 +17,8 @@ import (
 var (
 	ErrEmailTaken   = errors.New("bu e-posta zaten kayıtlı")
 	ErrUserNotFound = errors.New("kullanıcı bulunamadı")
+	// ErrUserExists: EnsureAdmin, promote istenmeden var olan bir hesapla karşılaştı.
+	ErrUserExists = errors.New("bu e-postayla bir hesap zaten var")
 	// errRefreshNotFound dışarı açılmaz: servis onu ErrInvalidToken'a çevirir. "Bulunamadı"
 	// geniş anlamlı: token yok, süresi dolmuş, ailesi iptal edilmiş ya da mutlak tavanı geçmiş —
 	// istemcinin yapacağı hepsinde aynı (yeniden giriş), nedeni ona söylemiyoruz.
@@ -88,25 +90,54 @@ func (r *Repository) userOrNotFound(u db.User, err error) (db.User, error) {
 	return u, nil
 }
 
-// EnsureAdmin, e-postayla kullanıcıyı bulur (yoksa verilen hash'le oluşturur) ve ADMIN
-// yapar — hepsi TEK transaction'da. created, kullanıcının yeni açılıp açılmadığını söyler.
-// Var olan kullanıcının parolasına DOKUNULMAZ; yalnızca rolü yükselir.
-func (r *Repository) EnsureAdmin(ctx context.Context, email, displayName, passwordHash string) (db.User, bool, error) {
+// EnsureAdmin, e-postayla ADMIN bir hesap sağlar — hepsi TEK transaction'da. created, hesabın
+// yeni açılıp açılmadığını söyler.
+//
+// Hesap ZATEN VARSA varsayılan davranış hatadır (ErrUserExists). NEDEN: e-posta doğrulaması yok;
+// yöneticinin kullanacağı adresle önceden kayıt olan biri, hesap sessizce yükseltilseydi KENDİ
+// parolasıyla admin olurdu (REVIEW_FEEDBACK F31). promote verilirse hesap bilerek devralınır:
+// parola verilen hash'le değişir ve bütün oturumları iptal edilir (eski sahibin elindeki refresh
+// token'lar da ölür), sonra rol yükselir. Kilit sırası parola değişimiyle aynı: kullanıcı →
+// aileler → token'lar (users.sql).
+func (r *Repository) EnsureAdmin(ctx context.Context, email, displayName, passwordHash string, promote bool, now time.Time) (db.User, bool, error) {
 	var (
 		user    db.User
 		created bool
 	)
 	err := database.WithTx(ctx, r.conn, func(tx pgx.Tx) error {
 		txRepo := NewRepository(tx)
+		q := db.New(tx)
 		u, err := txRepo.UserByEmail(ctx, email)
-		if errors.Is(err, ErrUserNotFound) {
+		switch {
+		case errors.Is(err, ErrUserNotFound):
 			u, err = txRepo.CreateUser(ctx, email, displayName, passwordHash)
+			if err != nil {
+				return err
+			}
 			created = true
-		}
-		if err != nil {
+		case err != nil:
 			return err
+		case !promote:
+			return ErrUserExists
+		default:
+			if _, err := q.LockUserPasswordForChange(ctx, u.ID); err != nil {
+				return fmt.Errorf("kullanıcı kilitlenemedi: %w", err)
+			}
+			if err := q.UpdateUserPassword(ctx, db.UpdateUserPasswordParams{ID: u.ID, PasswordHash: passwordHash}); err != nil {
+				return fmt.Errorf("parola güncellenemedi: %w", err)
+			}
+			if _, err := q.LockUserLiveRefreshFamilies(ctx, u.ID); err != nil {
+				return fmt.Errorf("refresh token aileleri kilitlenemedi: %w", err)
+			}
+			if _, err := q.RevokeUserRefreshFamilies(ctx, db.RevokeUserRefreshFamiliesParams{Now: now, UserID: u.ID}); err != nil {
+				return fmt.Errorf("refresh token aileleri iptal edilemedi: %w", err)
+			}
+			if err := q.DeleteUserRefreshTokens(ctx, u.ID); err != nil {
+				return fmt.Errorf("kullanıcının refresh token'ları silinemedi: %w", err)
+			}
+			u.PasswordHash = passwordHash
 		}
-		if _, err := txRepo.q.SetUserRole(ctx, db.SetUserRoleParams{ID: u.ID, Role: RoleAdmin}); err != nil {
+		if _, err := q.SetUserRole(ctx, db.SetUserRoleParams{ID: u.ID, Role: RoleAdmin}); err != nil {
 			return fmt.Errorf("rol atanamadı: %w", err)
 		}
 		u.Role = RoleAdmin
