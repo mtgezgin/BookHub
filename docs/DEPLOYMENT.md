@@ -114,6 +114,62 @@ değişikliği gerekmez.
 **Sürüm etiketi:** imajda git bilgisi olmadığı için `service.version` "bilinmiyor" görünür. Northflank'ın
 commit'i bir değişken olarak verip vermediği **doğrulanmadı**; verirse `OTEL_RESOURCE_ATTRIBUTES`'a eklenir.
 
+### 2b. Yedek ([#100](https://github.com/mtgezgin/BookHub/issues/100); REVIEW_FEEDBACK F23)
+
+Supabase'in ücretsiz planında otomatik yedek yok ve yedek indirilemiyor. Yedeği biz alırız:
+
+| Ne zaman | Nerede | Sır |
+|---|---|---|
+| Her pazartesi 03:17 UTC ve elle (Actions → Yedek → *Run workflow*) | [backup.yml](../.github/workflows/backup.yml) | `BACKUP_DATABASE_URL` (`backup` ortamının sırrı; ortam yalnız `main`'e açık) |
+| Her migration'dan hemen önce | [deploy.yml](../.github/workflows/deploy.yml) migration adımı | `PROD_DATABASE_URL` (aynı adım) |
+
+Döküm `pg_dump` ile alınır (yalnız `public` şeması: uygulamanın bütün tabloları ve `goose_db_version`),
+aynı boruda [age](https://github.com/FiloSottile/age) ile **repodaki açık anahtara** şifrelenir
+([ops/backup/recipients.txt](../ops/backup/recipients.txt)) ve artefakt olarak **90 gün** saklanır.
+Şifresiz döküm hiçbir anda diske ya da loga yazılmaz. Dökümü açan **gizli anahtar** yalnız proje
+sahibinde durur. Migration öncesi döküm alınamazsa migration uygulanmaz ve yayın durur.
+
+Her PR'da CI, yükseltilmiş deney veritabanını geçici bir anahtarla döker, çözer, boş bir veritabanına
+geri yükler ve her tablonun satır sayısını karşılaştırır (*Yükseltme* işi). Yani yedeğin **geri
+yüklenebildiği** her değişiklikte sınanır.
+
+**Bir kez kurulum (kullanıcı; sırlar ve gizli anahtar asistana verilmez):**
+
+1. `age`'i kur: macOS'ta `brew install age`, Windows'ta `winget install FiloSottile.age` (paket adı
+   doğrulanmadı; olmazsa [sürüm sayfasından](https://github.com/FiloSottile/age/releases) indir).
+2. Anahtar çifti üret: `age-keygen -o bookhub-yedek.key`. Komut açık anahtarı ekrana yazar
+   (`Public key: age1…`).
+3. `bookhub-yedek.key` dosyasının içeriğini parola yöneticisine (Keychain, 1Password) kaydet, dosyayı
+   sil. **Bu anahtar kaybolursa yedekler açılamaz.**
+4. Açık anahtarı (`age1…` satırı; gizli değildir) `ops/backup/recipients.txt`'ye yazdır (asistana
+   verebilirsin).
+5. Sırrı ortama gir: `gh secret set BACKUP_DATABASE_URL --env backup` ve değer olarak
+   `PROD_DATABASE_URL` ile **aynı** session pooler adresini yapıştır (Keychain'den).
+6. PR birleştikten sonra Actions → **Yedek** → *Run workflow*; iş yeşil bitmeli ve bir
+   `bookhub-yedek-…` artefaktı görünmeli.
+
+**Geri yükleme provası (kurulumdan sonra bir kez, yerelde):**
+
+```bash
+# Artefaktı indir ve aç (zip içinde .dump.age dosyası):
+gh run download <run-id> -n bookhub-yedek-<run-id> -D /tmp/yedek
+# Gizli anahtarı parola yöneticisinden geçici bir dosyaya koy (iş bitince sil):
+#   /tmp/yedek.key
+# Boş bir yerel veritabanına geri yükle ve satır sayılarına bak:
+docker exec bookhub-postgres psql -U bookhub -d postgres -c "CREATE DATABASE bookhub_restore_check"
+TARGET_URL=postgres://bookhub:bookhub_dev@postgres:5432/bookhub_restore_check \
+  PG_DOCKER_ARGS="--network bookhub_default" MSYS_NO_PATHCONV=1 \
+  scripts/backup.sh restore /tmp/yedek/bookhub-….dump.age /tmp/yedek.key
+rm /tmp/yedek.key
+```
+
+**Felakette:** canlı veritabanının üzerine yüklenmez. Yeni bir Supabase projesi açılır, yedek oraya
+yüklenir (`TARGET_URL` = yeni projenin session pooler adresi), sonra Northflank'taki `DATABASE_URL`,
+GitHub'daki `PROD_DATABASE_URL` ve `BACKUP_DATABASE_URL` yeni adrese çevrilir. Redis'te kalıcı veri yok.
+
+**Neler yedekte yok:** Supabase'in kendi şemaları (auth, storage; kullanılmıyor). Oturumlar yedekte
+vardır ama geri yükleme sonrası herkesin yeniden girmesi beklenir.
+
 ## 3. Yayın akışı (her değişiklikte)
 
 1. Dal → PR → CI yeşil → `main`'e merge.

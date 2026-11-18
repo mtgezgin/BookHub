@@ -280,6 +280,29 @@ check_telemetry_privacy() {
 	fi
 }
 
+# Kural: canlı veritabanının sırları yalnız kendi iş akışlarında kullanılır (CLAUDE.md "CI/CD").
+#   PROD_DATABASE_URL    → yalnız deploy.yml (migration adımı; aynı adımda migration öncesi yedek)
+#   BACKUP_DATABASE_URL  → yalnız backup.yml (backup ortamı, yalnız main)
+# Başka bir iş akışı bu adları anarsa ya da sırları toptan devrederse (secrets: inherit) durur. Bir
+# iş akışını değiştirebilen herkes onun sırlarını okuyabilir (GitHub belgesi); kapsamı dar tutmanın
+# tek yolu adı başka dosyaya hiç yazmamak.
+check_secret_scope() {
+	local f content
+	while read -r f; do
+		[[ "$f" == .github/workflows/*.yml || "$f" == .github/workflows/*.yaml ]] || continue
+		content="$(file_at "$f")"
+		if [[ "$f" != .github/workflows/deploy.yml ]] && grep -q 'secrets\.PROD_DATABASE_URL' <<<"$content"; then
+			fail "$f: secrets.PROD_DATABASE_URL yalnız deploy.yml'de kullanılır"
+		fi
+		if [[ "$f" != .github/workflows/backup.yml ]] && grep -q 'secrets\.BACKUP_DATABASE_URL' <<<"$content"; then
+			fail "$f: secrets.BACKUP_DATABASE_URL yalnız backup.yml'de kullanılır"
+		fi
+		if grep -Eq 'secrets:[[:space:]]*inherit' <<<"$content"; then
+			fail "$f: 'secrets: inherit' bütün sırları başka bir iş akışına devreder"
+		fi
+	done < <(tree_files .github/workflows/)
+}
+
 # Kural: sır commit'lenmez.
 check_secrets() {
 	if ! command -v gitleaks >/dev/null 2>&1; then
@@ -337,6 +360,7 @@ staged)
 	check_go_version
 	check_nginx_log
 	check_telemetry_privacy
+	check_secret_scope
 	check_secrets
 	check_generated
 	check_lint
@@ -368,6 +392,7 @@ range)
 	check_go_version
 	check_nginx_log
 	check_telemetry_privacy
+	check_secret_scope
 	check_secrets
 	check_generated
 	check_lint

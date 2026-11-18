@@ -199,6 +199,16 @@ jobs:
       - name: Upgrade from the released schema
         run: scripts/upgrade-check.sh
 
+      # YEDEĞİN SINANMASI (REVIEW_FEEDBACK F23): az önce yükseltilmiş (dolu) veritabanı geçici bir anahtarla
+      # dökülür, şifrelenir, çözülür ve boş bir veritabanına geri yüklenir; her tablonun satır sayısı
+      # kaynakla aynı olmalı. "Yedek alınıyor ama geri yüklenemiyor" durumu burada yakalanır.
+      - name: Backup round trip (dump → encrypt → decrypt → restore)
+        env:
+          TARGET_URL: postgres://bookhub@localhost:5432/bookhub_restore?sslmode=disable
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qc "CREATE DATABASE bookhub_restore"
+          scripts/backup.sh roundtrip
+
   e2e:
     name: E2E (compose + MVP smoke + Playwright)
     needs: [backend]

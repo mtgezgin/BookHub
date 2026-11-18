@@ -242,6 +242,25 @@ go_file backend/internal/telemetry/telemetry.go 'package telemetry'
 go_file backend/internal/telemetry/telemetry_test.go 'package telemetry' '// otelhttp burada yalnız bir test açıklamasında geçiyor'
 expect pass "test dosyaları kuralın dışındadır" staged
 
+echo "▶ sır kapsamı"
+# shellcheck disable=SC2016 # bu bölümdeki ${{ }} iş akışı sözdizimi; kabukta açılmamalı
+{
+new_repo secretscope
+mkdir -p .github/workflows
+wf() { printf '%s\n' "${@:2}" >".github/workflows/$1" && git add ".github/workflows/$1"; }
+wf deploy.yml 'env:' '  DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}'
+wf backup.yml 'env:' '  DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}'
+expect pass "sırlar kendi iş akışlarında kullanılabilir" staged
+wf ci.yml 'env:' '  X: ${{ secrets.PROD_DATABASE_URL }}'
+expect fail:"yalnız deploy.yml" "canlı veritabanı sırrı başka iş akışında durur" staged
+wf ci.yml 'env:' '  X: ${{ secrets.BACKUP_DATABASE_URL }}'
+expect fail:"yalnız backup.yml" "yedek sırrı başka iş akışında durur" staged
+wf ci.yml 'jobs:' '  x:' '    secrets: inherit'
+expect fail:"secrets: inherit" "sırları toptan devretmek durur" staged
+wf ci.yml 'env:' '  X: ${{ secrets.GITHUB_TOKEN }}'
+expect pass "başka sırlar bu kuralın konusu değil" staged
+
+}
 echo "▶ sır taraması"
 if command -v gitleaks >/dev/null 2>&1; then
 	new_repo secrets

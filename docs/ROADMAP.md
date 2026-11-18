@@ -82,6 +82,11 @@ Bu kurallar rastgeleliği önlemek için var:
   - Migration `0014` aramaya verildi; Faz 17'nin migration'ları `0015`–`0017` oldu (goose sırasız
     migration'ı reddeder; [spec](phases/phase-17-reading-reviews.md) güncellendi).
   - İkinci kapsamlı inceleme yapıldı: bulgular [REVIEW_FEEDBACK](REVIEW_FEEDBACK.md) F20–F40.
+  - **2026-11-18 kararları (kullanıcı):** (1) Yedek: otomatik şifreli döküm, haftalık ve her migration
+    öncesi ([#100](https://github.com/mtgezgin/BookHub/issues/100)). (2) Veritabanı Frankfurt'ta kalır;
+    bölge taşıması gerçek kullanıcılar gelince (F20). (3) Faz 16c'nin okuma yolu da yapılır: "yüksek trafik
+    ve çok kayıt varmış gibi" ilerlenir ([#98](https://github.com/mtgezgin/BookHub/issues/98)). (4) Arayüz
+    veri katmanı (F33) Faz 17'den önce, TanStack Query tartışmasından sonra. (5) SonarCloud zorunlu kontrol.
   - Gözlemlenebilirlik (OpenTelemetry, Prometheus, Grafana) teknik hatta eklendi (kullanıcı kararı; öğrenme
     hedefi). Ücretsiz sınırlar resmi sayfalardan doğrulandı; ilk adım yalnız yerel ([#87](https://github.com/mtgezgin/BookHub/issues/87)).
   - İnceleme düzeltmeleri Faz 17'den önce, partiler hâlinde yapılıyor (kullanıcı kararı): A (#83), B (#84),

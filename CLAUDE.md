@@ -64,8 +64,11 @@ yazılır — kuralın "neden"i silinmesin.
 - İstek gövdeleri ayrı DTO + `DisallowUnknownFields` ile okunur (mass assignment yok); kaynak
   sahipliği servis ya da SQL katmanında kontrol edilir (IDOR yok).
 - bcrypt cost ≥ 12; JWT algoritması sabit (HS256), `iss`/`aud`/`exp` doğrulanır.
-- CI/CD: `secrets.PROD_DATABASE_URL` yalnız deploy.yml'in migration adımında kullanılır; başka
-  bir iş akışına ya da işe eklenmez. deploy.yml'in `if:` koşulu (başarılı + push + main + ci.yml +
+- CI/CD: `secrets.PROD_DATABASE_URL` yalnız deploy.yml'in migration adımında kullanılır (aynı adımda
+  migration öncesi şifreli yedek alınır); `secrets.BACKUP_DATABASE_URL` yalnız backup.yml'de, `backup`
+  ortamında (yalnız `main`). İkisi başka bir iş akışına ya da işe eklenmez; `secrets: inherit` yok
+  (`scripts/checks.sh` `check_secret_scope`). Yedek yalnız şifreli saklanır; gizli anahtar repoya ve
+  GitHub'a girmez ([DEPLOYMENT](docs/DEPLOYMENT.md) "Yedek"). deploy.yml'in `if:` koşulu (başarılı + push + main + ci.yml +
   aynı depo) ve `permissions`'ı gevşetilmez; `pull_request_target` eklenmez; olay verisi `run:` içine
   `${{ }}` ile yazılmaz. CI işlerini atlatan bir değişiklik (`if: false`, `continue-on-error`)
   engelleyicidir.

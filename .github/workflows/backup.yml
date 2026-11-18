@@ -1,0 +1,58 @@
+# Yedek — canlı veritabanının haftalık, ŞİFRELİ dökümü (REVIEW_FEEDBACK F23; docs/DEPLOYMENT.md "Yedek").
+#
+# NEDEN: Supabase'in ücretsiz planında otomatik yedek yok. Döküm, repodaki AÇIK anahtarla
+# (ops/backup/recipients.txt) şifrelenir ve artefakt olarak 90 gün saklanır. Açabilen tek şey GİZLİ
+# anahtardır; o yalnız kullanıcıdadır.
+#
+# Migration'dan hemen önceki döküm ayrıca deploy.yml'de alınır (en riskli an).
+#
+# SIR: BACKUP_DATABASE_URL, deposu değil `backup` ORTAMININ sırrıdır ve o ortam yalnız main dalından
+# koşan işlere açılır (ortamın dal kuralı). Bu iş akışı pull_request ile tetiklenmez; sır başka bir işe
+# eklenmez (CLAUDE.md, scripts/checks.sh check_secret_scope).
+name: Yedek
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # pazartesi 03:17 UTC (saat başlarındaki yoğunluktan kaçınmak için :17)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    name: Şifreli döküm
+    # Yalnız bu depo ve main: bir fork'ta ya da başka bir dalda elle tetiklenirse koşmaz (ortamın dal
+    # kuralı da aynı şeyi zorlar; bu satır ikinci kapı).
+    if: github.repository == 'mtgezgin/BookHub' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: backup
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Döküm al ve şifrele
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::BACKUP_DATABASE_URL tanımlı değil (backup ortamının sırrı; docs/DEPLOYMENT.md 'Yedek')."
+            exit 1
+          fi
+          scripts/backup.sh dump "yedek/bookhub-$(date -u +%Y%m%dT%H%MZ).dump.age"
+
+      - name: Artefakt olarak sakla (90 gün)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: bookhub-yedek-${{ github.run_id }}
+          path: yedek/*.dump.age
+          retention-days: 90
+          if-no-files-found: error
