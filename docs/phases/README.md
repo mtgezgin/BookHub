@@ -42,7 +42,7 @@ Faz 13 ise ilk kapsamlı incelemeden doğan "sertleştirme" fazı.
 | [15](phase-15-personal-library.md) | Kişisel kitaplık (Paket A: LIB-01, LIB-02, #42) | kullanıcıya ait gizli kaynak, bileşik anahtarın sol öneki, toplu okuma (N+1'den kaçınmak) | ✅ bitti |
 | [16](phase-16-works-editions.md) | Eser ve baskı (CAT-02, #36) | genişlet → daralt migration, sqlc'nin `*` açılımı, kısmi benzersiz index | ✅ bitti |
 | [16b](phase-16b-search.md) | Arama: Türkçe duyarlı, index'li; yazarken arama (DISC-01'in arama yarısı, #82) | katlama (folding), tam metin araması ve GIN, türetilmiş belge + tetikleyici, plan önbelleği, yazarken aramada en az harf kuralı, iptalden ayrılmış sorgu | 📝 kod yazıldı, onay bekliyor |
-| [16c](phase-16c-catalog-queries.md) | Katalog sorguları: tür süzgeci, sayım, derin sayfa, puan sırası (REVIEW_FEEDBACK F24–F26) | isteğe bağlı süzgeç ve plan, önce kimlik sonra birleştirme, saklanan türetilmiş değer, süreç içi kısa önbellek | 📝 taslak spec, onay bekliyor |
+| [16c](phase-16c-catalog-queries.md) | Katalog sorguları: tür süzgeci, sayım, derin sayfa, puan sırası (REVIEW_FEEDBACK F24–F26) | isteğe bağlı süzgeç ve plan, önce kimlik sonra birleştirme, saklanan türetilmiş değer, süreç içi kısa önbellek | ✅ kararlar verildi; kod bekliyor |
 | [17](phase-17-reading-reviews.md) | Okuma takibi ve inceleme (Paket B: READ-01, READ-02, REV-01, REV-02, #80) | tek doğruluk kaynağı (geçersiz durumu yazılamaz kılmak), durum makinesi ve niyet komutları, iyimser eşzamanlılık (`version`, 409), kısıtın da bir daraltma olması, `date` ile `timestamptz`, erişilebilir gizli içerik | 📝 spec onaylandı |
 
 Sıra ve gerekçesi: [ROADMAP.md](../ROADMAP.md).

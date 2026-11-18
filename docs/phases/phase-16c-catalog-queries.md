@@ -1,6 +1,6 @@
 # Faz 16c — Katalog sorguları: tür süzgeci, sayım, derin sayfa, puan sırası
 
-> Durum: 📝 **taslak spec; onay bekliyor** (2026-11-17). Kod yazılmadı · Issue: açılmadı (onaydan sonra) —
+> Durum: ✅ **kararlar verildi** (2026-11-18); kod yazılmadı · Issue: açılacak —
 > [ROADMAP](../ROADMAP.md) · Bulgular: [REVIEW_FEEDBACK](../REVIEW_FEEDBACK.md) F24, F25, F26 ·
 > İlgili: [books.sql](../../backend/sql/queries/books.sql), [ratings.sql](../../backend/sql/queries/ratings.sql),
 > [repository.go](../../backend/internal/books/repository.go), [cached.go](../../backend/internal/ratings/cached.go)
@@ -24,16 +24,16 @@ tek iş olarak ele alınıyor.
 Ölçülmüş çözümler: tür **kimliğiyle** liste 0,7–2,9 ms; önce kimlik sonra görünüm 1,2 ms (offset 10.000);
 saklanan skor + index 0,95 ms.
 
-## 🎨 Kararlar (önerilen; ⚠️ işaretliler senin kararın: 4 ve 7 açık)
+## 🎨 Kararlar (hepsi verildi; 5 ertelendi)
 
 | # | Konu | Öneri | Gerekçe |
 |---|---|---|---|
 | 1 | Tür süzgeci | Ayrı sorgu (`ListBooksByGenre`); slug önce tür kimliğine çevrilir, sorguya kimlik verilir | Ölçüldü: 0,7–2,9 ms. Slug'la birleştirmek denendi, yetmedi (çok nadir türde 1.289 ms) |
 | 2 | Slug → kimlik | Tür tablosu (26 satır) süreç içinde 60 sn tutulur | Ayrı bir sorgu canlıda ~13 ms'lik bir gidiş-dönüş demek |
 | 3 | Liste sorguları | Önce sayfanın kimlikleri (`books`), sonra `book_view` | Ölçüldü: 58 → 1,2 ms |
-| 4 ⚠️ | Toplam sayı | **A (önerilen):** tür başına sayılar süreç içinde 60 sn tutulur; cevap biçimi değişmez, toplam en çok 60 sn bayat olabilir. **B:** `total` yerine `has_more`; arayüzde "57 sonuçtan 1–20" yazısı ve sayfa numaraları kalkar | A arayüzü değiştirmez. B en ucuzu ama görünür bir ürün değişikliği |
+| 4 | Toplam sayı | **Karar (kullanıcı, 2026-11-18):** tür başına sayılar süreç içinde 60 sn tutulur; cevap biçimi değişmez | Arayüz değişmez; toplam en çok 60 sn bayat olabilir. Yeni onaylanan kitap listede hemen görünür, yalnız "N sonuç" sayısı gecikebilir |
 | 5 | Puan sırası | **Ertelendi** (kullanıcı kararı, 2026-11-18). Ayrıntı ve geri dönüş koşulu aşağıda: "Ertelenen karar" | Canlıda ölçülmüş bir sorun yok; ilk önerilen tasarımın zayıf yanı vardı |
-| 7 ⚠️ | "En sevilenler" önbelleği | Puan yazımında silinmez; 60 sn'lik süreyle dolar | Bugün puan gelen bir sitede hep soğuk. Bedeli: puan veren kullanıcı şeritteki değişikliği 60 sn'ye kadar görmez (kitap sayfasındaki özet anında güncellenmeye devam eder) |
+| 7 | "En sevilenler" önbelleği | **Karar (2026-11-18; kullanıcı "UX açısından doğru olan" dedi):** puan yazımında silinmez, 60 sn'de bir yenilenir. **Moderasyon ve baskı değişikliklerinde silinmeye devam eder** | Kullanıcı açısından: puan veren kişi o an kitap sayfasındadır ve oradaki özet anında güncellenir (kendi yazdığını görür). Şerit beş kitaplık bir sıralamadır; tek bir oy onu nadiren değiştirir ve 60 sn'lik gecikme fark edilmez. Buna karşılık bugünkü davranış herkesi etkiler: puan gelen bir sitede şerit hep soğuktur ve ana sayfa yavaş açılır. Gizlenen ya da arşivlenen bir kitabın şeritten HEMEN kalkması ise doğruluk meselesidir; o yüzden moderasyon silmeye devam eder |
 | 8 | 10.000 sınırı | Sınıra gelince arayüz "daha fazlası için aramayı daralt" der; "Sonraki" kapanır | Bugün düğme açık kalıp ilk sayfaya dönüyor (kod okunarak) |
 
 ## ⏸️ Ertelenen karar: puana göre sıralamanın skoru
