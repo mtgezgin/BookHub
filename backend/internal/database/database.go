@@ -28,17 +28,28 @@ const DefaultMaxConns = 6
 //   - statement_timeout: tek bir sorgunun tavanı. HTTP katmanının bütçesinden (okuma 5 sn, yazma 9 sn)
 //     büyük seçildi: olağan durumda sorguyu context sonlandırır; bu sınır, context'siz kalan ya da
 //     iptali sunucuya ulaşmayan bir sorgu için son hattır.
+//
 //   - lock_timeout: bir satır kilidini bekleme tavanı. Kilitler burada milisaniyeler sürer; saniyelerce
 //     bekleyen bir yazma büyük olasılıkla takılmış bir işlemin arkasındadır ve beklemek yerine
 //     "şu an olmuyor" demek daha doğrudur.
+//
 //   - idle_in_transaction_session_timeout: BEGIN'den sonra unutulmuş bir işlem kilitlerini sonsuza
 //     kadar tutmasın.
+//
+//   - plan_cache_mode = force_custom_plan: pgx sorguları hazırlanmış deyim (prepared statement) olarak
+//     çalıştırır. Postgres birkaç çalıştırmadan sonra deyimi parametrelerin DEĞERİNİ bilmeden bir kez
+//     planlayıp ("genel plan") o planı kullanmaya geçebilir. LIMIT/OFFSET ve tür kimliği parametre olunca
+//     genel plan kötüdür: 500 bin kitapta katalog listesi 0,1–0,8 ms yerine 42–165 ms (Faz 16c ölçümü).
+//     Her çalıştırmayı gerçek değerlerle planlamak sorgu başına ~0,1–0,6 ms planlama süresi ekler.
+//     (Paralel taramayı kapatmak da denendi: bir durumu düzeltip büyük taramaları üçe katladığı için
+//     yapılmadı; docs/phases/phase-16c-catalog-queries.md.)
 //
 // NEDEN bağlantı adresinde değil: aynı DATABASE_URL'i migration aracı database/sql üzerinden de açıyor;
 // migration'lar bu sınırlara tabi olmamalı (index kurmak dakikalar sürebilir).
 const sessionLimits = `SET statement_timeout = '10s';
 SET lock_timeout = '3s';
-SET idle_in_transaction_session_timeout = '15s';`
+SET idle_in_transaction_session_timeout = '15s';
+SET plan_cache_mode = 'force_custom_plan';`
 
 // New, verilen DSN ile bir bağlantı havuzu açar ve bağlantıyı doğrular. maxConns <= 0 ise
 // DefaultMaxConns kullanılır. tracers: istek sayacına EK sorgu izleyicileri (OpenTelemetry;
