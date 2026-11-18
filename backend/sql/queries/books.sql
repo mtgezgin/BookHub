@@ -31,8 +31,8 @@ WHERE id = $1
 -- birleştirerek SQL kurmaya (injection kapısı) hiç gerek kalmaz.
 --
 -- Sıralamada id ikincil anahtar: aynı created_at'e sahip iki kitap sayfalar arasında
--- yer değiştirmesin (kararlı sayfalama). Partial index (created_at DESC) WHERE
--- status='APPROVED' bu sorguya hizmet ediyor.
+-- yer değiştirmesin (kararlı sayfalama). books_status_recent_idx (status, created_at DESC, id DESC)
+-- bu sorguya ve yönetim listelerine (ListBooksByStatus) hizmet ediyor (0015).
 -- name: ListBooks :many
 SELECT b.* FROM book_view b
 WHERE b.status = 'APPROVED'
