@@ -56,6 +56,11 @@ yazılır — kuralın "neden"i silinmesin.
   [DEPLOYMENT §5](docs/DEPLOYMENT.md)). NGINX'in erişim logu da yolu sorgusuz ve
   referrer'sız yazar (`log_format bookhub`, [default.conf](frontend/nginx/default.conf)); varsayılan biçime
   (`main`) dönülmez, kural `scripts/checks.sh`'ta ([öğrenme notu #11](docs/learning-notes/infra-and-devops.md)).
+- İzler (OpenTelemetry) için de aynı kural: span'ler üçüncü bir tarafa gider; sorgu dizesi, başlık,
+  gövde, SQL argümanı ve Redis anahtarı taşımaz. HTTP span'i yalnız method, rota kalıbı ve durum
+  kodunu yazar ([observe.go](backend/cmd/api/observe.go)); veritabanı ve Redis donatması
+  [internal/telemetry](backend/internal/telemetry/telemetry.go)'de tek yerde kurulur. Veriyi kendiliğinden
+  yazan dört kütüphane seçeneği `scripts/checks.sh`'ta yasaklı (`check_telemetry_privacy`).
 - İstek gövdeleri ayrı DTO + `DisallowUnknownFields` ile okunur (mass assignment yok); kaynak
   sahipliği servis ya da SQL katmanında kontrol edilir (IDOR yok).
 - bcrypt cost ≥ 12; JWT algoritması sabit (HS256), `iss`/`aud`/`exp` doğrulanır.

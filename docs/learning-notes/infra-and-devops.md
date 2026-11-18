@@ -19,6 +19,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 12. [CI'a bağlı yayın: push'tan canlıya otomasyon nasıl ilerliyor?](#12-cia-bağlı-yayın-pushtan-canlıya-otomasyon-nasıl-ilerliyor)
 13. [Kubernetes var ama canlı Northflank'ta: kind ile PaaS farkı ve merge'ün canlıya etkisi](#13-kubernetes-var-ama-canlı-northflankta-kind-ile-paas-farkı-ve-mergeün-canlıya-etkisi)
 14. [Kalıcı önbellek başlığı ve `always`: bulunamayan dosyanın 404'ü neden bir yıl saklanabilir?](#14-kalıcı-önbellek-başlığı-ve-always-bulunamayan-dosyanın-404ü-neden-bir-yıl-saklanabilir)
+15. [OpenTelemetry, Prometheus ve Grafana: kim ne yapar, bir geliştirici üçünü nasıl kullanır?](#15-opentelemetry-prometheus-ve-grafana-kim-ne-yapar-bir-geliştirici-üçünü-nasıl-kullanır)
 
 ---
 
@@ -930,3 +931,105 @@ sınayan bir uçtan uca test.
 - [default.conf](../../frontend/nginx/default.conf) — `location /assets/`
 - [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F35
 - [#3 Reverse proxy ve add_header tuzağı](#3-reverse-proxy-tek-origin-gerçek-istemci-ipsi-ve-add_header-tuzağı) · [#8 NGINX'in görevleri](#8-nginxin-görevleri-ve-bir-isteğin-yolu-location-seçimi-spa-fallback-ve-rate-limit)
+
+---
+
+## 15. OpenTelemetry, Prometheus ve Grafana: kim ne yapar, bir geliştirici üçünü nasıl kullanır?
+
+**🗓️ Bağlam:** 2026-11-17, ikinci incelemenin F32 bulgusundan ("bir isteğin süresinin nereye gittiği
+görünmüyor") sonra. Erişim loguna `db_ms` ekledik ama eğilimi (p95, hata oranı) ve tek bir isteğin
+adımlarını göremiyorduk. "OpenTelemetry ve Grafana ne işe yarıyor, Prometheus bunların yerine geçer
+mi?" ve "bir geliştirici bu üç aracı nasıl kullanır?" diye sordum; aynı gün yerel deneyi kurduk
+([#87](https://github.com/mtgezgin/BookHub/issues/87), `make obs-up`).
+
+**⚡ Kısa cevap:** Üçü rakip değil, bir zincirin halkaları. **OpenTelemetry** veriyi uygulamanın
+içinde üretir ve dışarı iter. **Prometheus** metrikleri saklar ve sorgular. **Grafana** gösterir.
+Prometheus tek başına yalnız metrik verir; "bu istek neden yavaştı?" sorusunun cevabı olan izleri
+tutmaz.
+
+**📖 Açıklama:**
+
+**Üç tür veri**
+
+| Tür | Ne | Hangi soruya cevap verir | Maliyet |
+|---|---|---|---|
+| Metrik | Zaman içinde sayılar | "Son 5 dakikada p95 kaç ms, 5xx oranı kaç?" | Ucuz; bütün istekler sayılır. Alarm buna kurulur |
+| Log | Olay satırları | "O anda tam olarak ne oldu?" | Orta |
+| İz (trace) | Tek bir isteğin adımları (span'ler) | "ŞU istek neden 400 ms sürdü?" | Pahalı; canlıda isteklerin bir kısmı örneklenir |
+
+**İş bölümü**
+
+```
+API (OpenTelemetry SDK)  ──OTLP──▶  toplayıcı  ──▶  Prometheus (metrik)  ──▶  Grafana
+  üretir ve iter                               └─▶  Tempo (iz)          ──▶  (pano, keşif, alarm)
+```
+
+- OpenTelemetry bir standart ve kütüphane setidir: saklamaz, göstermez. Değişken adları
+  (`OTEL_EXPORTER_OTLP_ENDPOINT` …) her dilde aynıdır.
+- Prometheus normalde veriyi uygulamadan kendisi **çeker**, yani sürekli çalışan bir sunucu ister.
+  Northflank'ın ücretsiz planında iki servis hakkımız dolu; canlıda API veriyi doğrudan Grafana Cloud'a
+  **iter** (orada metrikler yine Prometheus uyumlu bir depoda durur, PromQL aynıdır).
+- Yerelde `grafana/otel-lgtm` imajı toplayıcı, Prometheus, Tempo ve Grafana'yı tek konteynerde getirir
+  (yalnız geliştirme; veri kalıcı değil).
+
+**Bir geliştiricinin akışı: genelden özele**
+
+1. **Pano: "bir şey bozuk mu?"** Grafana → Dashboards → BookHub → *BookHub API*. Üç sayıya bakılır
+   (RED): **R**ate (istek hızı), **E**rrors (5xx oranı), **D**uration (p95 süre).
+2. **Rota: "hangi uç?"** "Rotaya göre p95 süre" panelinde yükselen çizgi sorunun yerini söyler.
+3. **İz: "hangi adım?"** Explore → Tempo → o rotanın yavaş bir izini aç. BookHub'da gerçek bir iz:
+
+   ```
+   GET /api/books/top-rated      1,00 ms
+   ├─ get (redis)                0,24 ms
+   ├─ pool.acquire               0,01 ms
+   └─ ListGenresForBooks         0,25 ms    ← sqlc sorgusunun adı
+   ```
+4. **Log: "o anda ne oldu?"** Erişim satırındaki `trace_id` aynı izin kimliğidir. Kullanıcı bir hata
+   bildirdiğinde `X-Request-Id` → log satırı → `trace_id` → iz yolu izlenir.
+
+Tersi de olur: alarm çalar (metrik), panoya bakılır, ize inilir. Metrik "ne zaman ve nerede"yi, iz
+"neden"i söyler.
+
+**Bilmeden olmayan dört kavram**
+
+- **`rate()`**: sayaç hep artar; `rate(x[1m])` son bir dakikadaki artış hızıdır (istek/sn).
+- **Histogram ve p95**: süreler tek tek saklanmaz; "5 ms'nin, 10 ms'nin, 25 ms'nin altında kaç istek
+  bitti" sayaçları tutulur. `histogram_quantile(0.95, …)` yüzdeliği bu kovalardan **hesaplar**; kova
+  sınırları kötü seçilirse sonuç kaba olur ([observe.go](../../backend/cmd/api/observe.go)
+  `durationBuckets`).
+- **Kardinalite**: her farklı etiket bileşimi ayrı bir zaman serisidir. Rota etiketi **kalıptır**
+  (`/api/books/{id}`); gerçek yol olsaydı her kitap ayrı bir seri olurdu. Grafana Cloud'un ücretsiz
+  sınırı 10 bin seri.
+- **Örnekleme**: izler pahalıdır; canlıda `OTEL_TRACES_SAMPLER_ARG=0.1` gibi bir oranla isteklerin bir
+  kısmı izlenir. Metrikler örneklenmez.
+
+**BookHub'da verilen kararlar ve karşılaşılan tuzaklar**
+
+- **Gizlilik.** İzler üçüncü bir tarafa gider. OpenTelemetry'nin hazır net/http donatma paketi isteğin
+  yolunu ve **sorgu dizesini** span'e yazıyor (arama terimi); bu yüzden HTTP span'ini kendi ara
+  katmanımız açıyor ve yalnız method, rota kalıbı, durum kodu yazıyor. SQL argümanları ve Redis
+  anahtarları (rate limit anahtarı IP içerir) gönderilmiyor; SQL **metni** gönderiliyor (sqlc'nin sabit
+  metni). Kural `scripts/checks.sh`'ta (`check_telemetry_privacy`) ve testlerde.
+- **Kapalıyken bedava.** Adres boşsa hiçbir şey kurulmaz; OpenTelemetry'nin varsayılan sağlayıcıları
+  "yok" sağlayıcılardır ve çağrılar hiçbir şey yapmadan döner. Kod iki durumda da aynıdır.
+- **pgx kütüphanesi (otelpgx)** sorgu span'ini yalnız kaydedilen bir üst span'in içinde açar: açılıştaki
+  sorgular iz üretmez. Testte üst span açmadan "span yok" görmek bu yüzdendi.
+- **Küresel sağlayıcı bir kez bağlanır.** Varsayılan küresel sağlayıcı, ilk kurulan gerçek sağlayıcıya
+  kalıcı olarak bağlanıyor; testte "eskisini geri koy" işe yaramadı, açıkça `noop` sağlayıcısı koyduk.
+- **Pano dosyası** konteyner açıldıktan sonra oluşturulursa Windows'ta
+  Grafana onu görmedi; konteyneri yeniden başlatmak gerekti.
+- **Maliyet (yerel ölçüm):** istek başına yaklaşık 0,07 ms (ortanca 0,70 → 0,78 ms, %100 örnekleme).
+  0,1 vCPU'daki maliyet ölçülmedi; canlı adımında ölçülecek.
+
+**Dürüst not:** Node/TS tarafında aynı SDK var ve otomatik donatması daha geniş (tek satırla Express,
+pg, ioredis). Go'da donatma elle bağlanır; karşılığında neyin gönderildiği satır satır görünür.
+
+**Durum:** yalnız yerel deney. Canlıya açmak (Grafana Cloud, örnekleme, sırlar) ayrı bir adım.
+
+**🔗 İlgili:**
+- [telemetry.go](../../backend/internal/telemetry/telemetry.go) — kurulum, pgx ve Redis donatması
+- [observe.go](../../backend/cmd/api/observe.go) — istek span'i ve süre histogramı
+- [bookhub-api.json](../../ops/grafana/dashboards/bookhub-api.json) — pano · [docker-compose.yml](../../docker-compose.yml) — `lgtm` servisi
+- [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F32 · [DEPLOYMENT.md](../DEPLOYMENT.md) §2
+- [#11 NGINX'i canlıda gözlemlemek](#11-nginxi-canlıda-gözlemlemek-access-log-api-logu-ve-istek-kimliği)

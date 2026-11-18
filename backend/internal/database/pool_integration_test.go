@@ -119,11 +119,12 @@ func TestQueryTracerCountsRealDB(t *testing.T) {
 	if err := pool.QueryRow(ctx, "SELECT 1").Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, "SELECT pg_sleep(0.02)"); err != nil {
+	if _, err := pool.Exec(ctx, "SELECT pg_sleep(0.05)"); err != nil {
 		t.Fatal(err)
 	}
-	if q, d := stats.DB(); q != 2 || d < 20*time.Millisecond {
-		t.Errorf("2 sorgu ve en az 20 ms bekleniyordu: %d sorgu, %v", q, d)
+	// Eşik uykudan bilerek kısa: saatlerin çözünürlüğü yüzünden 50 ms'lik uyku 49 ms ölçülebilir.
+	if q, d := stats.DB(); q != 2 || d < 40*time.Millisecond {
+		t.Errorf("2 sorgu ve en az 40 ms bekleniyordu: %d sorgu, %v", q, d)
 	}
 
 	tx, err := pool.Begin(ctx)

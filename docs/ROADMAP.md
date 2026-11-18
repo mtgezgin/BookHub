@@ -50,6 +50,7 @@ okuma takibinden hemen önceye kondu.
 | Canlı imajlara haftalık güvenlik taraması (Trivy; [#48](https://github.com/mtgezgin/BookHub/issues/48)) | 2026-11 | `scan.yml`: pazartesi 06:00 UTC ve elle, `release` üzerinde; iki imaj her zaman taranır (ci.yml'de de). #47'nin açıkları canlıda 6 gün fark edilmemişti; canlı izlemenin ilk parçası |
 | Canlı izleme ve alarm (sağlık kontrolü, uptime, hata izleme) | Uptime 2026-11 ([#63](https://github.com/mtgezgin/BookHub/issues/63)); hata izleme zamanı açık, gerçek kullanıcı kararından önce şart | `uptime.yml`: günde bir üç uç (NGINX, API, Postgres). [PROCESS §7](PROCESS.md) · [DEPLOYMENT §5](DEPLOYMENT.md) |
 | Salt okunur MCP sunucusu ([#52](https://github.com/mtgezgin/BookHub/issues/52)) | 2026-11-11 (PR #53) | `backend/cmd/mcp`: kataloğu bir modele altı okuma aracıyla açar; API istemcisi, imaja girmez. Yazma araçları ayrı karar |
+| Gözlemlenebilirlik: OpenTelemetry, Prometheus, Grafana ([#87](https://github.com/mtgezgin/BookHub/issues/87)) | 1. adım 2026-11 (yerel deney + API'nin donatılması); canlıya açmak ayrı issue | `make obs-up`: Grafana :3002, Prometheus :9090. İzler ve metrikler OTLP ile; adres boşsa kapalı. Canlıda collector çalıştırılamaz (iki servis sınırı): API doğrudan Grafana Cloud'a gönderir. Sıra: yerel → metrik/log → canlı → pano ve alarm |
 | `PROD_DATABASE_URL`'i bir GitHub Environment'a taşımak | Zamanı açık | Repo public olunca Environments ücretsiz: sır yalnız `main`'den koşan Deploy'a açılabilir ([DEPLOYMENT §2](DEPLOYMENT.md)) |
 | NGINX erişim logunda sorgu dizesi ve referrer | Faz 16b ile (yayın bekliyor) | `log_format bookhub` ([default.conf](../frontend/nginx/default.conf)); kural `scripts/checks.sh`'ta |
 | REVIEW_FEEDBACK bulguları | İlgili fazın içinde | F10, F11 → Faz 15–17 (UX-01) · F13 → her fazın UX-02 kabulü · F12, F15 → Faz 18 (MOD-02) · F04 → Faz 18'den önce · F03, F06–F09, F16, F17 → ihtiyaç oldukça ayrı iş. İkinci inceleme (2026-11-17): F20–F40; önerilen sıra [REVIEW_FEEDBACK](REVIEW_FEEDBACK.md#ikinci-incelemenin-önerdiği-sıra)'te |
@@ -81,5 +82,7 @@ Bu kurallar rastgeleliği önlemek için var:
   - Migration `0014` aramaya verildi; Faz 17'nin migration'ları `0015`–`0017` oldu (goose sırasız
     migration'ı reddeder; [spec](phases/phase-17-reading-reviews.md) güncellendi).
   - İkinci kapsamlı inceleme yapıldı: bulgular [REVIEW_FEEDBACK](REVIEW_FEEDBACK.md) F20–F40.
+  - Gözlemlenebilirlik (OpenTelemetry, Prometheus, Grafana) teknik hatta eklendi (kullanıcı kararı; öğrenme
+    hedefi). Ücretsiz sınırlar resmi sayfalardan doğrulandı; ilk adım yalnız yerel ([#87](https://github.com/mtgezgin/BookHub/issues/87)).
   - İnceleme düzeltmeleri Faz 17'den önce, partiler hâlinde yapılıyor (kullanıcı kararı): A (#83), B (#84),
     index'ler (#85). Migration `0015` index düzeltmelerine verildi; Faz 17'nin migration'ları `0016`–`0018` oldu.

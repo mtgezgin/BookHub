@@ -1,0 +1,13 @@
+# Grafana'ya "bu klasördeki panoları açılışta yükle" der (yerel deney; docker-compose.yml → lgtm).
+# Pano dosyası repoda durur: panoyu arayüzde düzenleyip JSON'unu dışa aktarınca değişiklik
+# incelenebilir bir diff olur ("pano kod olarak").
+apiVersion: 1
+
+providers:
+  - name: BookHub
+    type: file
+    folder: BookHub
+    allowUiUpdates: true
+    options:
+      path: /otel-lgtm/bookhub-dashboards
+      foldersFromFilesStructure: false

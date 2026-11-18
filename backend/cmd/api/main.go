@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
 	"github.com/mtgezgin/bookhub/backend/internal/books"
@@ -23,6 +26,7 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/moderation"
 	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
 	"github.com/mtgezgin/bookhub/backend/internal/ratings"
+	"github.com/mtgezgin/bookhub/backend/internal/telemetry"
 )
 
 // main yalnızca çıkış kodunu işletim sistemine iletir; asıl iş run()'da.
@@ -54,6 +58,28 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Telemetri (OpenTelemetry): OTEL_EXPORTER_OTLP_ENDPOINT boşsa hiçbir şey kurulmaz. Havuzdan ve
+	// Redis'ten ÖNCE: onların izleyicileri küresel sağlayıcıyı kullanır.
+	tel := telemetry.Config{Endpoint: cfg.OTLPEndpoint, ServiceName: cfg.ServiceName, Version: buildVersion()}
+	shutdownTelemetry, err := telemetry.Setup(ctx, tel)
+	if err != nil {
+		slog.Error("telemetri kurulamadı", "err", err)
+		return 1
+	}
+	defer func() {
+		// Kapanışta bekleyen izleri gönder; kendi süre sınırıyla (ctx o anda iptal edilmiş olur).
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTelemetry(flushCtx); err != nil {
+			slog.Warn("telemetri kapanışta gönderilemedi", "err", err)
+		}
+	}()
+	var dbTracers []pgx.QueryTracer
+	if tel.Enabled() {
+		dbTracers = append(dbTracers, telemetry.PgxTracer())
+		slog.Info("telemetri açık: izler ve metrikler OTLP ile gönderiliyor", "service", tel.ServiceName)
+	}
+
 	// Şemayı güncelle (yalnızca AUTO_MIGRATE=true ise — prod'da bilinçli olarak kapalı).
 	if cfg.AutoMigrate {
 		if err := database.Migrate(ctx, cfg.DatabaseURL); err != nil {
@@ -64,12 +90,17 @@ func run() int {
 	}
 
 	// Veritabanı havuzunu aç (içinde Ping var → bağlantı yoksa BURADA dururuz).
-	pool, err := database.New(ctx, cfg.DatabaseURL, int32(cfg.DBMaxConns)) //nolint:gosec // config 1-100 aralığını doğrular
+	pool, err := database.New(ctx, cfg.DatabaseURL, int32(cfg.DBMaxConns), dbTracers...) //nolint:gosec // config 1-100 aralığını doğrular
 	if err != nil {
 		slog.Error("veritabanı hazır değil", "err", err)
 		return 1
 	}
 	defer pool.Close() // kapanışta havuzdaki bağlantıları düzgün bırak
+	if tel.Enabled() {
+		if err := telemetry.RecordPoolStats(pool); err != nil {
+			slog.Warn("havuz metrikleri kaydedilemedi", "err", err)
+		}
+	}
 
 	// Cache + rate limit (Faz 7): REDIS_URL yoksa Noop cache ve bellek içi sınırlayıcı —
 	// uygulama Redis'siz de doğru çalışır (tek instance için). Redis varsa ikisi de
@@ -89,6 +120,11 @@ func run() int {
 		defer func() { _ = rc.Close() }()
 		appCache = rc
 		limiter = ratelimit.NewRedis(rc.Client(), cfg.AuthRateLimit, time.Minute)
+		if tel.Enabled() {
+			if err := telemetry.InstrumentRedis(rc.Client()); err != nil {
+				slog.Warn("redis izleri kurulamadı", "err", err)
+			}
+		}
 		if err := rc.Ping(ctx); err != nil {
 			slog.Warn("redis'e ulaşılamadı; cache'siz ve rate limit'siz açılıyor, bağlantı arka planda yeniden denenecek", "err", err)
 		} else {
@@ -208,4 +244,19 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// buildVersion, derlemenin commit'ini döner (Go, modül içinden derlenen binary'ye VCS bilgisini
+// gömer). Telemetride service.version: "hangi yayından sonra yavaşladı?" sorusunun cevabı.
+func buildVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "bilinmiyor"
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+			return s.Value[:7]
+		}
+	}
+	return "bilinmiyor"
 }
