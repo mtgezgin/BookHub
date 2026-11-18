@@ -60,9 +60,9 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [x] | F31 | Orta | `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor |
 | [x] | F32 | Orta | Bir isteğin süresinin nereye gittiği görünmüyor |
 | [ ] | F33 | Orta | Sunucu verisi her sayfada elle çekiliyor |
-| [ ] | F34 | Orta | Hata sınırı yok; NGINX'in ürettiği hatalar boş mesajla görünüyor |
+| [x] | F34 | Orta | Hata sınırı yok; NGINX'in ürettiği hatalar boş mesajla görünüyor |
 | [x] | F35 | Orta | Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir |
-| [ ] | F36 | Orta | Açılıştaki geçici hata "çıkış yapılmış" gibi görünüyor |
+| [x] | F36 | Orta | Açılıştaki geçici hata "çıkış yapılmış" gibi görünüyor |
 | [ ] | F37 | Orta | Kapak görselleri denetlenmeyen adreslerden yükleniyor |
 | [ ] | F38 | Orta | CI taze kurulumu sınıyor, canlı yükseltme yapıyor; migration'da süre sınırı yok |
 | [ ] | F39 | Düşük | Sınanan imaj çalışan imaj değil; geri dönüş denenmedi; CI zorunlu kontrol değil |
@@ -669,6 +669,8 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 
 **İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), yayın bekliyor):** NGINX'in kendi 429'u artık API'nin hata zarfıyla ve `Retry-After` ile dönüyor (giriş, kayıt, parola ve katalog sınırlarında). 502 ve 504 ile hata sınırı açık.
 
+**Durum (17 Kasım 2026, #86, yayın bekliyor):** Rota içeriği bir hata sınırıyla sarıldı (`ErrorBoundary`; rota yolu `key`, başka sayfaya geçince sıfırlanır). Zarfsız ya da boş mesajlı hata cevabında mesaj durum kodundan üretiliyor (`messageForStatus`: 429, 413, 502/503/504, diğer 5xx). Uçtan uca test: katalog 502 HTML alınca kullanıcı "Sunucuya şu an ulaşılamıyor" mesajını okuyor (`resilience.spec.ts`). HTTP/2'deki boş durum metni yerelde üretilemedi; testte taklit edildi.
+
 ## F35 — Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir
 
 **Öncelik:** Orta · Önbellek
@@ -697,6 +699,8 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 **Öneri:** Üç durum tanımlayın (anonim, girişli, bilinmiyor) ve "bilinmiyor"da yeniden deneyin. `restore()`, yenilemenin döndürdüğü kullanıcıyı kullansın.
 
 **Kabul kriteri:** Açılışta yenileme 502 dönerse kullanıcı giriş sayfasına atılmaz; ağ düzelince oturum kendiliğinden görünür.
+
+**Durum (17 Kasım 2026, #86, yayın bekliyor):** Üçüncü durum eklendi: oturum belirsizken (`api.sessionUncertain()`: HINT var, yenileme geçici hatayla döndü) `ready` false kalıyor, korumalı sayfa "Oturumun doğrulanamadı… Yeniden deneniyor" gösteriyor ve yönlendirmiyor. Yeniden deneme 1, 3, 10, 30 sn sonra ve `online` olayında; sunucu 401 dönerse anonim olarak kesinleşiyor. `restore()` kullanıcıyı yenileme cevabından alıyor; açılıştaki `/api/auth/me` isteği kalktı. Uçtan uca test: yenileme 502 iken `/library`'de kalınıyor, sunucu 401 verince `/login`'e gidiliyor. Bilinen sınır: belirsizken menüde "Giriş" bağlantısı görünmeye devam ediyor.
 
 ## F37 — Kapak görselleri denetlenmeyen adreslerden yükleniyor
 

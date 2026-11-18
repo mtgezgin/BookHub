@@ -29,6 +29,8 @@
 //   reuse.spec (çerez hijyeni dahil)      | 1
 //   tabs.spec                             | 1
 //   cross-origin.spec                     | 0  (yalnız /api/auth/refresh)
+//   cache-headers.spec                    | 0  (statik dosyalar)
+//   resilience.spec                       | 0  (hatalar tarayıcıda taklit edilir; 1 çerezsiz /refresh)
 //   rating-comment.spec                   | 1
 //   moderation.spec                       | 2  (okur + admin)
 //   library.spec                          | 1

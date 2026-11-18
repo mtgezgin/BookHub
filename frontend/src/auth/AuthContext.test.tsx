@@ -9,21 +9,24 @@ import type { User } from "../api/types";
 // fonksiyonu yakalar (istemci oturumu düşürdüğünde çağrılan kanca).
 const h = vi.hoisted(() => ({ session: null as null | ((u: unknown) => void) }));
 vi.mock("../api/client", () => ({
-  api: { restore: vi.fn(), logout: vi.fn(), login: vi.fn() },
+  api: { restore: vi.fn(), logout: vi.fn(), login: vi.fn(), sessionUncertain: vi.fn(() => false) },
   subscribeSession: (fn: (u: unknown) => void) => {
     h.session = fn;
   },
 }));
 
 import { api } from "../api/client";
-import { AuthProvider, useAuth } from "./AuthContext";
+import { AuthProvider, RESTORE_RETRY_DELAYS_MS, useAuth } from "./AuthContext";
 
 const ali: User = { id: 7, email: "ali@example.com", display_name: "Ali", role: "USER", created_at: "" };
 type State = ReturnType<typeof useAuth>;
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach((f) => f()));
-beforeEach(() => vi.mocked(api.restore).mockReset());
+beforeEach(() => {
+  vi.mocked(api.restore).mockReset();
+  vi.mocked(api.sessionUncertain).mockReset().mockReturnValue(false);
+});
 
 function mount() {
   const box: { current?: State } = {};
@@ -93,6 +96,75 @@ describe("AuthProvider", () => {
       await done;
     });
     expect(box.current!.user).toBeNull();
+  });
+});
+
+// REVIEW_FEEDBACK F36: açılışta yenileme GEÇİCİ bir hatayla dönerse (ağ, 429, 502) oturum "yok" değil
+// "belirsiz"dir. ready false kalır (korumalı sayfalar giriş sayfasına yönlendirmez) ve yeniden denenir.
+describe("AuthProvider — belirsiz oturum", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("doğrulanamayan oturum anonim sayılmaz; yeniden denenir ve oturum kendiliğinden görünür", async () => {
+    vi.mocked(api.restore).mockResolvedValue(null);
+    vi.mocked(api.sessionUncertain).mockReturnValue(true);
+    const box = mount();
+    await act(async () => {});
+    expect(box.current!).toMatchObject({ user: null, ready: false, uncertain: true });
+    expect(api.restore).toHaveBeenCalledTimes(1);
+
+    // İlk yeniden deneme de başarısız: hâlâ belirsiz.
+    await act(async () => vi.advanceTimersByTimeAsync(RESTORE_RETRY_DELAYS_MS[0]));
+    expect(api.restore).toHaveBeenCalledTimes(2);
+    expect(box.current!).toMatchObject({ ready: false, uncertain: true });
+
+    // Sunucu geri geldi.
+    vi.mocked(api.restore).mockResolvedValue(ali);
+    await act(async () => vi.advanceTimersByTimeAsync(RESTORE_RETRY_DELAYS_MS[1]));
+    expect(box.current!).toMatchObject({ user: ali, ready: true, uncertain: false });
+  });
+
+  it("yeniden denemede sunucu oturumu reddederse (401) anonim olarak kesinleşir", async () => {
+    vi.mocked(api.restore).mockResolvedValue(null);
+    vi.mocked(api.sessionUncertain).mockReturnValue(true);
+    const box = mount();
+    await act(async () => {});
+    vi.mocked(api.sessionUncertain).mockReturnValue(false); // 401: istemci HINT'i sildi
+    await act(async () => vi.advanceTimersByTimeAsync(RESTORE_RETRY_DELAYS_MS[0]));
+    expect(box.current!).toMatchObject({ user: null, ready: true, uncertain: false });
+  });
+
+  it("ağ geri gelince (online) beklemeden dener", async () => {
+    vi.mocked(api.restore).mockResolvedValue(null);
+    vi.mocked(api.sessionUncertain).mockReturnValue(true);
+    const box = mount();
+    await act(async () => {});
+    vi.mocked(api.restore).mockResolvedValue(ali);
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    expect(api.restore).toHaveBeenCalledTimes(2);
+    expect(box.current!).toMatchObject({ user: ali, ready: true });
+  });
+
+  it("başka bir isteğin yenilediği oturum (subscribeSession(user)) belirsizliği bitirir", async () => {
+    vi.mocked(api.restore).mockResolvedValue(null);
+    vi.mocked(api.sessionUncertain).mockReturnValue(true);
+    const box = mount();
+    await act(async () => {});
+    act(() => h.session!(ali));
+    expect(box.current!).toMatchObject({ user: ali, ready: true, uncertain: false });
+  });
+
+  it("denemeler bitince zamanlayıcı kurmaz; kaldırılınca bekleyen deneme iptal olur", async () => {
+    vi.mocked(api.restore).mockResolvedValue(null);
+    vi.mocked(api.sessionUncertain).mockReturnValue(true);
+    mount();
+    await act(async () => {});
+    for (const d of RESTORE_RETRY_DELAYS_MS) await act(async () => vi.advanceTimersByTimeAsync(d));
+    expect(api.restore).toHaveBeenCalledTimes(1 + RESTORE_RETRY_DELAYS_MS.length);
+    await act(async () => vi.advanceTimersByTimeAsync(120_000));
+    expect(api.restore).toHaveBeenCalledTimes(1 + RESTORE_RETRY_DELAYS_MS.length);
   });
 });
 
