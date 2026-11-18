@@ -47,20 +47,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       else setUser(null);
     });
 
-    const run = () => {
-      api
-        .restore()
-        .catch(() => null)
-        .then((u) => {
-          if (cancelled) return;
-          if (u) return settle(u);
-          if (!api.sessionUncertain()) return settle(null);
-          // Oturum olabilir ama sorulamadı: anonim SAYMA, yeniden dene.
-          waiting = true;
-          setUncertain(true);
-          if (attempt < RESTORE_RETRY_DELAYS_MS.length) timer = setTimeout(run, RESTORE_RETRY_DELAYS_MS[attempt++]);
-        });
+    // async + try/catch: zincirin her adımındaki hata burada biter (yakalanmamış bir ret kalmaz).
+    const attemptRestore = async () => {
+      let restored: User | null;
+      try {
+        restored = await api.restore();
+      } catch {
+        restored = null; // ağ hatası: aşağıda "belirsiz mi?" sorusu karar verir
+      }
+      if (cancelled) return;
+      if (restored) return settle(restored);
+      if (!api.sessionUncertain()) return settle(null);
+      // Oturum olabilir ama sorulamadı: anonim SAYMA, yeniden dene.
+      waiting = true;
+      setUncertain(true);
+      if (attempt < RESTORE_RETRY_DELAYS_MS.length) timer = setTimeout(run, RESTORE_RETRY_DELAYS_MS[attempt++]);
     };
+    const run = () => void attemptRestore();
     // Ağ geri geldiğinde beklemeden dene.
     const onOnline = () => {
       if (!waiting) return;

@@ -31,9 +31,10 @@ function RequireRole({ role, children }: { role?: "ADMIN"; children: ReactNode }
   // Belirsiz oturum: giriş sayfasına ATMA. Sunucuya ulaşılınca sayfa kendiliğinden açılır.
   if (!ready && uncertain) {
     return (
-      <p role="status" className="text-muted-foreground">
+      // <output>: "durum bildirimi"nin HTML'deki kendi öğesi (örtük role="status"); ekran okuyucu duyurur.
+      <output className="block text-muted-foreground">
         Oturumun doğrulanamadı (sunucuya ulaşılamıyor). Yeniden deneniyor…
-      </p>
+      </output>
     );
   }
   if (!ready) return <p className="text-muted-foreground">Yükleniyor…</p>;
