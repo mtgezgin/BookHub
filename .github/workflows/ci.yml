@@ -6,11 +6,9 @@
 name: CI
 
 on:
-  # İKİ LİSTE AYNI KALMALI: push (main) ile pull_request farklı davranırsa, PR'da hiç
-  # koşmamış bir değişiklik main'e girdikten sonra ilk kez orada kırmızı olur.
-  # Makefile listede çünkü e2e işi `make demo-seed` çağırıyor — yani Makefile artık bir CI
-  # bağımlılığı. scripts/** savunma amaçlı: CI scripts/e2e.sh'ı koşmuyor ama dokümante
-  # edilen `make e2e` girişi CI görmeden kaymasın.
+  # push (main) YALNIZ kod değişince koşar: Deploy bu iş akışının main'deki başarısına bağlı ve
+  # yalnız doküman değiştiren bir commit yayın tetiklemesin. Makefile listede çünkü e2e işi
+  # `make demo-seed` çağırıyor; scripts/** savunma amaçlı (`make e2e` girişi CI görmeden kaymasın).
   push:
     branches: [main]
     paths:
@@ -20,14 +18,12 @@ on:
       - 'Makefile'
       - 'scripts/**'
       - '.github/workflows/**'
+  # pull_request HER ZAMAN koşar (yol süzgeci YOK). NEDEN: bu işler main'de ZORUNLU KONTROL
+  # (REVIEW_FEEDBACK F39). Hiç koşmayan bir zorunlu kontrol "bekleniyor" olarak kalır ve yalnız doküman
+  # değiştiren PR birleştirilemezdi. Bir işi koşulla atlatmak (if:) yerine her şeyi koşturmak seçildi:
+  # yanlış bir koşul kodu CI'sız bırakabilirdi (CLAUDE.md: CI'ı atlatan değişiklik engelleyicidir).
+  # İki tetikleyicinin farkı güvenli yönde: PR, main'den FAZLASINI sınar, eksiğini değil.
   pull_request:
-    paths:
-      - 'backend/**'
-      - 'frontend/**'
-      - 'docker-compose.yml'
-      - 'Makefile'
-      - 'scripts/**'
-      - '.github/workflows/**'
 
 permissions:
   contents: read
