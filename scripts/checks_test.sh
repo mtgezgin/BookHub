@@ -260,6 +260,26 @@ expect pass "yerel action kuralın dışındadır" staged
 wf '      # uses: actions/checkout@v7 (yalnız yorum)'
 expect pass "yorum satırı kuralın dışındadır" staged
 
+echo "▶ sır kapsamı"
+# shellcheck disable=SC2016 # bu bölümdeki ${{ }} iş akışı sözdizimi; kabukta açılmamalı
+{
+new_repo secretscope
+mkdir -p .github/workflows
+# Örnekler GEÇERLİ iş akışı (yukarıdaki not): sır bir adımın env'inde.
+wfs() { printf 'on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: "true"\n        env:\n          X: ${{ secrets.%s }}\n' "$2" >".github/workflows/$1" && git add ".github/workflows/$1"; }
+wfs deploy.yml PROD_DATABASE_URL
+wfs backup.yml BACKUP_DATABASE_URL
+expect pass "sırlar kendi iş akışlarında kullanılabilir" staged
+wfs ci.yml PROD_DATABASE_URL
+expect fail:"yalnız deploy.yml" "canlı veritabanı sırrı başka iş akışında durur" staged
+wfs ci.yml BACKUP_DATABASE_URL
+expect fail:"yalnız backup.yml" "yedek sırrı başka iş akışında durur" staged
+printf 'on: push\njobs:\n  a:\n    uses: ./.github/workflows/r.yml\n    secrets: inherit\n' >.github/workflows/ci.yml && git add .github/workflows/ci.yml
+expect fail:"secrets: inherit" "sırları toptan devretmek durur" staged
+wfs ci.yml GITHUB_TOKEN
+expect pass "başka sırlar bu kuralın konusu değil" staged
+}
+
 echo "▶ sır taraması"
 if command -v gitleaks >/dev/null 2>&1; then
 	new_repo secrets
