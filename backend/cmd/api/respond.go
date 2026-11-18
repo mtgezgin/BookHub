@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,6 +61,23 @@ func writeInternalError(w http.ResponseWriter, op string, err error) {
 	if database.InvalidInput(err) {
 		slog.Warn("geçersiz girdi veritabanına ulaştı", "op", op, "err", err, "request_id", w.Header().Get(requestIDHeader))
 		writeError(w, http.StatusBadRequest, "validation_error", "istek geçersiz bir değer içeriyor")
+		return
+	}
+	// İstemci cevabı beklemeden gitti ve iptal bir sorguya ulaştı (yazma istekleri; okumalar iptalden
+	// ayrılır, bkz. requestBudget). Sunucunun hatası değil: ERROR satırı ve ileride kurulacak alarm
+	// istemci davranışıyla kirlenmesin (REVIEW_FEEDBACK F21). Yazacak kimse yok; erişim loguna 499 düşer.
+	if errors.Is(err, context.Canceled) {
+		slog.Info("istemci gitti, iş yarıda kaldı", "op", op, "request_id", w.Header().Get(requestIDHeader))
+		w.WriteHeader(statusClientClosedRequest)
+		return
+	}
+	// Süre bütçesi doldu: isteğin context'i (requestBudget) ya da veritabanının kendi sınırı
+	// (statement_timeout, lock_timeout). Sunucu bozuk değil, o an yetişemedi → 503 ve yeniden dene.
+	// ERROR olarak kalır: bunun sık görülmesi bakılması gereken bir işarettir.
+	if errors.Is(err, context.DeadlineExceeded) || database.TimedOut(err) {
+		slog.Error("istek süre sınırını aştı", "op", op, "err", err, "request_id", w.Header().Get(requestIDHeader))
+		w.Header().Set("Retry-After", "2")
+		writeError(w, http.StatusServiceUnavailable, "timeout", "istek zamanında tamamlanamadı; yeniden dene")
 		return
 	}
 	slog.Error("istek başarısız", "op", op, "err", err, "request_id", w.Header().Get(requestIDHeader))

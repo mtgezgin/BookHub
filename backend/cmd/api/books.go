@@ -196,26 +196,6 @@ func parsePage(q url.Values, v *validator) (limit, offset int32) {
 	return limit, offset
 }
 
-// listQueryTimeout, katalog listesi ve aramasının veritabanı süre bütçesi (bkz. detached).
-const listQueryTimeout = 5 * time.Second
-
-// statusClientClosedRequest, istemci cevabı beklemeden gittiğinde erişim loguna yazılan durum
-// (NGINX'in 499'u). Standart bir HTTP kodu değildir ve kimseye ulaşmaz: bağlantı zaten kapalıdır.
-// Amaç logda bu isteğin 200 ya da 500 gibi görünmemesi.
-const statusClientClosedRequest = 499
-
-// detached, sorguları isteğin İPTALİNDEN ayırır ve kendi süre sınırını koyar.
-//
-// NEDEN: yazarken aramada kullanıcı yeni bir harf yazdığında tarayıcı önceki isteği iptal eder.
-// İptal isteğin context'ine, oradan uçuştaki sorguya ulaşırsa pgx o sorgunun BAĞLANTISINI kapatır
-// (ölçüm: yarıda kesilen 20 istek 19 yeni veritabanı bağlantısı açtırdı; REVIEW_FEEDBACK F21).
-// Milisaniyeler süren bir okumayı bitirmek, bağlantıyı yeniden kurmaktan ucuzdur. Süre sınırı,
-// beklenmedik biçimde uzayan bir sorgunun (ve artık kimsenin beklemediği işin) tavanıdır.
-// WithoutCancel değerleri (request id) korur.
-func detached(r *http.Request, timeout time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(r.Context()), timeout)
-}
-
 // handleListBooks, GET /api/books — onaylı kitapları sayfalı listeler ya da arar.
 // Opsiyonel: ?genre=<slug> (türe göre), ?q=<metin> (arama), ?sort=relevance|newest|rating,
 // ?limit=&offset=. Görünürlük sınırı (yalnızca APPROVED) SQL'de yaşıyor.
@@ -229,8 +209,8 @@ func handleListBooks(store bookStore, minVotes int64) http.HandlerFunc {
 			writeRequestError(w, err)
 			return
 		}
-		ctx, cancel := detached(r, listQueryTimeout)
-		defer cancel()
+		// Sorgular isteğin İPTALİNDEN ayrılmış bir context'le çalışır (requestBudget ara katmanı).
+		ctx := r.Context()
 
 		var (
 			items []bookResponse
@@ -273,7 +253,7 @@ func handleListBooks(store bookStore, minVotes int64) http.HandlerFunc {
 
 		// İstemci bu arada gittiyse (yeni harf, sayfadan ayrılma) yazacak kimse yok: gövde
 		// kurulmaz, erişim loguna 499 düşer.
-		if r.Context().Err() != nil {
+		if clientGone(r) {
 			w.WriteHeader(statusClientClosedRequest)
 			return
 		}

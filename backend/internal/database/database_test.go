@@ -41,7 +41,7 @@ func TestNew_HataYollari(t *testing.T) {
 			}
 
 			basla := time.Now()
-			pool, err := New(ctx, tt.dsn)
+			pool, err := New(ctx, tt.dsn, 0)
 			gecen := time.Since(basla)
 
 			if err == nil {

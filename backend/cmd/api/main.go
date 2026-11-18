@@ -64,7 +64,7 @@ func run() int {
 	}
 
 	// Veritabanı havuzunu aç (içinde Ping var → bağlantı yoksa BURADA dururuz).
-	pool, err := database.New(ctx, cfg.DatabaseURL)
+	pool, err := database.New(ctx, cfg.DatabaseURL, int32(cfg.DBMaxConns)) //nolint:gosec // config 1-100 aralığını doğrular
 	if err != nil {
 		slog.Error("veritabanı hazır değil", "err", err)
 		return 1
@@ -77,15 +77,23 @@ func run() int {
 	var appCache cache.Cache = cache.Noop{}
 	var limiter ratelimit.Limiter = ratelimit.NewMemory(cfg.AuthRateLimit, time.Minute)
 	if cfg.RedisURL != "" {
-		rc, err := cache.NewRedis(ctx, cfg.RedisURL)
+		// Bozuk adres bir yapılandırma hatasıdır → açılma. Ulaşılamayan Redis ise DEĞİL: cache bir
+		// hızlandırıcıdır ve çalışırken düşen Redis'te uygulama zaten ayakta kalıyor; açılışta da aynı
+		// kural geçerli olmalı (yoksa Redis'in kesintisi sırasında yeniden başlayan API hiç açılamaz).
+		// İstemci bağlantıyı tembel kurar: Redis geri gelince cache ve rate limit kendiliğinden çalışır.
+		rc, err := cache.NewRedis(cfg.RedisURL)
 		if err != nil {
-			slog.Error("redis hazır değil", "err", err)
+			slog.Error("redis yapılandırılamadı", "err", err)
 			return 1
 		}
 		defer func() { _ = rc.Close() }()
 		appCache = rc
 		limiter = ratelimit.NewRedis(rc.Client(), cfg.AuthRateLimit, time.Minute)
-		slog.Info("redis açık: cache + paylaşılan rate limit")
+		if err := rc.Ping(ctx); err != nil {
+			slog.Warn("redis'e ulaşılamadı; cache'siz ve rate limit'siz açılıyor, bağlantı arka planda yeniden denenecek", "err", err)
+		} else {
+			slog.Info("redis açık: cache + paylaşılan rate limit")
+		}
 	}
 
 	tokens, err := auth.NewTokenManager([]byte(cfg.JWTSecret), cfg.AccessTokenTTL)

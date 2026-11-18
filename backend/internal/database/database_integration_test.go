@@ -29,7 +29,7 @@ func TestNew_MutluYol(t *testing.T) {
 
 	ctx := context.Background()
 
-	pool, err := New(ctx, dsn)
+	pool, err := New(ctx, dsn, 0)
 	if err != nil {
 		t.Fatalf("geçerli DSN ile havuz kurulamadı (docker compose up -d çalıştı mı?): %v", err)
 	}

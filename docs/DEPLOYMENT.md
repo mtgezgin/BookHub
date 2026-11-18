@@ -46,7 +46,7 @@ imaja girer). `web` servisinin env değişkeni yok.
 | Değişken | Canlı değeri | Not |
 |---|---|---|
 | `DATABASE_URL` | Supabase Session pooler adresi + `?sslmode=require` | Keychain'de `bookhub-prod-dsn`; panele `security … \| tr -d '\n' \| pbcopy` ile |
-| `REDIS_URL` | Upstash `rediss://…` | Boş olsaydı cache kapalı, rate limit bellek içi olurdu |
+| `REDIS_URL` | Upstash `rediss://…` | Boş olsaydı cache kapalı, rate limit bellek içi olurdu. Redis'e ulaşılamazsa API yine açılır ve çalışır (uyarı loglar; cache'siz, API'nin rate limit'i açık); bağlantı geri gelince kendiliğinden kullanılır |
 | `JWT_SECRET` | `openssl rand -base64 48` çıktısı | Başka yerde saklanmaz. Yalnız access token'ları imzalar: değişince verilmiş access token'lar geçersizleşir ama oturumlar refresh çereziyle kendiliğinden yenilenir (refresh token'lar secret'tan bağımsız). Herkesi çıkarmak: aşağıdaki not |
 | `AUTO_MIGRATE` | `false` | Migration'ı Deploy iş akışı uygular; elle yalnız acil durumda ([CLAUDE.md](../CLAUDE.md)) |
 | `LOG_FORMAT` | `json` | Northflank loglarında alan alan okunur |
@@ -55,6 +55,7 @@ imaja girer). `web` servisinin env değişkeni yok.
 | `COOKIE_NAME` | (varsayılan `bookhub_refresh`) | Aynı host'ta birden çok yığın varsa her birine ayrı ad |
 | `TRUSTED_PROXIES` | (boş) | Bilinen sınır: aşağıda §5 |
 | `JWT_ACCESS_TTL` · `JWT_REFRESH_TTL` · `JWT_SESSION_MAX_AGE` | varsayılanlar (15m · 168h · 720h) | `JWT_SESSION_MAX_AGE`, `JWT_REFRESH_TTL`'den kısa olamaz (açılışta doğrulanır) |
+| `DB_MAX_CONNS` | (varsayılan `6`) | Havuzun en çok bağlantısı. 2 × değer + 1 (yayın sırasında iki örnek + migration), Supabase oturum havuzunun sınırını (varsayılan 15) aşmamalı. Adrese `pool_max_conns` yazılmaz |
 | `RATING_MIN_VOTES` · `AUTH_RATE_LIMIT_PER_MIN` | varsayılanlar | Ağırlıklı puanın `m`'i · IP başına dakikalık kimlik isteği kotası |
 
 Deploy iş akışı için GitHub secret'ı: `PROD_DATABASE_URL` (yukarıdaki `DATABASE_URL` ile aynı

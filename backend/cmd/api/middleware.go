@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net"
 	"net/http"
 	"net/netip"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +18,7 @@ import (
 
 	"github.com/mtgezgin/bookhub/backend/internal/auth"
 	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
+	"github.com/mtgezgin/bookhub/backend/internal/reqstats"
 )
 
 // tokenVerifier, middleware'in token doğrulayıcıdan beklediği tek davranış.
@@ -191,11 +195,18 @@ const requestIDHeader = "X-Request-Id"
 // satır (slog) — method, yol, status, süre, boyut, request_id. JSON modunda log toplayıcılar
 // "status>=500 olanlar" gibi sorguları metin ayrıştırmadan yapabilir.
 // middleware.RequestID'den SONRA zincirlenmeli (id'yi o üretir).
+//
+// Satır ayrıca sürenin NEREYE gittiğini söyler (REVIEW_FEEDBACK F32): db_queries ve db_ms
+// veritabanına yapılan gidiş-dönüşlerin sayısı ve toplam süresi, redis_ms Redis'inki. Toplamdan
+// geriye kalan, işlemcide (JSON, bcrypt) ve havuzdan bağlantı beklerken geçen süredir.
 func requestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		id := middleware.GetReqID(r.Context())
 		w.Header().Set(requestIDHeader, id)
+
+		ctx, stats := reqstats.New(r.Context())
+		r = r.WithContext(ctx)
 
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor) // status/boyutu yakalamak için
 		next.ServeHTTP(ww, r)
@@ -204,18 +215,116 @@ func requestLogger(next http.Handler) http.Handler {
 		if status == 0 {
 			status = http.StatusOK // handler hiç WriteHeader çağırmadıysa net/http 200 yazar
 		}
+		// İstemci cevabı beklemeden gittiyse handler'ın yazdığı durum kimseye ulaşmadı. Logda 200 ya da
+		// 500 gibi görünmesin: 499 (NGINX'in "istemci bağlantıyı kapattı" kodu). r burada ara
+		// katmanların DEĞİŞTİRMEDİĞİ istektir; context'i yalnız istemci giderse iptal olur.
+		if errors.Is(r.Context().Err(), context.Canceled) {
+			status = statusClientClosedRequest
+		}
 		level := slog.LevelInfo
 		if status >= 500 {
 			level = slog.LevelError
 		}
+		dbQueries, dbTime := stats.DB()
+		_, redisTime := stats.Redis()
 		slog.Log(r.Context(), level, "http",
 			"method", r.Method,
 			"path", r.URL.Path, // query BİLEREK yok: arama terimleri kişisel veri olabilir
 			"status", status,
 			"bytes", ww.BytesWritten(),
-			"duration_ms", float64(time.Since(start).Microseconds())/1000,
+			"duration_ms", ms(time.Since(start)),
+			"db_queries", dbQueries,
+			"db_ms", ms(dbTime),
+			"redis_ms", ms(redisTime),
 			"remote", clientIP(r),
 			"request_id", id,
 		)
+	})
+}
+
+// ms, süreyi log için milisaniyeye (mikrosaniye çözünürlüğünde) çevirir.
+func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
+
+// statusClientClosedRequest, istemci cevabı beklemeden gittiğinde erişim loguna yazılan durum
+// (NGINX'in 499'u). Standart bir HTTP kodu değildir ve kimseye ulaşmaz: bağlantı zaten kapalıdır.
+const statusClientClosedRequest = 499
+
+// Süre bütçeleri. İkisi de sunucunun cevap yazma süresinden (main.go WriteTimeout, 10 sn) kısadır:
+// bütçesi dolan istek, bağlantı kesilmeden ÖNCE düzgün bir hata cevabı yazabilsin.
+const (
+	// readBudget: bir okuma isteğinin (GET/HEAD) bütün sorgularının toplam süresi.
+	readBudget = 5 * time.Second
+	// writeBudget: yazma isteklerinin süresi. Parola özeti kuyruğunda 5 sn bekleyip ~3,3 sn özet
+	// hesaplayan bir giriş bu sürede biter (auth.defaultHashWait).
+	writeBudget = 9 * time.Second
+)
+
+type clientContextKey struct{}
+
+// requestBudget, her isteğe bir süre bütçesi koyar ve OKUMA isteklerini istemcinin iptalinden ayırır.
+//
+// NEDEN ayırma: istemci giderse (yeni harf, sekme kapatma, sayfadan ayrılma) iptal isteğin
+// context'ine, oradan uçuştaki sorguya ulaşır ve pgx o sorgunun BAĞLANTISINI kapatır (ölçüm: yarıda
+// kesilen 20 istek 19 yeni veritabanı bağlantısı açtırdı; REVIEW_FEEDBACK F21). Milisaniyeler süren
+// bir okumayı bitirmek, bağlantıyı TLS ve kimlik doğrulamayla yeniden kurmaktan ucuzdur. Bütçe,
+// kimsenin beklemediği işin tavanıdır. WithoutCancel değerleri (request id, sayaç) korur.
+//
+// NEDEN yazmalar ayrılmıyor: istemcinin vazgeçtiği bir yazmayı tamamlamak, kullanıcının görmediği
+// bir değişiklik bırakır; işlem geri alınır ve bağlantının yeniden kurulması kabul edilir.
+//
+// NEDEN bütçe (REVIEW_FEEDBACK F08): http.Server'ın WriteTimeout'u yalnız bağlantıyı keser, çalışan
+// handler'ı durdurmaz. Sorguları durduran, context'in süre sınırıdır.
+func requestBudget(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var (
+			ctx    context.Context
+			cancel context.CancelFunc
+		)
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			client := r.Context()
+			ctx = context.WithValue(context.WithoutCancel(client), clientContextKey{}, client)
+			ctx, cancel = context.WithTimeout(ctx, readBudget)
+		} else {
+			ctx, cancel = context.WithTimeout(r.Context(), writeBudget)
+		}
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// clientGone, istemci cevabı beklemeden gitti mi diye bakar. Okuma isteklerinde r.Context() iptalden
+// ayrılmıştır (requestBudget); istemcinin asıl context'i onun içinde saklanır.
+func clientGone(r *http.Request) bool {
+	if client, ok := r.Context().Value(clientContextKey{}).(context.Context); ok {
+		return client.Err() != nil
+	}
+	return errors.Is(r.Context().Err(), context.Canceled)
+}
+
+// recoverer, panik eden bir handler'ın süreci çökertmesini önler ve hata zarfıyla 500 döner.
+// chi'nin Recoverer'ı boş gövdeli 500 dönüyordu: arayüz mesaj gösteremiyor, cevap zarf sözleşmesini
+// bozuyordu (REVIEW_FEEDBACK F32). Yığın izi loga yazılır; panik değeri istemciye gitmez.
+// requestLogger'dan SONRA zincirlenir: panik eden istek de erişim loguna 500 olarak düşer.
+func recoverer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			rec := recover()
+			if rec == nil {
+				return
+			}
+			// net/http'nin "cevabı sessizce kes" işareti: yutulmaz, sunucuya bırakılır.
+			if err, ok := rec.(error); ok && errors.Is(err, http.ErrAbortHandler) {
+				panic(rec)
+			}
+			slog.Error("handler panik etti",
+				"panic", fmt.Sprint(rec),
+				"stack", string(debug.Stack()),
+				"method", r.Method,
+				"path", r.URL.Path,
+				"request_id", w.Header().Get(requestIDHeader),
+			)
+			writeError(w, http.StatusInternalServerError, "internal", internalErrorMessage)
+		}()
+		next.ServeHTTP(w, r)
 	})
 }

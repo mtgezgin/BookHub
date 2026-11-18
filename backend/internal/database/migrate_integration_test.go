@@ -58,7 +58,7 @@ func freshDatabase(ctx context.Context, t *testing.T, prefix string) string {
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL tanımlı değil → entegrasyon testi atlanıyor")
 	}
-	admin, err := New(ctx, dsn)
+	admin, err := New(ctx, dsn, 0)
 	if err != nil {
 		t.Fatalf("bağlantı: %v", err)
 	}
