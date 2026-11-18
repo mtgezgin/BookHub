@@ -718,6 +718,8 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 
 **Kabul kriteri:** İzin listesi dışındaki bir kapak adresi 400 alır; CSP yalnız listedeki sunuculara izin verir.
 
+**Ek gözlem (18 Kasım 2026, canlıda tarayıcı testi):** kapaklar `covers.openlibrary.org`'dan istenip `archive.org`'a **yönlendirilerek** yükleniyor (en yavaş üç ağ isteği kapaklardı: 470–878 ms; açılıştan ~3 sn sonra şeritteki kapak kutuları hâlâ boştu). CSP'nin `img-src` kuralı yönlendirmenin HEDEFİNE de uygulanır: izin listesi yalnız `covers.openlibrary.org` olursa kapaklar kırılır; liste yönlendirme hedeflerini de içermeli (hangi alan adları olduğu ağ kayıtlarından çıkarılacak; doğrulanmadı). Gecikme, önerideki "kapakları kendi origin'inizden sunun" maddesinin gerekçesini güçlendiriyor.
+
 ## F38 — CI taze kurulumu sınıyor, canlı yükseltme yapıyor; migration'da süre sınırı yok
 
 **Öncelik:** Orta · CI/CD
