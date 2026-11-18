@@ -64,6 +64,8 @@ type Repository struct {
 	q    *db.Queries
 	// average: genel ortalamanın (C) süreç içi önbelleği; nil ise her seferinde veritabanından okunur.
 	average func(ctx context.Context) (float64, error)
+	// catalog: tür eşlemesi ve toplam sayılar için süreç içi önbellek; nil ise kapalı (catalog.go).
+	catalog *catalogCache
 }
 
 // UseGlobalAverage, puana göre sıralamada kullanılan genel ortalamanın kaynağını değiştirir
@@ -203,30 +205,25 @@ type ListFilter struct {
 // döner (varsayılan en yeniden eskiye). Boş sonuç hata değildir; ErrNotFound çevirisi yoktur.
 // Metin araması burada değil Search'tedir.
 func (r *Repository) List(ctx context.Context, f ListFilter) ([]db.BookView, int64, error) {
-	genre := optional(f.Genre)
-
-	var (
-		list []db.BookView
-		err  error
-	)
-	if f.Sort == SortRating {
-		var c float64
-		c, err = r.globalAverage(ctx, f.ColdStart)
+	var genreID int64
+	if f.Genre != "" {
+		id, ok, err := r.genreID(ctx, f.Genre)
 		if err != nil {
-			return nil, 0, fmt.Errorf("genel ortalama sorgusu: %w", err)
+			return nil, 0, err
 		}
-		list, err = r.q.ListBooksByRating(ctx, db.ListBooksByRatingParams{
-			Genre: genre, M: f.MinVotes, C: c, Limit: f.Limit, Offset: f.Offset,
-		})
-	} else {
-		list, err = r.q.ListBooks(ctx, db.ListBooksParams{Genre: genre, Limit: f.Limit, Offset: f.Offset})
+		if !ok {
+			// Böyle bir tür yok: boş sayfa (404 değil; tür süzgeci bir aramadır).
+			return []db.BookView{}, 0, nil
+		}
+		genreID = id
 	}
+	list, err := r.page(ctx, f, genreID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("kitap listeleme sorgusu: %w", err)
+		return nil, 0, err
 	}
-	total, err := r.q.CountBooks(ctx, genre)
+	total, err := r.count(ctx, genreID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("kitap sayma sorgusu: %w", err)
+		return nil, 0, err
 	}
 	return list, total, nil
 }

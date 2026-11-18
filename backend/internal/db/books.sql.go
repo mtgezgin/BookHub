@@ -11,17 +11,13 @@ import (
 )
 
 const countBooks = `-- name: CountBooks :one
-SELECT count(*) FROM books b
-WHERE b.status = 'APPROVED'
-  AND ($1::text IS NULL OR EXISTS (
-        SELECT 1 FROM book_genres bg
-        JOIN genres g ON g.id = bg.genre_id
-        WHERE bg.book_id = b.id AND g.slug = $1))
+SELECT count(*) FROM books WHERE status = 'APPROVED'
 `
 
-// Aynı filtreyle toplam sayı (sayfalama arayüzü "57 sonuçtan 1-20" diyebilsin).
-func (q *Queries) CountBooks(ctx context.Context, genre *string) (int64, error) {
-	row := q.db.QueryRow(ctx, countBooks, genre)
+// Toplam sayı (sayfalama arayüzü "57 sonuçtan 1-20" diyebilsin). Liste sorgusunun kendisinden pahalıdır
+// (500 bin kitapta 50–278 ms); repository sonucu süreç içinde kısa süre tutar (UseCatalogCache).
+func (q *Queries) CountBooks(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countBooks)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -33,6 +29,19 @@ SELECT count(*) FROM books WHERE status = $1
 
 func (q *Queries) CountBooksByStatus(ctx context.Context, status string) (int64, error) {
 	row := q.db.QueryRow(ctx, countBooksByStatus, status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countBooksInGenre = `-- name: CountBooksInGenre :one
+SELECT count(*) FROM books b
+WHERE b.status = 'APPROVED'
+  AND EXISTS (SELECT 1 FROM book_genres bg WHERE bg.book_id = b.id AND bg.genre_id = $1)
+`
+
+func (q *Queries) CountBooksInGenre(ctx context.Context, genreID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countBooksInGenre, genreID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -166,61 +175,71 @@ func (q *Queries) GetBook(ctx context.Context, id int64) (BookView, error) {
 }
 
 const listBooks = `-- name: ListBooks :many
-SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count FROM book_view b
-WHERE b.status = 'APPROVED'
-  AND ($1::text IS NULL OR EXISTS (
-        SELECT 1 FROM book_genres bg
-        JOIN genres g ON g.id = bg.genre_id
-        WHERE bg.book_id = b.id AND g.slug = $1))
-ORDER BY b.created_at DESC, b.id DESC
-LIMIT $3 OFFSET $2
+
+WITH page AS (
+  SELECT b.id, b.created_at FROM books b
+  WHERE b.status = 'APPROVED'
+  ORDER BY b.created_at DESC, b.id DESC
+  LIMIT $2 OFFSET $1
+)
+SELECT v.id, v.title, v.slug, v.author, v.description, v.cover_url, v.publication_year, v.page_count, v.language, v.status, v.created_at, v.updated_at, v.submitted_by, v.rejection_reason, v.moderated_by, v.moderated_at, v.average_rating, v.rating_count FROM page p
+JOIN book_view v ON v.id = p.id
+ORDER BY p.created_at DESC, p.id DESC
 `
 
 type ListBooksParams struct {
-	Genre  *string `json:"genre"`
-	Offset int32   `json:"offset"`
-	Limit  int32   `json:"limit"`
+	Offset int32 `json:"offset"`
+	Limit  int32 `json:"limit"`
 }
 
-// Ana liste: sadece onaylılar, en yeniden eskiye; opsiyonel TÜR filtresi ve SAYFALAMA ile.
-// Metin araması bu sorguda DEĞİL: ?q= geldiğinde SearchBooks (aşağıda) çalışır.
+type ListBooksRow struct {
+	BookView BookView `json:"book_view"`
+}
+
+// KATALOG LİSTESİ (Faz 16c; REVIEW_FEEDBACK F24, F25, F26). Tür süzgeci olan ve olmayan liste AYRI
+// sorgulardır ve tür, slug ile değil KİMLİKLE gelir (repository slug'ı kimliğe çevirir).
 //
-// Opsiyonel filtre deseni: `(param IS NULL OR koşul)`. Parametre gönderilmezse (NULL)
-// koşul devre dışı kalır. sqlc'nin "dinamik sorgularda hantal" dediğimiz zayıflığının
-// standart çözümü bu: sorgu metni sabit kalır, filtreyi DEĞER açıp kapatır — string
-// birleştirerek SQL kurmaya (injection kapısı) hiç gerek kalmaz.
+// NEDEN ayrı sorgu: eski tek sorgu `(tür IS NULL OR EXISTS (… g.slug = tür))` kalıbındaydı. Postgres
+// OR'un altındaki EXISTS'i birleştirmeye çeviremiyor; her istekte o türün bütün kitaplarını okuyup
+// bir özet tablosu kuruyordu (500 bin kitapta 4–391 ms). Kimlikle ve koşulsuz yazılan EXISTS'te
+// planlayıcı türün seyrek ya da yaygın olmasına göre yol seçer (ölçüm: 0,7–2,9 ms).
 //
-// Sıralamada id ikincil anahtar: aynı created_at'e sahip iki kitap sayfalar arasında
-// yer değiştirmesin (kararlı sayfalama). books_status_recent_idx (status, created_at DESC, id DESC)
-// bu sorguya ve yönetim listelerine (ListBooksByStatus) hizmet ediyor (0015).
-func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]BookView, error) {
-	rows, err := q.db.Query(ctx, listBooks, arg.Genre, arg.Offset, arg.Limit)
+// NEDEN ÖNCE KİMLİK, SONRA GÖRÜNÜM ("geç birleştirme"): book_view her kitabı varsayılan baskısıyla
+// birleştirir. LIMIT/OFFSET görünüm üzerinde uygulanınca atlanan her satır için de birleştirme yapılır
+// (offset 10.000'de 58 ms). Sayfa önce dar books tablosunda, index'ten seçilir; görünüme yalnız o
+// sayfanın satırları için gidilir (1,2 ms).
+//
+// Sıralamada id ikincil anahtar: aynı created_at'e sahip iki kitap sayfalar arasında yer
+// değiştirmesin (kararlı sayfalama). books_status_recent_idx (status, created_at DESC, id DESC) bu
+// sorgulara ve yönetim listelerine (ListBooksByStatus) hizmet ediyor (0015).
+func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]ListBooksRow, error) {
+	rows, err := q.db.Query(ctx, listBooks, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []BookView
+	var items []ListBooksRow
 	for rows.Next() {
-		var i BookView
+		var i ListBooksRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Slug,
-			&i.Author,
-			&i.Description,
-			&i.CoverUrl,
-			&i.PublicationYear,
-			&i.PageCount,
-			&i.Language,
-			&i.Status,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.SubmittedBy,
-			&i.RejectionReason,
-			&i.ModeratedBy,
-			&i.ModeratedAt,
-			&i.AverageRating,
-			&i.RatingCount,
+			&i.BookView.ID,
+			&i.BookView.Title,
+			&i.BookView.Slug,
+			&i.BookView.Author,
+			&i.BookView.Description,
+			&i.BookView.CoverUrl,
+			&i.BookView.PublicationYear,
+			&i.BookView.PageCount,
+			&i.BookView.Language,
+			&i.BookView.Status,
+			&i.BookView.CreatedAt,
+			&i.BookView.UpdatedAt,
+			&i.BookView.SubmittedBy,
+			&i.BookView.RejectionReason,
+			&i.BookView.ModeratedBy,
+			&i.BookView.ModeratedAt,
+			&i.BookView.AverageRating,
+			&i.BookView.RatingCount,
 		); err != nil {
 			return nil, err
 		}
@@ -233,40 +252,46 @@ func (q *Queries) ListBooks(ctx context.Context, arg ListBooksParams) ([]BookVie
 }
 
 const listBooksByRating = `-- name: ListBooksByRating :many
-SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count FROM book_view b
-WHERE b.status = 'APPROVED'
-  AND ($1::text IS NULL OR EXISTS (
-        SELECT 1 FROM book_genres bg
-        JOIN genres g ON g.id = bg.genre_id
-        WHERE bg.book_id = b.id AND g.slug = $1))
-ORDER BY
-  CASE WHEN b.rating_count = 0 THEN NULL ELSE
-       (b.rating_count::float8 / (b.rating_count + $2::float8)) * b.average_rating::float8
-     + ($2::float8 / (b.rating_count + $2::float8)) * $3::float8
-  END DESC NULLS LAST,
-  b.rating_count DESC, b.created_at DESC, b.id DESC
-LIMIT $5 OFFSET $4
+
+WITH page AS (
+  SELECT b.id, b.rating_count, b.created_at,
+         CASE WHEN b.rating_count = 0 THEN NULL ELSE
+              (b.rating_count::float8 / (b.rating_count + $1::float8)) * b.average_rating::float8
+            + ($1::float8 / (b.rating_count + $1::float8)) * $2::float8
+         END AS score
+  FROM books b
+  WHERE b.status = 'APPROVED'
+  ORDER BY score DESC NULLS LAST, b.rating_count DESC, b.created_at DESC, b.id DESC
+  LIMIT $4 OFFSET $3
+)
+SELECT v.id, v.title, v.slug, v.author, v.description, v.cover_url, v.publication_year, v.page_count, v.language, v.status, v.created_at, v.updated_at, v.submitted_by, v.rejection_reason, v.moderated_by, v.moderated_at, v.average_rating, v.rating_count FROM page p
+JOIN book_view v ON v.id = p.id
+ORDER BY p.score DESC NULLS LAST, p.rating_count DESC, p.created_at DESC, p.id DESC
 `
 
 type ListBooksByRatingParams struct {
-	Genre  *string `json:"genre"`
 	M      float64 `json:"m"`
 	C      float64 `json:"c"`
 	Offset int32   `json:"offset"`
 	Limit  int32   `json:"limit"`
 }
 
+type ListBooksByRatingRow struct {
+	BookView BookView `json:"book_view"`
+}
+
 // Katalogda "en yüksek puan" sırası: ListTopRated ile AYNI ağırlıklı (Bayes) skor. Basit
 // ortalama olsaydı 1 oyla 10 alan kitap, 40 oyla 9 alanın önüne geçerdi.
-// C (genel ortalama) parametre: tek tanımı ratings.sql'deki GlobalAverageRating; repository önce onu
-// okur. Burada ikinci bir kopyası olsaydı şerit ile katalog sırası sessizce ayrışabilirdi.
-// Oysuz kitap NULL → en sonda (kendi aralarında en yeni önce). CASE, m = 0 iken oysuz
-// kitapta 0/0 bölmesini de önler (RATING_MIN_VOTES 0 olabilir).
-// Tür filtresi ListBooks ile birebir aynı; birini değiştiren ikisini de değiştirir. Aynı skor
-// SearchBooks'un rating sırasında da var.
-func (q *Queries) ListBooksByRating(ctx context.Context, arg ListBooksByRatingParams) ([]BookView, error) {
+// C (genel ortalama) parametre: tek tanımı ratings.sql'deki GlobalAverageRating; repository onu
+// süreç içi önbellekten okur. Oysuz kitap NULL → en sonda (kendi aralarında en yeni önce). CASE,
+// m = 0 iken oysuz kitapta 0/0 bölmesini de önler (RATING_MIN_VOTES 0 olabilir).
+//
+// Skor sorgu anında hesaplandığı için index'le hızlanamaz (saklanan skor ERTELENDİ; gerekçe ve geri
+// dönüş koşulu: docs/phases/phase-16c-catalog-queries.md). Geç birleştirme burada da kazandırır:
+// sıralama dar books satırları üzerinde yapılır (500 bin kitapta 1.125 → 267 ms).
+// Aynı skor SearchBooks'un rating sırasında da var; birini değiştiren üçünü de değiştirir.
+func (q *Queries) ListBooksByRating(ctx context.Context, arg ListBooksByRatingParams) ([]ListBooksByRatingRow, error) {
 	rows, err := q.db.Query(ctx, listBooksByRating,
-		arg.Genre,
 		arg.M,
 		arg.C,
 		arg.Offset,
@@ -276,28 +301,103 @@ func (q *Queries) ListBooksByRating(ctx context.Context, arg ListBooksByRatingPa
 		return nil, err
 	}
 	defer rows.Close()
-	var items []BookView
+	var items []ListBooksByRatingRow
 	for rows.Next() {
-		var i BookView
+		var i ListBooksByRatingRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Title,
-			&i.Slug,
-			&i.Author,
-			&i.Description,
-			&i.CoverUrl,
-			&i.PublicationYear,
-			&i.PageCount,
-			&i.Language,
-			&i.Status,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.SubmittedBy,
-			&i.RejectionReason,
-			&i.ModeratedBy,
-			&i.ModeratedAt,
-			&i.AverageRating,
-			&i.RatingCount,
+			&i.BookView.ID,
+			&i.BookView.Title,
+			&i.BookView.Slug,
+			&i.BookView.Author,
+			&i.BookView.Description,
+			&i.BookView.CoverUrl,
+			&i.BookView.PublicationYear,
+			&i.BookView.PageCount,
+			&i.BookView.Language,
+			&i.BookView.Status,
+			&i.BookView.CreatedAt,
+			&i.BookView.UpdatedAt,
+			&i.BookView.SubmittedBy,
+			&i.BookView.RejectionReason,
+			&i.BookView.ModeratedBy,
+			&i.BookView.ModeratedAt,
+			&i.BookView.AverageRating,
+			&i.BookView.RatingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBooksByRatingInGenre = `-- name: ListBooksByRatingInGenre :many
+WITH page AS (
+  SELECT b.id, b.rating_count, b.created_at,
+         CASE WHEN b.rating_count = 0 THEN NULL ELSE
+              (b.rating_count::float8 / (b.rating_count + $1::float8)) * b.average_rating::float8
+            + ($1::float8 / (b.rating_count + $1::float8)) * $2::float8
+         END AS score
+  FROM books b
+  WHERE b.status = 'APPROVED'
+    AND EXISTS (SELECT 1 FROM book_genres bg WHERE bg.book_id = b.id AND bg.genre_id = $3)
+  ORDER BY score DESC NULLS LAST, b.rating_count DESC, b.created_at DESC, b.id DESC
+  LIMIT $5 OFFSET $4
+)
+SELECT v.id, v.title, v.slug, v.author, v.description, v.cover_url, v.publication_year, v.page_count, v.language, v.status, v.created_at, v.updated_at, v.submitted_by, v.rejection_reason, v.moderated_by, v.moderated_at, v.average_rating, v.rating_count FROM page p
+JOIN book_view v ON v.id = p.id
+ORDER BY p.score DESC NULLS LAST, p.rating_count DESC, p.created_at DESC, p.id DESC
+`
+
+type ListBooksByRatingInGenreParams struct {
+	M       float64 `json:"m"`
+	C       float64 `json:"c"`
+	GenreID int64   `json:"genre_id"`
+	Offset  int32   `json:"offset"`
+	Limit   int32   `json:"limit"`
+}
+
+type ListBooksByRatingInGenreRow struct {
+	BookView BookView `json:"book_view"`
+}
+
+func (q *Queries) ListBooksByRatingInGenre(ctx context.Context, arg ListBooksByRatingInGenreParams) ([]ListBooksByRatingInGenreRow, error) {
+	rows, err := q.db.Query(ctx, listBooksByRatingInGenre,
+		arg.M,
+		arg.C,
+		arg.GenreID,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBooksByRatingInGenreRow
+	for rows.Next() {
+		var i ListBooksByRatingInGenreRow
+		if err := rows.Scan(
+			&i.BookView.ID,
+			&i.BookView.Title,
+			&i.BookView.Slug,
+			&i.BookView.Author,
+			&i.BookView.Description,
+			&i.BookView.CoverUrl,
+			&i.BookView.PublicationYear,
+			&i.BookView.PageCount,
+			&i.BookView.Language,
+			&i.BookView.Status,
+			&i.BookView.CreatedAt,
+			&i.BookView.UpdatedAt,
+			&i.BookView.SubmittedBy,
+			&i.BookView.RejectionReason,
+			&i.BookView.ModeratedBy,
+			&i.BookView.ModeratedAt,
+			&i.BookView.AverageRating,
+			&i.BookView.RatingCount,
 		); err != nil {
 			return nil, err
 		}
@@ -352,6 +452,98 @@ func (q *Queries) ListBooksByStatus(ctx context.Context, arg ListBooksByStatusPa
 			&i.AverageRating,
 			&i.RatingCount,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBooksInGenre = `-- name: ListBooksInGenre :many
+WITH page AS (
+  SELECT b.id, b.created_at FROM books b
+  WHERE b.status = 'APPROVED'
+    AND EXISTS (SELECT 1 FROM book_genres bg WHERE bg.book_id = b.id AND bg.genre_id = $1)
+  ORDER BY b.created_at DESC, b.id DESC
+  LIMIT $3 OFFSET $2
+)
+SELECT v.id, v.title, v.slug, v.author, v.description, v.cover_url, v.publication_year, v.page_count, v.language, v.status, v.created_at, v.updated_at, v.submitted_by, v.rejection_reason, v.moderated_by, v.moderated_at, v.average_rating, v.rating_count FROM page p
+JOIN book_view v ON v.id = p.id
+ORDER BY p.created_at DESC, p.id DESC
+`
+
+type ListBooksInGenreParams struct {
+	GenreID int64 `json:"genre_id"`
+	Offset  int32 `json:"offset"`
+	Limit   int32 `json:"limit"`
+}
+
+type ListBooksInGenreRow struct {
+	BookView BookView `json:"book_view"`
+}
+
+func (q *Queries) ListBooksInGenre(ctx context.Context, arg ListBooksInGenreParams) ([]ListBooksInGenreRow, error) {
+	rows, err := q.db.Query(ctx, listBooksInGenre, arg.GenreID, arg.Offset, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBooksInGenreRow
+	for rows.Next() {
+		var i ListBooksInGenreRow
+		if err := rows.Scan(
+			&i.BookView.ID,
+			&i.BookView.Title,
+			&i.BookView.Slug,
+			&i.BookView.Author,
+			&i.BookView.Description,
+			&i.BookView.CoverUrl,
+			&i.BookView.PublicationYear,
+			&i.BookView.PageCount,
+			&i.BookView.Language,
+			&i.BookView.Status,
+			&i.BookView.CreatedAt,
+			&i.BookView.UpdatedAt,
+			&i.BookView.SubmittedBy,
+			&i.BookView.RejectionReason,
+			&i.BookView.ModeratedBy,
+			&i.BookView.ModeratedAt,
+			&i.BookView.AverageRating,
+			&i.BookView.RatingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGenreSlugs = `-- name: ListGenreSlugs :many
+SELECT id, slug FROM genres
+`
+
+type ListGenreSlugsRow struct {
+	ID   int64  `json:"id"`
+	Slug string `json:"slug"`
+}
+
+// Türlerin slug → kimlik eşlemesi (repository süreç içinde tutar; tür tablosu küçük ve seyrek değişir).
+func (q *Queries) ListGenreSlugs(ctx context.Context) ([]ListGenreSlugsRow, error) {
+	rows, err := q.db.Query(ctx, listGenreSlugs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGenreSlugsRow
+	for rows.Next() {
+		var i ListGenreSlugsRow
+		if err := rows.Scan(&i.ID, &i.Slug); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

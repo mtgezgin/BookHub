@@ -22,58 +22,103 @@ SELECT * FROM book_view
 WHERE id = $1
   AND status = 'APPROVED';
 
--- Ana liste: sadece onaylılar, en yeniden eskiye; opsiyonel TÜR filtresi ve SAYFALAMA ile.
--- Metin araması bu sorguda DEĞİL: ?q= geldiğinde SearchBooks (aşağıda) çalışır.
+-- KATALOG LİSTESİ (Faz 16c; REVIEW_FEEDBACK F24, F25, F26). Tür süzgeci olan ve olmayan liste AYRI
+-- sorgulardır ve tür, slug ile değil KİMLİKLE gelir (repository slug'ı kimliğe çevirir).
 --
--- Opsiyonel filtre deseni: `(param IS NULL OR koşul)`. Parametre gönderilmezse (NULL)
--- koşul devre dışı kalır. sqlc'nin "dinamik sorgularda hantal" dediğimiz zayıflığının
--- standart çözümü bu: sorgu metni sabit kalır, filtreyi DEĞER açıp kapatır — string
--- birleştirerek SQL kurmaya (injection kapısı) hiç gerek kalmaz.
+-- NEDEN ayrı sorgu: eski tek sorgu `(tür IS NULL OR EXISTS (… g.slug = tür))` kalıbındaydı. Postgres
+-- OR'un altındaki EXISTS'i birleştirmeye çeviremiyor; her istekte o türün bütün kitaplarını okuyup
+-- bir özet tablosu kuruyordu (500 bin kitapta 4–391 ms). Kimlikle ve koşulsuz yazılan EXISTS'te
+-- planlayıcı türün seyrek ya da yaygın olmasına göre yol seçer (ölçüm: 0,7–2,9 ms).
 --
--- Sıralamada id ikincil anahtar: aynı created_at'e sahip iki kitap sayfalar arasında
--- yer değiştirmesin (kararlı sayfalama). books_status_recent_idx (status, created_at DESC, id DESC)
--- bu sorguya ve yönetim listelerine (ListBooksByStatus) hizmet ediyor (0015).
+-- NEDEN ÖNCE KİMLİK, SONRA GÖRÜNÜM ("geç birleştirme"): book_view her kitabı varsayılan baskısıyla
+-- birleştirir. LIMIT/OFFSET görünüm üzerinde uygulanınca atlanan her satır için de birleştirme yapılır
+-- (offset 10.000'de 58 ms). Sayfa önce dar books tablosunda, index'ten seçilir; görünüme yalnız o
+-- sayfanın satırları için gidilir (1,2 ms).
+--
+-- Sıralamada id ikincil anahtar: aynı created_at'e sahip iki kitap sayfalar arasında yer
+-- değiştirmesin (kararlı sayfalama). books_status_recent_idx (status, created_at DESC, id DESC) bu
+-- sorgulara ve yönetim listelerine (ListBooksByStatus) hizmet ediyor (0015).
+
 -- name: ListBooks :many
-SELECT b.* FROM book_view b
-WHERE b.status = 'APPROVED'
-  AND (sqlc.narg('genre')::text IS NULL OR EXISTS (
-        SELECT 1 FROM book_genres bg
-        JOIN genres g ON g.id = bg.genre_id
-        WHERE bg.book_id = b.id AND g.slug = sqlc.narg('genre')))
-ORDER BY b.created_at DESC, b.id DESC
-LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+WITH page AS (
+  SELECT b.id, b.created_at FROM books b
+  WHERE b.status = 'APPROVED'
+  ORDER BY b.created_at DESC, b.id DESC
+  LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
+)
+SELECT sqlc.embed(v) FROM page p
+JOIN book_view v ON v.id = p.id
+ORDER BY p.created_at DESC, p.id DESC;
+
+-- name: ListBooksInGenre :many
+WITH page AS (
+  SELECT b.id, b.created_at FROM books b
+  WHERE b.status = 'APPROVED'
+    AND EXISTS (SELECT 1 FROM book_genres bg WHERE bg.book_id = b.id AND bg.genre_id = sqlc.arg('genre_id'))
+  ORDER BY b.created_at DESC, b.id DESC
+  LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
+)
+SELECT sqlc.embed(v) FROM page p
+JOIN book_view v ON v.id = p.id
+ORDER BY p.created_at DESC, p.id DESC;
 
 -- Katalogda "en yüksek puan" sırası: ListTopRated ile AYNI ağırlıklı (Bayes) skor. Basit
 -- ortalama olsaydı 1 oyla 10 alan kitap, 40 oyla 9 alanın önüne geçerdi.
--- C (genel ortalama) parametre: tek tanımı ratings.sql'deki GlobalAverageRating; repository önce onu
--- okur. Burada ikinci bir kopyası olsaydı şerit ile katalog sırası sessizce ayrışabilirdi.
--- Oysuz kitap NULL → en sonda (kendi aralarında en yeni önce). CASE, m = 0 iken oysuz
--- kitapta 0/0 bölmesini de önler (RATING_MIN_VOTES 0 olabilir).
--- Tür filtresi ListBooks ile birebir aynı; birini değiştiren ikisini de değiştirir. Aynı skor
--- SearchBooks'un rating sırasında da var.
--- name: ListBooksByRating :many
-SELECT b.* FROM book_view b
-WHERE b.status = 'APPROVED'
-  AND (sqlc.narg('genre')::text IS NULL OR EXISTS (
-        SELECT 1 FROM book_genres bg
-        JOIN genres g ON g.id = bg.genre_id
-        WHERE bg.book_id = b.id AND g.slug = sqlc.narg('genre')))
-ORDER BY
-  CASE WHEN b.rating_count = 0 THEN NULL ELSE
-       (b.rating_count::float8 / (b.rating_count + sqlc.arg('m')::float8)) * b.average_rating::float8
-     + (sqlc.arg('m')::float8 / (b.rating_count + sqlc.arg('m')::float8)) * sqlc.arg('c')::float8
-  END DESC NULLS LAST,
-  b.rating_count DESC, b.created_at DESC, b.id DESC
-LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+-- C (genel ortalama) parametre: tek tanımı ratings.sql'deki GlobalAverageRating; repository onu
+-- süreç içi önbellekten okur. Oysuz kitap NULL → en sonda (kendi aralarında en yeni önce). CASE,
+-- m = 0 iken oysuz kitapta 0/0 bölmesini de önler (RATING_MIN_VOTES 0 olabilir).
+--
+-- Skor sorgu anında hesaplandığı için index'le hızlanamaz (saklanan skor ERTELENDİ; gerekçe ve geri
+-- dönüş koşulu: docs/phases/phase-16c-catalog-queries.md). Geç birleştirme burada da kazandırır:
+-- sıralama dar books satırları üzerinde yapılır (500 bin kitapta 1.125 → 267 ms).
+-- Aynı skor SearchBooks'un rating sırasında da var; birini değiştiren üçünü de değiştirir.
 
--- Aynı filtreyle toplam sayı (sayfalama arayüzü "57 sonuçtan 1-20" diyebilsin).
+-- name: ListBooksByRating :many
+WITH page AS (
+  SELECT b.id, b.rating_count, b.created_at,
+         CASE WHEN b.rating_count = 0 THEN NULL ELSE
+              (b.rating_count::float8 / (b.rating_count + sqlc.arg('m')::float8)) * b.average_rating::float8
+            + (sqlc.arg('m')::float8 / (b.rating_count + sqlc.arg('m')::float8)) * sqlc.arg('c')::float8
+         END AS score
+  FROM books b
+  WHERE b.status = 'APPROVED'
+  ORDER BY score DESC NULLS LAST, b.rating_count DESC, b.created_at DESC, b.id DESC
+  LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
+)
+SELECT sqlc.embed(v) FROM page p
+JOIN book_view v ON v.id = p.id
+ORDER BY p.score DESC NULLS LAST, p.rating_count DESC, p.created_at DESC, p.id DESC;
+
+-- name: ListBooksByRatingInGenre :many
+WITH page AS (
+  SELECT b.id, b.rating_count, b.created_at,
+         CASE WHEN b.rating_count = 0 THEN NULL ELSE
+              (b.rating_count::float8 / (b.rating_count + sqlc.arg('m')::float8)) * b.average_rating::float8
+            + (sqlc.arg('m')::float8 / (b.rating_count + sqlc.arg('m')::float8)) * sqlc.arg('c')::float8
+         END AS score
+  FROM books b
+  WHERE b.status = 'APPROVED'
+    AND EXISTS (SELECT 1 FROM book_genres bg WHERE bg.book_id = b.id AND bg.genre_id = sqlc.arg('genre_id'))
+  ORDER BY score DESC NULLS LAST, b.rating_count DESC, b.created_at DESC, b.id DESC
+  LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
+)
+SELECT sqlc.embed(v) FROM page p
+JOIN book_view v ON v.id = p.id
+ORDER BY p.score DESC NULLS LAST, p.rating_count DESC, p.created_at DESC, p.id DESC;
+
+-- Toplam sayı (sayfalama arayüzü "57 sonuçtan 1-20" diyebilsin). Liste sorgusunun kendisinden pahalıdır
+-- (500 bin kitapta 50–278 ms); repository sonucu süreç içinde kısa süre tutar (UseCatalogCache).
 -- name: CountBooks :one
+SELECT count(*) FROM books WHERE status = 'APPROVED';
+
+-- name: CountBooksInGenre :one
 SELECT count(*) FROM books b
 WHERE b.status = 'APPROVED'
-  AND (sqlc.narg('genre')::text IS NULL OR EXISTS (
-        SELECT 1 FROM book_genres bg
-        JOIN genres g ON g.id = bg.genre_id
-        WHERE bg.book_id = b.id AND g.slug = sqlc.narg('genre')));
+  AND EXISTS (SELECT 1 FROM book_genres bg WHERE bg.book_id = b.id AND bg.genre_id = sqlc.arg('genre_id'));
+
+-- Türlerin slug → kimlik eşlemesi (repository süreç içinde tutar; tür tablosu küçük ve seyrek değişir).
+-- name: ListGenreSlugs :many
+SELECT id, slug FROM genres;
 
 -- Katalog araması (?q=): Türkçe duyarlı ve index'li (0014_book_search.sql). Sayfa, toplam ve türler
 -- TEK sorguda döner: canlıda her sorgu ayrı bir ağ gidiş-dönüşüdür (REVIEW_FEEDBACK F20).

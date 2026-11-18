@@ -385,7 +385,7 @@ func TestListBooksByRatingMatchesWeightedScoreRealDB(t *testing.T) {
 	const m = 10
 	q := db.New(pool)
 	for _, c := range []float64{5, 8} {
-		got, err := q.ListBooksByRating(context.Background(), db.ListBooksByRatingParams{Genre: &slug, M: m, C: c, Limit: 10})
+		got, err := q.ListBooksByRatingInGenre(context.Background(), db.ListBooksByRatingInGenreParams{GenreID: genreID, M: m, C: c, Limit: 10})
 		if err != nil {
 			t.Fatalf("C=%v: liste okunamadı: %v", c, err)
 		}
@@ -396,8 +396,8 @@ func TestListBooksByRatingMatchesWeightedScoreRealDB(t *testing.T) {
 		if WeightedScore(10, 1, m, c) < WeightedScore(7, 10, m, c) {
 			want = steady
 		}
-		if got[0].ID != want {
-			t.Errorf("C=%v: ilk sırada %d bekleniyordu (WeightedScore'a göre), SQL %d verdi", c, want, got[0].ID)
+		if got[0].BookView.ID != want {
+			t.Errorf("C=%v: ilk sırada %d bekleniyordu (WeightedScore'a göre), SQL %d verdi", c, want, got[0].BookView.ID)
 		}
 	}
 }

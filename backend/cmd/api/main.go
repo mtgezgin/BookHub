@@ -150,6 +150,8 @@ func run() int {
 	baseRatings.UseGlobalAverage(globalAverage.Get)
 	bookRepo := books.NewRepository(pool)
 	bookRepo.UseGlobalAverage(globalAverage.Get)
+	// Tür eşlemesi ve toplam sayılar 60 sn süreç içinde (Faz 16c; books/catalog.go).
+	bookRepo.UseCatalogCache(60 * time.Second)
 	ratingSvc := ratings.NewCached(baseRatings, appCache)
 	moderationSvc := moderation.NewService(pool, moderation.WithPublicChangeHook(ratingSvc.InvalidateTopRated))
 	// Baskılar (Faz 16) kapak taşıyor; top-rated cache'i de onları gösterir.

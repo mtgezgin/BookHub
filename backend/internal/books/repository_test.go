@@ -388,8 +388,8 @@ func TestRepositoryListRatingUsesDatabaseAverage(t *testing.T) {
 	if _, _, err := repo.List(context.Background(), ListFilter{Sort: SortRating, MinVotes: 5, ColdStart: 3, Limit: 20}); err != nil {
 		t.Fatalf("liste okunamadı: %v", err)
 	}
-	// Sıra sqlc'nin ürettiği çağrıdakidir: genre, m, c, offset, limit.
-	if len(args) < 3 || args[2] != 7.25 {
+	// Sıra sqlc'nin ürettiği çağrıdakidir: m, c, offset, limit (tür süzgeci ayrı sorgudadır).
+	if len(args) < 2 || args[1] != 7.25 {
 		t.Errorf("C olarak genel ortalama (7.25) bekleniyordu, gelen argümanlar %v", args)
 	}
 }
