@@ -156,6 +156,30 @@ check_added_migration() {
 		fi
 	else
 		check_migration_number "$1" "$2"
+		check_migration_order "$1"
+	fi
+}
+
+# check_migration_order <yol>: yeni migration'ın numarası main'deki ve canlıdaki EN BÜYÜK numaradan
+# büyük olmalı (REVIEW_FEEDBACK F38). goose sırasız migration'ı reddeder: 0015 yayınlandıktan sonra
+# birleşen bir 0014 canlıya uygulanamaz ve yayın durur. Dosya zaten main'deyse (main'i dala
+# birleştirirken "eklenmiş" görünür) numara onundur; denetlenmez.
+check_migration_order() {
+	local name="${1##*/}" num max=0 ref n gone
+	num="${name%%_*}"
+	[[ "$num" =~ ^[0-9]+$ ]] || return 0
+	if git cat-file -e "origin/main:$1" 2>/dev/null; then return 0; fi
+	# Bu değişikliğin sildiği ya da taşıdığı yollar sayılmaz: main'deki yayınlanmamış bir migration'ı
+	# yeniden adlandırmak, kendi eski adıyla yarışmasın.
+	gone="$(awk -F'	' '$1 ~ /^[DR]/ {print $2}' <<<"$CHANGES")"
+	for ref in origin/release origin/main; do
+		git rev-parse --verify -q "$ref" >/dev/null || continue
+		while read -r n; do
+			if [[ -n "$n" ]] && ((10#$n > max)); then max=$((10#$n)); fi
+		done < <(git ls-tree --name-only "$ref" backend/migrations/ | { grep -vxF -e "${gone:-/}" || true; } | sed -nE 's|^backend/migrations/([0-9]+)_[^/]*\.sql$|\1|p')
+	done
+	if ((10#$num <= max)); then
+		fail "migration numarası sıra dışı: $1 ($num) — main ve canlıdaki en büyük numara $max; daha büyük bir numara al (goose sırasız migration'ı reddeder)"
 	fi
 }
 

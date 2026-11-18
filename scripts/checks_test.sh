@@ -154,6 +154,21 @@ git checkout -q --theirs backend/migrations/0002_f.sql && git add backend/migrat
 expect pass "çakışma canlıdaki hâle çözülünce commit geçer" staged
 git merge --abort
 
+echo "▶ migration sırası"
+new_repo order
+printf -- '-- +goose Up\nCREATE TABLE c (id int);\n' >backend/migrations/0003_c.sql
+git add backend/migrations/0003_c.sql && git commit -qm "0003 main'de"
+git update-ref refs/remotes/origin/main HEAD
+git checkout -q -b dal
+printf -- '-- +goose Up\nCREATE TABLE z (id int);\n' >backend/migrations/0002_z.sql
+git add backend/migrations/0002_z.sql
+expect fail:"numarası sıra dışı" "main'deki en büyük numaradan küçük yeni migration durur" staged
+git rm -q --cached backend/migrations/0002_z.sql && rm backend/migrations/0002_z.sql
+printf -- '-- +goose Up\nCREATE TABLE z (id int);\n' >backend/migrations/0004_z.sql
+printf -- '-- +goose Up\nCREATE TABLE w (id int);\n' >backend/migrations/0005_w.sql
+git add backend/migrations
+expect pass "en büyük numaradan büyük (ve art arda) yeni migration'lar geçer" staged
+
 echo "▶ commit mesajı atlama bayrakları"
 new_repo commitmsg
 msg="$WORK/msg"

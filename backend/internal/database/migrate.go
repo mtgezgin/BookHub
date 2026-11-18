@@ -2,12 +2,12 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
-	// database/sql sürücüsü olarak pgx: goose standart *sql.DB ister, uygulamanın
+	// database/sql sürücüsü olarak pgx (stdlib): goose standart *sql.DB ister, uygulamanın
 	// geri kalanı pgxpool kullanır. Aynı sürücü, iki arayüz.
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 
@@ -24,10 +24,19 @@ import (
 // (ve GitHub runner'larında) session pooler. API'de otomatik migration bu yüzden bir ayar
 // (AUTO_MIGRATE) ve varsayılanı kapalı.
 func Migrate(ctx context.Context, dsn string) error {
-	db, err := sql.Open("pgx", dsn)
+	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		return fmt.Errorf("migration bağlantısı açılamadı: %w", err)
 	}
+	// KİLİT BEKLEME SINIRI (REVIEW_FEEDBACK F38): ALTER TABLE gibi bir deyim, tabloyu kullanan uzun bir
+	// işlemin arkasında beklerken o tabloya gelen BÜTÜN sorguları kendi arkasına dizer. Sınırla
+	// migration beklemek yerine hata verir; yayın durur, site çalışmaya devam eder, yeniden denenir.
+	// Her migration dosyası bunu ayrıca SET LOCAL ile yazabilir; burası unutulanlar için varsayılandır.
+	// statement_timeout BİLEREK yok: index kurmak ya da veri taşımak dakikalar sürebilir.
+	db := stdlib.OpenDB(*cfg, stdlib.OptionAfterConnect(func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, "SET lock_timeout = '5s'")
+		return err
+	}))
 	// Kapanış hatası burada eyleme dönüştürülemez (bağlantı yalnızca migration için
 	// açıldı ve iş bitti); yine de bilinçli olarak yok saydığımızı açıkça yazıyoruz.
 	defer func() { _ = db.Close() }()
