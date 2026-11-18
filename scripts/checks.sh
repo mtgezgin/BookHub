@@ -225,6 +225,7 @@ check_nginx_log() {
 		return
 	fi
 	# $request_method, $request_time gibi adlar serbest: eşleşme değişken adının TAMAMINA bakar.
+	# shellcheck disable=SC2016 # desen NGINX değişken adlarını ($request …) düz metin olarak arar; açılmamalı
 	if grep -Eq '\$(request|request_uri|args|query_string|http_referer|arg_[a-z0-9_]+)([^a-z0-9_]|$)' <<<"$fmt"; then
 		fail "frontend/nginx/default.conf: 'log_format bookhub' sorgu dizesini ya da referrer'ı taşıyan bir değişken içeriyor"
 	fi
