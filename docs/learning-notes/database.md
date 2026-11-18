@@ -978,7 +978,7 @@ satırın içine çek ve generated column kullan.
 
 | Koşul | Soru | BookHub'da iyi örnek: `books.rating_count` |
 |---|---|---|
-| Tek sahibi var | Değeri kaç yer güncelliyor? | Yalnız tetikleyici (0006, 0007) |
+| Tek sahibi var | Değeri kaç yer güncelliyor? | İki yer, ikisi de belli: puan yazımında puan servisi, silmede tetikleyici (0006, 0007). İdeal olan tek yerdir; F27'de silme yolu tetikleyiciye bırakıldı |
 | Kaynaktan kurulabilir | Silinse yeniden üretilir mi? | `SELECT count(*) FROM ratings WHERE book_id = …` |
 | Bayatlığı sınırlı ve yazılı | Ne kadar geride kalabilir? | Hiç: aynı transaction'da güncellenir |
 | Ölçümle gerekçeli | Hangi ölçülen sorunu çözüyor? | Her listede puanları yeniden toplamamak |
