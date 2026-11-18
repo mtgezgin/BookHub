@@ -3,7 +3,7 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-11-11):** **15 fazın tamamı ✅** · repo public (MIT) · canlı izleme başladı · MCP sunucusu · **Şimdi: Faz 16 — eser ve baskı** ([Sıradaki](#sıradaki)) — MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-11-16):** **16 fazın tamamı ✅** · repo public (MIT) · canlı izleme başladı · MCP sunucusu · **Şimdi: Faz 17 — okuma takibi ve inceleme** ([Sıradaki](#sıradaki)) — MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React frontend, CI/CD, NGINX,
 Kubernetes) + **Faz 13 oturum sertleştirme** (httpOnly refresh çerezi, token aileleri + reuse
 tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
@@ -15,9 +15,8 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
   makinenin denetlediği kurallar (`scripts/checks.sh`: git kancaları + CI'da Kurallar) ·
   [PROCESS.md](PROCESS.md).
 - **Yol haritası (2026-10-17):** hedef "üretim kalitesinde demo"; sıra ve gerekçe
-  [ROADMAP.md](ROADMAP.md)'de. Faz 15 kişisel kitaplık ✅ → **Şimdi: Faz 16 — eser ve baskı**
-  ([#36](https://github.com/mtgezgin/BookHub/issues/36), spec [incelemede](phases/phase-16-works-editions.md)) →
-  Faz 17 okuma takibi ve inceleme.
+  [ROADMAP.md](ROADMAP.md)'de. Faz 15 kişisel kitaplık ✅ → Faz 16 eser ve baskı ✅ →
+  **Şimdi: Faz 17 — okuma takibi ve inceleme** ([#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md)) → Faz 18 katkı döngüsü ve hesap.
 - **Public repo (2026-11-09):** geçmiş (commit'ler, PR/issue metinleri, Actions logları) sır
   taramasından geçti; MIT lisansı; `main` korumalı (PR ve zorunlu **Kurallar** kontrolü), `release`
   force push ve silmeye karşı korumalı; secret scanning ve push protection açık. Site **demo**
@@ -35,6 +34,13 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 - **Node 26 LTS (2026-11-11, [#71](https://github.com/mtgezgin/BookHub/issues/71)):** derleme imajı, CI ve `@types/node` birlikte geçti.
 - **Teknik hat:** hata izleme, [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki
   kapanmamış bulgular (ilgili fazın içinde kapanır).
+
+> **Faz 16 — eser ve baskı (canlıda 2026-11-15):** `books` eser olarak kaldı, yeni `editions` tablosu
+> (kitap başına bir varsayılan baskı), `book_view`, admin baskı uçları, kitap sayfasında "Diğer baskılar"
+> şeridi. Genişlet → daralt: PR #73 (migration `0011` + `0012`), PR #74 (`0013`, `books.cover_url` ve
+> `books.page_count` silindi). Her adımda 53 kitabın kapak/sayfa/puan görüntüsü birebir aynı; 8 kitapta
+> şerit. #36 kapandı; kullanıcının baskı önermesi [#79](https://github.com/mtgezgin/BookHub/issues/79)
+> (Faz 18'le birlikte) · [phase-16](phases/phase-16-works-editions.md).
 
 > **Faz 15 — kişisel kitaplık (canlıda 2026-10-25):** dört durumla gizli kitaplık (migration `0010`),
 > kitap sayfasında ekleme/durum menüsü, kartlarda durum rozeti (tek toplu istek), süzgeçleri adreste
@@ -79,6 +85,7 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 | 13 | Oturum sertleştirme (httpOnly çerez, token ailesi + reuse, CSRF, parola değişimi, Playwright) | ✅ |
 | 14 | Arayüz yeniden tasarımı (tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik, katalog sıralaması) | ✅ (canlı, gerçek kapaklar dahil) |
 | 15 | Kişisel kitaplık (durum, Kitaplığım sayfası, kart rozetleri; migration 0010) | ✅ (canlı 2026-10-25) |
+| 16 | Eser ve baskı (`editions`, "Diğer baskılar" şeridi; migration 0011–0013, genişlet → daralt) | ✅ (canlı 2026-11-15) |
 
 ## Faz 2'de ne oldu (özet)
 
@@ -176,17 +183,14 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 
 Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 
-1. **Şimdi — Faz 16, eser ve baskı** (CAT-02, [#36](https://github.com/mtgezgin/BookHub/issues/36),
-   [spec](phases/phase-16-works-editions.md)). İki PR:
-   - **Genişlet** (#73, 0011 tablo + taşıma, 0012 demo baskılar): canlıda ve doğrulandı (2026-11-15).
-     53 kitabın kapak, sayfa ve puan görüntüsü yayından önce, migration'dan sonra ve yeni kodla birebir
-     aynı; 8 kitapta "Diğer baskılar" şeridi.
-   - **Daralt** (0013, eski iki kolonu siler): PR'da. Yayından sonra aynı görüntü yine karşılaştırılır,
-     #36 elle kapanır.
-   - Ardından: kullanıcının baskı önermesi için ayrı issue.
+1. **Şimdi — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02).
+   [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md)
+   onaylandı (2026-11-16). Üç PR: 17A-1 okuma takibi, 17A-2 kısıtlar, 17B inceleme. Aktif okuma
+   kitaplık satırında durur, kapanmış okumalar `reading_log`'da; yazımlar tek durum makinesinden geçer.
+   İnceleme geniş kullanıma açılmadan MOD-04 gerekir ([ROADMAP](ROADMAP.md)).
 2. **Sonra:**
-   - Faz 17, okuma takibi ve inceleme.
-   - Faz 18, katkı döngüsü ve hesap (gerçek kullanıcı kararıyla öne alınır).
+   - Faz 18, katkı döngüsü ve hesap (gerçek kullanıcı kararıyla öne alınır); kullanıcının baskı
+     önermesi ([#79](https://github.com/mtgezgin/BookHub/issues/79)) bununla birlikte.
 3. **Teknik hat (araya, küçük):**
    - Hata izleme ve gerçek zamanlı alarm ([PROCESS.md](PROCESS.md) §7; imaj taraması ve uptime var).
    - `PROD_DATABASE_URL`'i bir GitHub Environment'a taşımak: repo public olduğu için artık ücretsiz
