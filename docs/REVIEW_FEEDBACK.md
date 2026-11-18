@@ -483,6 +483,8 @@ Deploy iş akışı `release` dalını ilerletip "Yayına çıktı" yazıyor; No
 
 **Kabul kriteri:** Derlemesi bilerek bozulmuş bir yayında Deploy kırmızı biter.
 
+**Ek gözlem (18 Kasım 2026, yerel yığın):** NGINX, `proxy_pass http://api:8080;` adresini yalnız AÇILIŞTA çözüyor. API konteyneri yeniden oluşturulup yeni bir adres alınca NGINX eski adrese gitmeye devam etti ve bütün `/api/` istekleri 502 döndü; `web` yeniden başlatılınca düzeldi (compose'daki `depends_on … restart: true` bunu `up --build` akışında kendiliğinden yapıyor, tek servisi yeniden oluşturan komutlarda yapmıyor). Canlıda aynı şeyin olup olmadığı **doğrulanmadı**: Northflank'ta `api` adı büyük olasılıkla değişmeyen bir servis adresine çözülür, ama yalnız `api`'nin yeniden yayınlandığı bir durumda `web`'in 502 verip vermediğine bakılmalı. Yayın doğrulamasının (bu bulgu) kapsamına alınmalı.
+
 ## F23 — Yedek ve geri yükleme tanımlı değil
 
 **Öncelik:** Orta · Veri
