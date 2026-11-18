@@ -1,6 +1,6 @@
 # Faz 16c — Katalog sorguları: tür süzgeci, sayım, derin sayfa, puan sırası
 
-> Durum: ✅ **kararlar verildi** (2026-11-18); kod yazılmadı · Issue: açılacak —
+> Durum: 🚧 kararlar verildi (2026-11-18); 1. dilim (önbellek) yazıldı · Issue: [#98](https://github.com/mtgezgin/BookHub/issues/98) —
 > [ROADMAP](../ROADMAP.md) · Bulgular: [REVIEW_FEEDBACK](../REVIEW_FEEDBACK.md) F24, F25, F26 ·
 > İlgili: [books.sql](../../backend/sql/queries/books.sql), [ratings.sql](../../backend/sql/queries/ratings.sql),
 > [repository.go](../../backend/internal/books/repository.go), [cached.go](../../backend/internal/ratings/cached.go)

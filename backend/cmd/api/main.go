@@ -143,13 +143,20 @@ func run() int {
 	// Auth ve moderasyonun araya bir servisi var (gerçek iş mantığı); okuma/tür CRUD'unun yok.
 	// Puan servisi cache'le sarılı; moderasyon, public görünümü değiştiren her commit'te
 	// top-rated cache'ini geçersiz kılar. İki servis birbirini tanımıyor — bağ burada kuruluyor.
-	ratingSvc := ratings.NewCached(ratings.NewService(pool, int64(cfg.RatingMinVotes)), appCache)
+	// Genel ortalama (ağırlıklı puandaki C) süreç içinde 60 sn tutulur: puana göre her sıralama
+	// isteğinde ayrı bir sorgu çalışmasın (Faz 16c). Kaynağı tek: puan servisi.
+	baseRatings := ratings.NewService(pool, int64(cfg.RatingMinVotes))
+	globalAverage := ratings.NewGlobalAverage(ratings.GlobalAverageTTL, baseRatings.LoadGlobalAverage)
+	baseRatings.UseGlobalAverage(globalAverage.Get)
+	bookRepo := books.NewRepository(pool)
+	bookRepo.UseGlobalAverage(globalAverage.Get)
+	ratingSvc := ratings.NewCached(baseRatings, appCache)
 	moderationSvc := moderation.NewService(pool, moderation.WithPublicChangeHook(ratingSvc.InvalidateTopRated))
 	// Baskılar (Faz 16) kapak taşıyor; top-rated cache'i de onları gösterir.
 	editionSvc := editions.NewService(pool, ratingSvc.InvalidateTopRated)
 
 	d := deps{
-		books:      books.NewRepository(pool),
+		books:      bookRepo,
 		genres:     genres.NewRepository(pool),
 		moderation: moderationSvc,
 		editions:   editionSvc,

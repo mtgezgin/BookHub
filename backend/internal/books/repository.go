@@ -62,6 +62,19 @@ func ParseStatus(s string) (string, error) {
 type Repository struct {
 	conn db.DBTX // transaction açmak için (pool) — bkz. SetGenres
 	q    *db.Queries
+	// average: genel ortalamanın (C) süreç içi önbelleği; nil ise her seferinde veritabanından okunur.
+	average func(ctx context.Context) (float64, error)
+}
+
+// UseGlobalAverage, puana göre sıralamada kullanılan genel ortalamanın kaynağını değiştirir
+// (ratings.GlobalAverage; main.go bağlar). Kaynak boş katalogdaki değeri (cold start) de kendisi bilir.
+func (r *Repository) UseGlobalAverage(fn func(ctx context.Context) (float64, error)) { r.average = fn }
+
+func (r *Repository) globalAverage(ctx context.Context, coldStart float64) (float64, error) {
+	if r.average != nil {
+		return r.average(ctx)
+	}
+	return r.q.GlobalAverageRating(ctx, coldStart)
 }
 
 // NewRepository, verilen bağlantıyla bir Repository kurar.
@@ -198,7 +211,7 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]db.BookView, int
 	)
 	if f.Sort == SortRating {
 		var c float64
-		c, err = r.q.GlobalAverageRating(ctx, f.ColdStart)
+		c, err = r.globalAverage(ctx, f.ColdStart)
 		if err != nil {
 			return nil, 0, fmt.Errorf("genel ortalama sorgusu: %w", err)
 		}
@@ -237,7 +250,7 @@ func (r *Repository) Search(ctx context.Context, f ListFilter) ([]SearchHit, int
 		Limit: f.Limit, Offset: f.Offset,
 	}
 	if f.Sort == SortRating {
-		c, err := r.q.GlobalAverageRating(ctx, f.ColdStart)
+		c, err := r.globalAverage(ctx, f.ColdStart)
 		if err != nil {
 			return nil, 0, fmt.Errorf("genel ortalama sorgusu: %w", err)
 		}
