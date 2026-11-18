@@ -549,6 +549,8 @@ Ağırlıklı skor sorgu anında hesaplanıyor. Karar bilinçli ve "yavaşladı�
 
 **Kabul kriteri:** 500 bin kitapta puana göre ilk sayfa 5 ms'nin altında; sürekli puan yazılırken "en sevilenler" isteklerinin çoğu sıralamayı yeniden çalıştırmaz.
 
+**Karar (18 Kasım 2026):** saklanan skor **ertelendi** (kullanıcı kararı). Canlıda ölçülmüş bir sorun yok ve ilk önerilen tasarım (elle güncellenen kolon + günlük yenileme) genel ortalamaya bağımlılık yüzünden zayıftı. Gerekince sabit ortalama ve eşikle generated column kullanılacak. Geri dönüş koşulu: canlıda puana göre sıralamanın `db_ms` değeri düzenli olarak 50 ms'yi geçerse. Ayrıntı: [Faz 16c](phases/phase-16c-catalog-queries.md). Önbellek kısmı (genel ortalama ve "en sevilenler" 60 sn) Faz 16c'de.
+
 ## F27 — Kitap satırı kilidi gereğinden güçlü; puan istatistiği iki yerde hesaplanıyor
 
 **Öncelik:** Düşük · Eşzamanlılık

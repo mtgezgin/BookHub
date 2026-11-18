@@ -24,6 +24,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 17. [Hazırlanmış deyim ve plan önbelleği: sorgu altıncı çalıştırmada neden yavaşladı?](#17-hazırlanmış-deyim-ve-plan-önbelleği-sorgu-altıncı-çalıştırmada-neden-yavaşladı)
 18. [Seçmeli süzgeç kalıbı ve yarı-birleştirme: `param IS NULL OR EXISTS` neden pahalı?](#18-seçmeli-süzgeç-kalıbı-ve-yarı-birleştirme-param-is-null-or-exists-neden-pahalı)
 19. [Sayfalama ve sayımın bedeli: OFFSET, anahtarla sayfalama ve "önce kimlik, sonra satır"](#19-sayfalama-ve-sayımın-bedeli-offset-anahtarla-sayfalama-ve-önce-kimlik-sonra-satır)
+20. [Türetilmiş veriyi saklamak kural ihlali mi? Denormalizasyonun dört koşulu ve generated column](#20-türetilmiş-veriyi-saklamak-kural-ihlali-mi-denormalizasyonun-dört-koşulu-ve-generated-column)
 
 ---
 
@@ -956,3 +957,78 @@ birleşir.
 - [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F25 — sayım, derin sayfa ve 10.000 sınırı
 - [library.sql](../../backend/sql/queries/library.sql) — `count(*) OVER ()` kullanan sorgu
 - [backend-and-web.md](backend-and-web.md) #9 — gidiş-dönüş sayısının isteğin süresine etkisi
+
+---
+
+## 20. Türetilmiş veriyi saklamak kural ihlali mi? Denormalizasyonun dört koşulu ve generated column
+
+**🗓️ Bağlam:** 2026-11-18, Faz 16c spec'indeki "puan skoru kolon olarak saklansın mı?" kararında.
+Öneri hızlıydı (ölçüm 0,95 ms) ama "türetilmiş veri kaynaktan hesaplanır" kuralının istisnası diye
+sunulmuştu. "Bilerek temel kurallara karşı bir şey geliştirmek istemiyorum; senior biri bunu nasıl ele
+alır, gerçek uygulamalarda nasıl yapılıyor?" diye sordum.
+
+**⚡ Kısa cevap:** Kural "türetilmiş veriyi asla saklama" değil, "doğrunun **tek kaynağı** olsun".
+Saklamak (denormalizasyon) yaygın ve meşrudur; dört koşulu sağlıyorsa. Bizim öneri bir koşulda zayıftı:
+skor başka satırların verisine (genel ortalama) bağlıydı. Karar: şimdilik yapma; gerekince bağımlılığı
+satırın içine çek ve generated column kullan.
+
+**📖 Açıklama:**
+
+**Saklanan türetilmiş veri için dört koşul**
+
+| Koşul | Soru | BookHub'da iyi örnek: `books.rating_count` |
+|---|---|---|
+| Tek sahibi var | Değeri kaç yer güncelliyor? | Yalnız tetikleyici (0006, 0007) |
+| Kaynaktan kurulabilir | Silinse yeniden üretilir mi? | `SELECT count(*) FROM ratings WHERE book_id = …` |
+| Bayatlığı sınırlı ve yazılı | Ne kadar geride kalabilir? | Hiç: aynı transaction'da güncellenir |
+| Ölçümle gerekçeli | Hangi ölçülen sorunu çözüyor? | Her listede puanları yeniden toplamamak |
+
+`book_search` tablosu (arama belgesi) da aynı dört koşulu sağlar.
+
+**Önerilen skorda sorun neydi?** Ağırlıklı skor `f(kitabın ortalaması, kitabın oy sayısı, GENEL
+ortalama, eşik)`. Genel ortalama bütün kitaplara bağlı: A kitabına puan gelince B'nin saklanan skoru
+da eskir. "Tek sahibi var" ve "bayatlığı sınırlı" koşulları ancak bir yenileme komutuyla, yani elle
+bakımla sağlanıyordu.
+
+**Senior birinin sırası**
+
+1. **Şimdi gerekli mi?** 1.125 ms ölçümü 500 bin kitaplık deney verisinden; canlıda katalog küçük.
+   Ölçülmemiş sorun için şema değişmez. Bunun yerine bir **geri dönüş koşulu** yazılır: "canlıda
+   `db_ms` düzenli olarak 50 ms'yi geçerse yeniden açılır". Erteleme, unutma değildir.
+2. **Bağımlılığı satırın içine çek.** Genel ortalama ve eşik sabit alınırsa skor yalnız o satırın
+   fonksiyonu olur. O zaman veritabanının kendi aracı kullanılır:
+
+   ```sql
+   ALTER TABLE books ADD COLUMN weighted_score numeric
+     GENERATED ALWAYS AS (/* yalnız bu satırın kolonları ve sabitler */) STORED;
+   ```
+
+   Değeri Postgres hesaplar; kaynakla tutarsız olması mümkün değildir. Tetikleyici ve yenileme
+   komutu gerekmez; kuralın istisnası da olmaz. (Expression index aynı işi kolon eklemeden yapar.)
+3. **Bedelini yaz.** Sabit ortalama, gerçek ortalama kayarsa sırayı hafif saptırır; düzeltmek yeni bir
+   migration ister.
+
+**Türetilmiş veriyi tutmanın üç yolu (güvenliden riskliye)**
+
+| Yol | Kim günceller | Tutarsız olabilir mi |
+|---|---|---|
+| Generated column / expression index | Veritabanı, aynı satır yazılırken | Hayır (yalnız satırın kendi verisine bağlı olabilir) |
+| Tetikleyiciyle güncellenen kolon ya da tablo | Tetikleyici, aynı transaction'da | Tetikleyici bütün yazma yollarını kapsıyorsa hayır |
+| Uygulamanın güncellediği kolon / zamanlanmış yenileme | Kod ya da bir iş | Evet; unutulan bir yazma yolu ya da durmuş bir iş yeter |
+
+**Gerçek uygulamalarda:** sayaçların (beğeni, yorum, takipçi) satırda saklanması ve oy anında
+hesaplanıp saklanan sıralama skorları yaygın kalıplardır; materialized view da aynı fikrin veritabanı
+tarafından sunulan hâlidir. (Belirli sitelerin iç tasarımlarını bu notu yazarken kaynaktan doğrulamadık.)
+
+**Dürüst not:** bu Go'ya ya da Postgres'e özgü değil; hangi dilde yazarsan yaz aynı soru çıkar.
+ORM kullanan projelerde (Prisma, TypeORM) "uygulamanın güncellediği kolon" yolu en kolay görünen yoldur
+ve en çok kayan da odur.
+
+**Durum:** saklanan skor ertelendi; generated column yolu ölçülmedi (uygulamadan önce ölçülecek).
+
+**🔗 İlgili:**
+- [phase-16c-catalog-queries.md](../phases/phase-16c-catalog-queries.md) — "Ertelenen karar" ve geri dönüş koşulu
+- [GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §7 — türetilmiş değerlerde tutarlılık
+- [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F26 — ölçümler
+- [0014_book_search.sql](../../backend/migrations/0014_book_search.sql) — tetikleyiciyle güncellenen türetilmiş tablo örneği
+- [#19 Sayfalama ve sayımın bedeli](#19-sayfalama-ve-sayımın-bedeli-offset-anahtarla-sayfalama-ve-önce-kimlik-sonra-satır)
