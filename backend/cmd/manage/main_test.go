@@ -90,12 +90,28 @@ func TestCreateAdminRealDB(t *testing.T) {
 		t.Errorf("rol ADMIN olmalı, gelen %q", role)
 	}
 
-	out.Reset()
-	if err := run(context.Background(), args, strings.NewReader("baska-bir-parola\n"), &out, env); err != nil {
-		t.Fatalf("ikinci çalıştırma: %v", err)
+	// İkinci çalıştırma: hesap var → sessizce yükseltmek yerine hata (F31) ve parola değişmez.
+	var before string
+	if err := pool.QueryRow(context.Background(), "SELECT password_hash FROM users WHERE email = $1", email).Scan(&before); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "DEĞİŞMEDİ") {
-		t.Errorf("ikinci çalıştırma var olanı yükseltmeli: %q", out.String())
+	out.Reset()
+	err := run(context.Background(), args, strings.NewReader("baska-bir-parola\n"), &out, env)
+	if err == nil || !strings.Contains(err.Error(), "-promote") {
+		t.Fatalf("var olan hesapta -promote'u anlatan bir hata bekleniyordu, gelen %v", err)
+	}
+
+	// -promote: hesap devralınır, parola değişir.
+	out.Reset()
+	if err := run(context.Background(), append(args, "-promote"), strings.NewReader("baska-bir-parola\n"), &out, env); err != nil {
+		t.Fatalf("-promote: %v", err)
+	}
+	var after string
+	if err := pool.QueryRow(context.Background(), "SELECT password_hash FROM users WHERE email = $1", email).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "devralındı") || after == before {
+		t.Errorf("-promote parolayı değiştirmeli ve bunu söylemeli: %q", out.String())
 	}
 }
 

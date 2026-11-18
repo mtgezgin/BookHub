@@ -151,8 +151,13 @@ func (s *Service) Remove(ctx context.Context, userID, bookID int64) (Stats, erro
 		if n == 0 {
 			return ErrNotRated
 		}
-		stats, err = refresh(ctx, q, bookID)
-		return err
+		// Yeniden hesaplama YOK: silme tetikleyicisi istatistiği bu transaction'da güncelledi.
+		row, err := q.GetBookRatingStats(ctx, bookID)
+		if err != nil {
+			return fmt.Errorf("puan istatistiği okunamadı: %w", err)
+		}
+		stats = Stats{Average: row.AverageRating, Count: row.RatingCount}
+		return nil
 	})
 	return stats, err
 }

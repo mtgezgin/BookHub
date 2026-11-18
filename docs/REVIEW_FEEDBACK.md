@@ -53,15 +53,15 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [ ] | F24 | Orta — ölçekle | Tür süzgeci kalıbı planlayıcının iyi planı kurmasını engelliyor |
 | [ ] | F25 | Orta — ölçekle | Her listede tam sayım, derin sayfa maliyeti ve 10.000 sınırı |
 | [ ] | F26 | Orta — ölçekle | Puana göre sıralama ve "en sevilenler" önbelleği |
-| [ ] | F27 | Düşük | Kitap satırı kilidi gereğinden güçlü; puan istatistiği iki yerde hesaplanıyor |
+| [x] | F27 | Düşük | Kitap satırı kilidi gereğinden güçlü; puan istatistiği iki yerde hesaplanıyor |
 | [ ] | F28 | Düşük | Index'siz yabancı anahtarlar ve küçük index düzeltmeleri |
 | [ ] | F29 | Orta | Aynı başlıklı ikinci öneri reddediliyor; yazar düz metin |
-| [ ] | F30 | Orta | Geçersiz bayt içeren metin 500 üretiyor |
-| [ ] | F31 | Orta | `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor |
+| [x] | F30 | Orta | Geçersiz bayt içeren metin 500 üretiyor |
+| [x] | F31 | Orta | `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor |
 | [ ] | F32 | Orta | Bir isteğin süresinin nereye gittiği görünmüyor |
 | [ ] | F33 | Orta | Sunucu verisi her sayfada elle çekiliyor |
 | [ ] | F34 | Orta | Hata sınırı yok; NGINX'in ürettiği hatalar boş mesajla görünüyor |
-| [ ] | F35 | Orta | Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir |
+| [x] | F35 | Orta | Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir |
 | [ ] | F36 | Orta | Açılıştaki geçici hata "çıkış yapılmış" gibi görünüyor |
 | [ ] | F37 | Orta | Kapak görselleri denetlenmeyen adreslerden yükleniyor |
 | [ ] | F38 | Orta | CI taze kurulumu sınıyor, canlı yükseltme yapıyor; migration'da süre sınırı yok |
@@ -143,6 +143,8 @@ Uygulama rate limit'i login/register uçlarında var. Yorum, öneri, puan yazım
 **Kabul kriteri:** Kota aşımı 429 ve uygun Retry-After üretmeli. Çok instance ve Redis kesintisi senaryoları doğrulanmalı. Meşru kullanıcı akışları için limitler ölçülerek seçilmeli.
 
 **Ek kanıt (17 Kasım 2026):** Yerel API 0,1 işlemciyle sınırlanarak ölçüldü (bu makinede tek özet 2,2 sn; canlıda belgelenen değer 3,3 sn). Tek giriş denemesi 2,2 sn sürdü; dört eşzamanlı denemenin her biri 8,4–9,0 sn; beş eşzamanlı denemenin beşi de 502 döndü (Go'nun 10 sn'lik yazma süresi doldu, NGINX "upstream prematurely closed connection" yazdı). Üç deneme sürerken katalog isteği 0,1 sn yerine 1,3 sn sürdü. Canlıda eşik 3–4 eşzamanlı giriş: bu kadarı girişi herkes için düşürür ve o sırada bütün API yavaşlar. İki ek gözlem: kayıt iki özet hesaplatıyor (`register`, ardından `login`; [Auth.tsx](../frontend/src/pages/Auth.tsx)) ve kayıtta özet, e-postanın kayıtlı olup olmadığına bakılmadan önce hesaplanıyor ([service.go](../backend/internal/auth/service.go)). **Önerinin somut hâli:** parola özeti çevresinde tek yuvalı bir kuyruk; kuyruk doluysa 503 ve `Retry-After`. `register` oturumu da döndürsün (tek özet).
+
+**İlerleme (17 Kasım 2026, #83, yayın bekliyor):** Parola özeti kuyruğu eklendi (`auth.Service.slow`): aynı anda tek özet çalışıyor, sırası 5 sn'de gelmeyen istek 503 `busy` + `Retry-After` alıyor (kayıt, giriş, parola değişimi). Var olmayan hesap da aynı cevabı alıyor. 0,1 işlemcide ölçüm yayından sonra yapılacak; bulgunun rate limit kapsamıyla ilgili diğer maddeleri açık.
 
 ## F05 — API ile migration veritabanı yetkileri ayrılmamış
 
@@ -556,6 +558,8 @@ Ağırlıklı skor sorgu anında hesaplanıyor. Karar bilinçli ve "yavaşladı�
 
 **Kabul kriteri:** Puan transaction'ı açıkken aynı kitaba kitaplık kaydı ve yorum eklenebilir; puan silme istatistiği bir kez günceller.
 
+**Durum (17 Kasım 2026, #83, yayın bekliyor):** Üç kilit sorgusu `FOR NO KEY UPDATE` oldu (`LockApprovedBook`, `LockBookForModeration`, `LockBook`). Puan silmede istatistiği yalnız tetikleyici hesaplıyor; servis sonucu okuyor (`GetBookRatingStats`). Test: kitap kilitliyken aynı kitaba kitaplık kaydı eklenebiliyor, ikinci yazım kilidi bekliyor (`TestBookLockDoesNotBlockReferencingInsertsRealDB`).
+
 ## F28 — Index'siz yabancı anahtarlar ve küçük index düzeltmeleri
 
 **Öncelik:** Düşük · Şema
@@ -582,6 +586,8 @@ Ağırlıklı skor sorgu anında hesaplanıyor. Karar bilinçli ve "yavaşladı�
 
 **Kabul kriteri:** Aynı başlıklı iki öneri de kaydedilir; aynı başlık ve yazarla ikinci öneri anlaşılır bir mesaj alır.
 
+**Durum (17 Kasım 2026, #83, yayın bekliyor):** Öneri yarısı yapıldı: öneride slug çakışırsa sayısal ekle yeniden deneniyor (`-2`, `-3`; en çok 20 deneme), admin'in doğrudan eklemesi çakışmayı bildirmeye devam ediyor (`TestSuggestSameTitleTwiceRealDB`). Yazarın düz metin olması açık; ayrı bir tasarım işi.
+
 ## F30 — Geçersiz bayt içeren metin 500 üretiyor
 
 **Öncelik:** Orta · Girdi doğrulama
@@ -598,6 +604,8 @@ Yerel yığında `/api/books?q=%FF`, `q=%00` ve `q=a%C3` 500 döndü; logda SQLS
 
 **İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), yayın bekliyor):** `q` parametresi katalogda ve Kitaplığım'da denetleniyor (`validator.text`); üç örnek istek yerel yığında 400 döndü. Gövde alanları (giriş, kayıt, yorum, öneri) açık.
 
+**Durum (17 Kasım 2026, #83, yayın bekliyor):** Gövdeler de kapandı. `readJSON` çözülen gövdenin bütün metinlerinde NUL arıyor ve 400 dönüyor (kayıtta parola özeti hesaplanmadan önce). Geçersiz UTF-8 gövdede sorun değil: `encoding/json` onu U+FFFD'ye çeviriyor (testle sabit). Yedek: SQLSTATE 22 sınıfı `writeInternalError`'da 400 ve WARN oluyor. Fuzz testi eklenmedi; tablo testi var (`nul_test.go`).
+
 ## F31 — `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor
 
 **Öncelik:** Orta · Güvenlik
@@ -609,6 +617,8 @@ E-posta doğrulaması yok ve repo public. Yöneticinin kullanacağı adresle ön
 **Öneri:** Var olan hesapta varsayılan davranış hata olsun. `-promote` verilirse parola da yazılsın ve hesabın bütün oturum aileleri aynı transaction'da iptal edilsin.
 
 **Kabul kriteri:** Var olan adresle `create-admin` hata verir; `-promote` ile eski parola ve eski oturumlar geçersiz olur.
+
+**Durum (17 Kasım 2026, #83, yayın bekliyor):** `create-admin` var olan hesapta hata veriyor. `-promote` ile hesap devralınıyor: parola değişiyor, bütün oturum aileleri iptal ediliyor, rol yükseliyor (tek transaction). `scripts/e2e.sh` `-promote` kullanıyor; DEPLOYMENT güncellendi.
 
 ## F32 — Bir isteğin süresinin nereye gittiği görünmüyor
 
@@ -662,6 +672,8 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 **Öneri:** O satırdan `always`'i kaldırın (güvenlik başlıklarında kalsın). Üç önbellek sözleşmesi için bir uçtan uca test ekleyin: `index.html` önbelleklenmez, var olan dosya kalıcıdır, bulunamayan dosya önbelleklenmez.
 
 **Kabul kriteri:** Bulunamayan `/assets/` dosyasının cevabında `Cache-Control: … immutable` yok.
+
+**Durum (17 Kasım 2026, #83, yayın bekliyor):** `/assets/` konumundaki `always` kaldırıldı. Üç önbellek sözleşmesi uçtan uca testte (`frontend/e2e/cache-headers.spec.ts`): index.html `no-cache`, özetli dosya `immutable`, bulunamayan dosya önbelleklenmez.
 
 ## F36 — Açılıştaki geçici hata "çıkış yapılmış" gibi görünüyor
 

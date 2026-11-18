@@ -87,6 +87,7 @@ func createAdmin(ctx context.Context, args []string, stdin io.Reader, stdout io.
 	fs.SetOutput(io.Discard)
 	email := fs.String("email", "", "admin e-postası (zorunlu)")
 	name := fs.String("name", "Admin", "görünen ad")
+	promote := fs.Bool("promote", false, "hesap zaten varsa devral: parolasını değiştir, oturumlarını kapat, admin yap")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("create-admin: %w", err)
 	}
@@ -128,7 +129,12 @@ func createAdmin(ctx context.Context, args []string, stdin io.Reader, stdout io.
 
 	// Token yöneticisi ve süreler gerekmiyor (EnsureAdmin oturum açmaz) → nil / sıfır.
 	svc := auth.NewService(auth.NewRepository(pool), nil, 0, 0)
-	u, created, err := svc.EnsureAdmin(ctx, *email, *name, password)
+	u, created, err := svc.EnsureAdmin(ctx, *email, *name, password, *promote)
+	if errors.Is(err, auth.ErrUserExists) {
+		// Sessizce yükseltmek, o adresle önceden kayıt olmuş birini KENDİ parolasıyla admin yapardı.
+		return fmt.Errorf("%s adresiyle bir hesap zaten var; hesabı devralmak için -promote ekle "+
+			"(parolası girdiğin parola olur, açık oturumları kapanır)", *email)
+	}
 	if err != nil {
 		return fmt.Errorf("admin oluşturulamadı: %w", err)
 	}
@@ -136,7 +142,7 @@ func createAdmin(ctx context.Context, args []string, stdin io.Reader, stdout io.
 	if created {
 		_, err = fmt.Fprintf(stdout, "admin oluşturuldu: id=%d email=%s\n", u.ID, u.Email)
 	} else {
-		_, err = fmt.Fprintf(stdout, "var olan kullanıcı admin yapıldı (parolası DEĞİŞMEDİ): id=%d email=%s\n", u.ID, u.Email)
+		_, err = fmt.Fprintf(stdout, "var olan hesap devralındı: admin yapıldı, parolası değişti, oturumları kapatıldı: id=%d email=%s\n", u.ID, u.Email)
 	}
 	return err
 }

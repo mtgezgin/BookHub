@@ -32,3 +32,11 @@ func ForeignKeyViolation(err error) (constraint string, ok bool) {
 	}
 	return "", false
 }
+
+// InvalidInput, err Postgres'in "veri istisnası" sınıfındansa (SQLSTATE 22xxx) true döner:
+// geçersiz bayt dizisi (22021), metinde NUL (22P05), aralık dışı sayı (22003) gibi. Bunlar
+// sunucunun değil gönderilen değerin hatasıdır.
+func InvalidInput(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && len(pgErr.Code) == 5 && pgErr.Code[:2] == "22"
+}

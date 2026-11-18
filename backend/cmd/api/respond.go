@@ -7,7 +7,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
+
+	"github.com/mtgezgin/bookhub/backend/internal/database"
 )
 
 // writeJSON, bir değeri verilen HTTP status koduyla JSON olarak cevaba yazar.
@@ -49,7 +52,16 @@ const internalErrorMessage = "beklenmeyen bir hata oluştu"
 // request_id: requestLogger her cevaba X-Request-Id başlığını koyar; burada onu cevap
 // başlığından okuyoruz. Böylece imzaya *http.Request eklemeden (30+ çağrı yeri) hata satırı,
 // aynı isteğin erişim log satırıyla eşleşir — "hangi istek patladı?" sorusu cevaplanır.
+//
+// Tek istisna: veritabanının "bu değer geçersiz" dediği hatalar (SQLSTATE 22: geçersiz bayt dizisi,
+// aralık dışı sayı…). Onlar sunucunun değil isteğin hatasıdır → 400. Sınırdaki doğrulama bunları
+// zaten yakalamalı; burası onu atlayan bir alan için YEDEK hattır (REVIEW_FEEDBACK F30).
 func writeInternalError(w http.ResponseWriter, op string, err error) {
+	if database.InvalidInput(err) {
+		slog.Warn("geçersiz girdi veritabanına ulaştı", "op", op, "err", err, "request_id", w.Header().Get(requestIDHeader))
+		writeError(w, http.StatusBadRequest, "validation_error", "istek geçersiz bir değer içeriyor")
+		return
+	}
 	slog.Error("istek başarısız", "op", op, "err", err, "request_id", w.Header().Get(requestIDHeader))
 	writeError(w, http.StatusInternalServerError, "internal", internalErrorMessage)
 }
@@ -118,12 +130,50 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) error {
 	// İkinci okuma io.EOF vermeli: gövdede TEK bir JSON değeri var demektir.
 	switch err := dec.Decode(&struct{}{}); {
 	case errors.Is(err, io.EOF):
+		// NUL (U+0000) JSON'da "\u0000" olarak yazılabilir ama Postgres metinde kabul etmez
+		// ("invalid byte sequence", SQLSTATE 22021): sorguya ulaşırsa istemcinin hatası 500'e
+		// dönüşürdü. Geçersiz UTF-8'e ayrıca bakmaya gerek yok: encoding/json onu çözerken
+		// U+FFFD'ye çevirir.
+		if hasNUL(reflect.ValueOf(v)) {
+			return badRequest("invalid_json", "metin alanları NUL karakteri içeremez")
+		}
 		return nil
 	case isMaxBytes(err):
 		return decodeError(err)
 	default:
 		return badRequest("invalid_json", "gövde tek bir JSON nesnesi içermeli")
 	}
+}
+
+// hasNUL, çözülmüş gövdedeki herhangi bir metinde NUL var mı diye bakar (iç içe struct, işaretçi,
+// dilim ve map dahil). Alan alan elle denetim yerine tek yerde: yeni eklenen bir metin alanı
+// kendiliğinden kapsanır.
+func hasNUL(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.String:
+		return strings.ContainsRune(v.String(), 0)
+	case reflect.Pointer, reflect.Interface:
+		return !v.IsNil() && hasNUL(v.Elem())
+	case reflect.Struct:
+		for i := range v.NumField() {
+			if hasNUL(v.Field(i)) {
+				return true
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		for i := range v.Len() {
+			if hasNUL(v.Index(i)) {
+				return true
+			}
+		}
+	case reflect.Map:
+		for it := v.MapRange(); it.Next(); {
+			if hasNUL(it.Key()) || hasNUL(it.Value()) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // requestBody, okunduktan sonra temizlenip (normalize) doğrulanan istek gövdeleri.

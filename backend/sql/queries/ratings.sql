@@ -5,10 +5,15 @@
 -- yalnız kendi oyuyla hesaplar ve sonra yazan öncekinin sayımını EZER (kayıp güncelleme).
 -- Kilitle ikinci işlem, birincinin commit'ini bekler; sonraki deyimleri yeni bir anlık
 -- görüntüyle (snapshot) çalışır ve birinci oyu görür.
+-- FOR NO KEY UPDATE, FOR UPDATE DEĞİL (REVIEW_FEEDBACK F27): bu transaction kitabın anahtarını
+-- değiştirmez ve satırı silmez. FOR UPDATE, yabancı anahtar denetiminin aldığı FOR KEY SHARE ile
+-- çakışır: kilit tutulurken aynı kitaba kitaplık kaydı, yorum ya da baskı ekleyen herkes beklerdi
+-- (deneyle doğrulandı). FOR NO KEY UPDATE kendisiyle yine çakışır, yani aynı kitabın yazımları
+-- sıraya girmeye devam eder. Aynı ayrım: users.sql LockUserPasswordForChange.
 -- name: LockApprovedBook :one
 SELECT id FROM books
 WHERE id = $1 AND status = 'APPROVED'
-FOR UPDATE;
+FOR NO KEY UPDATE;
 
 -- "Bir kez puan ver + puanını güncelle" TEK deyimde: satır yoksa ekle, varsa (PK çakışması)
 -- güncelle. Uygulamada "var mı bak → ekle/güncelle" yazmak yarış kapısıydı.
@@ -38,6 +43,12 @@ FROM (
 ) s
 WHERE b.id = sqlc.arg('book_id')
 RETURNING b.average_rating, b.rating_count;
+
+-- Puan SİLİNDİKTEN sonra istatistiği okur. Yeniden hesaplamaz: silme tetikleyicisi (0006, 0007) aynı
+-- transaction'da zaten hesapladı. İstatistiğin silme yolundaki tek sahibi tetikleyicidir; servis de
+-- hesaplasaydı aynı toplama iki kez yapılırdı (REVIEW_FEEDBACK F27).
+-- name: GetBookRatingStats :one
+SELECT average_rating, rating_count FROM books WHERE id = $1;
 
 -- name: GetUserRating :one
 SELECT score, created_at, updated_at FROM ratings

@@ -117,7 +117,7 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 
 ### `backend/cmd/manage/` — operatör komutları
 
-`migrate` (şemayı uygula) · `create-admin -email E` (parola prompt/stdin'den; argümanla ASLA).
+`migrate` (şemayı uygula) · `create-admin -email E` (parola prompt/stdin'den; argümanla ASLA; hesap varsa durur, `-promote` ile devralır).
 
 ### `backend/cmd/mcp/` — MCP sunucusu (#52)
 

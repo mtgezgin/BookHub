@@ -416,3 +416,45 @@ func TestListBooksByRatingMatchesWeightedScoreRealDB(t *testing.T) {
 		}
 	}
 }
+
+// TestBookLockDoesNotBlockReferencingInsertsRealDB: puan transaction'ı kitap satırını tutarken aynı
+// kitaba kitaplık kaydı eklenebilir (REVIEW_FEEDBACK F27). Kilit FOR UPDATE iken yabancı anahtar
+// denetiminin FOR KEY SHARE'i onu bekliyor, bu ekleme kilit zaman aşımına düşüyordu. İki puan yazımı
+// ise hâlâ sıraya girer: ikinci kilit isteği zaman aşımına uğrar.
+func TestBookLockDoesNotBlockReferencingInsertsRealDB(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+	book := testdb.CreateBook(t, pool, "", books.StatusApproved)
+	user := testdb.CreateUser(t, pool, "Okur")
+
+	holder, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback(ctx) }()
+	if _, err := db.New(holder).LockApprovedBook(ctx, book); err != nil {
+		t.Fatalf("kitap kilitlenemedi: %v", err)
+	}
+
+	other, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Rollback(ctx) }()
+	if _, err := other.Exec(ctx, "SET LOCAL lock_timeout = '2s'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Exec(ctx, "SAVEPOINT s"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Exec(ctx, "INSERT INTO library_entries (user_id, book_id, status) VALUES ($1, $2, 'READ')", user, book); err != nil {
+		t.Fatalf("kitap kilitliyken kitaplık kaydı eklenebilmeliydi: %v", err)
+	}
+	// Aynı kitabın ikinci YAZIMI ise beklemeli (kayıp güncelleme koruması sürüyor).
+	if _, err := other.Exec(ctx, "SET LOCAL lock_timeout = '300ms'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.New(other).LockApprovedBook(ctx, book); err == nil {
+		t.Error("ikinci yazım kilidi beklemeliydi (lock_timeout), ama hemen aldı")
+	}
+}
