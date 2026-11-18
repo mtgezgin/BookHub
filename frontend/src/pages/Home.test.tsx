@@ -421,7 +421,7 @@ describe("Home", () => {
     expect(el.querySelector('[role=status][aria-label="Kitaplar yükleniyor"]')).not.toBeNull();
     await act(async () => pending[0]({ items: [bookOf(1)], total: 1, limit: 12, offset: 0 }));
     await flush();
-    expect(el.querySelector("[role=status]")).toBeNull();
+    expect(el.querySelector('[role=status][aria-label="Kitaplar yükleniyor"]')).toBeNull();
     expect(el.querySelector(LIST)!.textContent).toContain("Kitap 1");
   });
 
@@ -519,5 +519,139 @@ describe("Home", () => {
     stub({ libraryStatuses: async () => ({ statuses: {} }) });
     await render("/");
     expect(calls.libraryStatuses).toBeUndefined();
+  });
+
+  describe("yazarken arama kuralları", () => {
+    const HINT = "#search-hint";
+    const type = (el: HTMLElement, value: string) => setValue(el.querySelector<HTMLInputElement>("input[type=search]")!, value);
+    const wait = async (ms: number) => {
+      await act(async () => vi.advanceTimersByTime(ms));
+      await flush();
+    };
+    beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }));
+    afterEach(() => vi.useRealTimers());
+
+    it("tek kelimede 3 harften kısa metin kendiliğinden aranmaz; ipucu görünür, 3. harfte arar ve ipucu kalkar", async () => {
+      const { el, params } = await render("/");
+      const before = calls.books.length;
+      type(el, "sa");
+      await wait(5000);
+      expect(params().has("q")).toBe(false);
+      expect(calls.books.length).toBe(before);
+      expect(el.querySelector(HINT)!.textContent).toContain("3 harfte başlar");
+
+      type(el, "sav");
+      expect(el.querySelector(HINT)!.textContent).toBe("");
+      await wait(300);
+      expect(params().get("q")).toBe("sav");
+      expect(calls.books.at(-1)).toEqual([{ q: "sav", genre: "", limit: 12, offset: 0 }]);
+    });
+
+    it("harf sayısı kod noktasıyla sayılır: \"çğş\" üç harftir", async () => {
+      const { el, params } = await render("/");
+      type(el, "çğş");
+      await wait(300);
+      expect(params().get("q")).toBe("çğş");
+    });
+
+    it("kısa metin Enter ile aranır (kısa kitap adları için) ve ipucu kalkar", async () => {
+      const { el, params } = await render("/");
+      type(el, "us");
+      expect(el.querySelector(HINT)!.textContent).not.toBe("");
+      await act(async () => {
+        el.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      });
+      await flush();
+      expect(params().get("q")).toBe("us");
+      expect(el.querySelector(HINT)!.textContent).toBe("");
+    });
+
+    it("metin kısalınca sonuçlar önceki aramada kalır ve ipucu bunu söyler", async () => {
+      const { el, params } = await render("/?q=sava");
+      const before = calls.books.length;
+      type(el, "sa");
+      await wait(5000);
+      expect(params().get("q")).toBe("sava");
+      expect(calls.books.length).toBe(before);
+      expect(el.querySelector(HINT)!.textContent).not.toBe("");
+    });
+
+    it("kutu boşalınca arama kalkar (kısa metin kuralı boş metni engellemez)", async () => {
+      const { el, params } = await render("/?q=sava");
+      type(el, "");
+      await wait(300);
+      expect(params().has("q")).toBe(false);
+      expect(el.querySelector(HINT)!.textContent).toBe("");
+    });
+
+    it("çok kelimeli sorguda yeni kelimenin ilk harfinde aranmaz, ikinci harfinde aranır", async () => {
+      const { el, params } = await render("/");
+      type(el, "ince");
+      await wait(300);
+      expect(params().get("q")).toBe("ince");
+      const before = calls.books.length;
+
+      type(el, "ince m");
+      await wait(5000);
+      expect(params().get("q")).toBe("ince");
+      expect(calls.books.length).toBe(before);
+      // Kullanıcı kelimenin ortasında: ipucu gösterilmez, bir harf sonra zaten aranacak.
+      expect(el.querySelector(HINT)!.textContent).toBe("");
+
+      type(el, "ince me");
+      await wait(300);
+      expect(params().get("q")).toBe("ince me");
+      expect(calls.books.length).toBe(before + 1);
+    });
+
+    it("sondaki boşluk yeni bir istek üretmez", async () => {
+      const { el } = await render("/?q=ince");
+      const before = calls.books.length;
+      type(el, "ince ");
+      await wait(5000);
+      expect(calls.books.length).toBe(before);
+    });
+  });
+
+  describe("aramada sıra", () => {
+    it("arama varken varsayılan \"En ilgili\"dir; API'ye sort gitmez", async () => {
+      const { el } = await render("/?q=dune");
+      expect(button(el, "En ilgili").getAttribute("aria-pressed")).toBe("true");
+      expect(button(el, "En yeni").getAttribute("aria-pressed")).toBe("false");
+      expect(calls.books.at(-1)).toEqual([{ q: "dune", genre: "", limit: 12, offset: 0 }]);
+    });
+
+    it("arama yokken \"En ilgili\" düğmesi yoktur", async () => {
+      const { el } = await render("/");
+      expect(button(el, "En ilgili")).toBeUndefined();
+      expect(button(el, "En yeni").getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("aramada \"En yeni\" URL'ye sort=newest yazar ve API'ye gider; \"En ilgili\" geri alır", async () => {
+      const { el, params } = await render("/?q=dune&offset=12");
+      await act(async () => button(el, "En yeni").click());
+      await flush();
+      expect(Object.fromEntries(params())).toEqual({ q: "dune", sort: "newest" });
+      expect(calls.books.at(-1)).toEqual([{ q: "dune", genre: "", limit: 12, offset: 0, sort: "newest" }]);
+      expect(button(el, "En yeni").getAttribute("aria-pressed")).toBe("true");
+
+      await act(async () => button(el, "En ilgili").click());
+      await flush();
+      expect(Object.fromEntries(params())).toEqual({ q: "dune" });
+      expect(calls.books.at(-1)).toEqual([{ q: "dune", genre: "", limit: 12, offset: 0 }]);
+    });
+
+    it("aramada \"En yüksek puan\" sort=rating gönderir", async () => {
+      const { el } = await render("/?q=dune");
+      await act(async () => button(el, "En yüksek puan").click());
+      await flush();
+      expect(calls.books.at(-1)).toEqual([{ q: "dune", genre: "", limit: 12, offset: 0, sort: "rating" }]);
+    });
+
+    it("arama yokken adreste kalmış ?sort=newest varsayılan sayılır: API'ye sort gitmez", async () => {
+      const { el } = await render("/?sort=newest");
+      expect(calls.books).toEqual([[{ q: "", genre: "", limit: 12, offset: 0 }]]);
+      expect(button(el, "En yeni").getAttribute("aria-pressed")).toBe("true");
+    });
   });
 });

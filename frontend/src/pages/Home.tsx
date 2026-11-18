@@ -7,7 +7,7 @@ import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
 import { EmptyState } from "../components/EmptyState";
-import { asGenre, asOffset, asQuery, Chip, GRID, useParamUpdater } from "../components/filters";
+import { asGenre, asOffset, asQuery, autoSearchable, Chip, GRID, MIN_AUTO_SEARCH, useParamUpdater } from "../components/filters";
 import { LibraryBadge } from "../components/LibraryBadge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -25,8 +25,10 @@ export function Home() {
   // Elle değiştirilmiş adres (/?offset=abc, /?genre=Bilim Kurgu) API'ye gitmez: bkz. filters.tsx.
   const q = asQuery(params.get("q"));
   const genre = asGenre(params.get("genre"));
-  // Yalnız iki sıra var; tanınmayan değer varsayılana (en yeni) düşer.
-  const sort = params.get("sort") === "rating" ? "rating" : "";
+  // Sıra: "" varsayılan (aramasız en yeni, aramada en ilgili), "rating" ağırlıklı puan, "newest" yalnız
+  // aramada anlamlıdır (aramasız listede zaten varsayılan). Tanınmayan değer varsayılana düşer.
+  const sortParam = params.get("sort");
+  const sort: "" | "rating" | "newest" = sortParam === "rating" ? "rating" : sortParam === "newest" && q !== "" ? "newest" : "";
   const offset = asOffset(params.get("offset"));
 
   const [page, setPage] = useState<Page<Book> | null>(null);
@@ -82,8 +84,11 @@ export function Home() {
   // geçmişine ayrı bir kayıt eklemesin ("geri" tuşu harf harf geri gitmesin).
   // Eşitlik kontrolü zamanlayıcının İÇİNDE, son render'ın q'suyla yapılır: render anındaki q, URL
   // değişikliği henüz uygulanmamışsa eskidir.
+  // Çok kısa metinde zamanlayıcı hiç kurulmaz (autoSearchable; gerekçesi filters.tsx'te): bekleme
+  // süresi tek başına yetmez, yavaş yazan biri her harfte duraklar ve her harf bir istek olurdu.
   useEffect(() => {
     const trimmed = search.trim();
+    if (!autoSearchable(trimmed)) return;
     const t = setTimeout(() => {
       const now = latest.current;
       if (trimmed === now.q) return;
@@ -125,6 +130,11 @@ export function Home() {
     setParams(new URLSearchParams());
   };
 
+  // Kutudaki metin otomatik aranmayacak kadar kısaysa (ve henüz aranmadıysa) kullanıcıya ne olduğunu
+  // söyle: ızgara önceki sonuçları göstermeye devam ediyor.
+  const typed = search.trim();
+  const tooShort = typed !== q && !autoSearchable(typed) && !typed.includes(" ");
+
   const filtered = q !== "" || genre !== "";
   // Puan sırasında şerit, listenin başıyla aynı şeyi gösterirdi.
   const showTop = !filtered && sort === "" && offset === 0 && top !== null && top.items.length > 0;
@@ -143,6 +153,7 @@ export function Home() {
             <Input
               type="search"
               aria-label="Kitap ara"
+              aria-describedby="search-hint"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Başlık ya da yazar ara…"
@@ -152,7 +163,11 @@ export function Home() {
           </div>
           <Button type="submit" size="lg" className="h-11">Ara</Button>
         </form>
-        <div role="group" aria-label="Türler" className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1">
+        {/* Satır her zaman yerinde (sabit yükseklik): ipucu belirip kaybolurken türler zıplamaz. */}
+        <p id="search-hint" role="status" className="mt-1 h-4 text-xs text-muted-foreground">
+          {tooShort && `Yazarken arama ${MIN_AUTO_SEARCH} harfte başlar; daha kısası için Enter'a bas.`}
+        </p>
+        <div role="group" aria-label="Türler" className="-mx-1 mt-1 flex gap-2 overflow-x-auto px-1 pb-1">
           <Chip active={genre === ""} onClick={() => select({ genre: "" })}>Tümü</Chip>
           {genres.map((g) => (
             <Chip key={g.id} active={genre === g.slug} onClick={() => select({ genre: g.slug })}>{g.name}</Chip>
@@ -214,7 +229,18 @@ export function Home() {
             <div className="flex items-center gap-3">
               <p aria-live="polite" className="text-sm text-muted-foreground">{page.total} kitap</p>
               <div role="group" aria-label="Sıralama" className="inline-flex gap-1 rounded-lg border bg-card p-1">
-                <Button size="sm" variant={sort === "" ? "default" : "ghost"} aria-pressed={sort === ""} onClick={() => select({ sort: "" })}>
+                {/* Aramada varsayılan sıra ilgi sırasıdır (en iyi eşleşme önce); "En yeni" ayrı bir seçenek olur. */}
+                {q !== "" && (
+                  <Button size="sm" variant={sort === "" ? "default" : "ghost"} aria-pressed={sort === ""} onClick={() => select({ sort: "" })}>
+                    En ilgili
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant={sort === (q !== "" ? "newest" : "") ? "default" : "ghost"}
+                  aria-pressed={sort === (q !== "" ? "newest" : "")}
+                  onClick={() => select({ sort: q !== "" ? "newest" : "" })}
+                >
                   En yeni
                 </Button>
                 <Button size="sm" variant={sort === "rating" ? "default" : "ghost"} aria-pressed={sort === "rating"} onClick={() => select({ sort: "rating" })}>

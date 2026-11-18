@@ -10,6 +10,7 @@ arayüz testleri. Format: [README.md](README.md).
 3. [Erişilebilirlik ve rol tabanlı test (bütün kartı tıklanır yapmak dahil)](#3-erişilebilirlik-ve-rol-tabanlı-test-bütün-kartı-tıklanır-yapmak-dahil)
 4. [?? ve ??= ile ||: boş değer mi, yanlış değer mi?](#4--ve--ile--boş-değer-mi-yanlış-değer-mi)
 5. [Dış kaynaktan kapak: lisans, bağlantı ve referrerPolicy](#5-dış-kaynaktan-kapak-lisans-bağlantı-ve-referrerpolicy)
+6. [Yazarken arama (search-as-you-type): bekleme süresi neden tek başına yetmez?](#6-yazarken-arama-search-as-you-type-bekleme-süresi-neden-tek-başına-yetmez)
 
 ---
 
@@ -233,3 +234,63 @@ Bağlantının küçük ayrıntıları ([BookCover.tsx](../../frontend/src/compo
 - [backend/migrations/0009_demo_book_covers.sql](../../backend/migrations/0009_demo_book_covers.sql) — kural: Türkçe baskı varsa o, yoksa özgün
 - [database.md #14 Eser ve baskı modeli](database.md#14-eser-ve-baskı-modeli-kısmi-benzersiz-index-ile-tek-varsayılan) — bu sorudan doğan #36
 - [frontend/nginx/security-headers.conf](../../frontend/nginx/security-headers.conf) — CSP `img-src 'self' https: data:`: HTTPS kapak adresleri ek ayar gerektirmedi
+
+---
+
+## 6. Yazarken arama (search-as-you-type): bekleme süresi neden tek başına yetmez?
+
+**🗓️ Bağlam:** 2026-11-17. "Kullanıcı arama kutusuna her harf yazdığında sonuçları göstermek
+istiyorum; bu, istek sayısını çok artırabilir, uygun bir çözüm bulalım ve başkaları nasıl yapmış
+bakalım" diye sormuştum. Katalog zaten 300 ms bekleyerek arıyordu; asıl soru bunun yetip
+yetmediğiydi.
+
+**⚡ Kısa cevap:** Bekleme süresi (debounce) hızlı yazanın tuşlarını tek isteğe toplar; yavaş yazan ise
+her harfte durakladığı için her harf yine bir istek olur. En pahalı istekleri (bir iki harflik
+önekler) **en az harf** kuralı eler. İkisi birlikte kullanılır.
+
+**📖 Açıklama:**
+
+Benzetim (168.960 kişilik yazma hızı verisi; arama başına ortalama, 500 bin kitaplık veritabanı):
+
+| Kural | İstek | Veritabanı süresi |
+| --- | --- | --- |
+| Her tuşta istek | 13,1 | 105 ms |
+| 300 ms bekleme | 4,2 | 28 ms |
+| + tek kelimede en az 3 harf | 3,7 | 10,8 ms |
+| + yeni kelimenin ilk harfinde gönderme | 3,3 | yaklaşık 9 ms |
+
+En az harf kuralı istek sayısını az, maliyeti çok düşürür: elediği istekler en pahalı olanlardır
+(database.md #16'daki önek tablosu).
+
+Katmanlar, dıştan içe:
+
+1. **İstek hiç gitmesin:** en az 3 harf, yeni kelimenin ilk harfinde bekle, aynı metni yeniden
+   gönderme ([filters.tsx](../../frontend/src/components/filters.tsx) `autoSearchable`).
+2. **Az gitsin:** 300 ms bekleme.
+3. **Ucuz olsun:** sunucuda tek sorgu; sayfa, toplam ve türler birlikte.
+4. **Kötüye kullanılmasın:** ziyaretçi başına hız sınırı (NGINX).
+
+Kullanıcıyı karanlıkta bırakmamak için: Enter her uzunlukta arar ("Us" gibi kısa adlar), kısa metinde
+bir ipucu satırı görünür (`role="status"`: ekran okuyucu da duyar), yeni cevap gelene kadar önceki
+sonuçlar soluk kalır, geç gelen eski cevap yok sayılır.
+
+Başkaları:
+
+| Uygulama | Tarayıcı | Sunucu |
+| --- | --- | --- |
+| Open Library | 400 ms bekleme, en az 3 harf | arama motoru; yalnız gereken alanlar |
+| Discourse (Postgres) | 400 ms bekleme, en az 3 harf | aynı önek mekanizması; IP başına sınır |
+| Wikipedia | 120 ms bekleme | ayrı öneri index'i; cevap 3 saat ortak önbellekte |
+| Algolia | varsayılan her tuşta istek | bu iş için kurulmuş motor |
+
+Ana veritabanında arayanlar (Open Library, Discourse) temkinli; BookHub o gruba giriyor.
+
+**Bilerek yapılmayanlar:** isteği iptal etmek (`AbortController`) eklenmedi: eski cevap zaten yok
+sayılıyor ve sunucu sorguyu iptalden ayırdığı için kazancı yok. Önbellek katmanları (tarayıcı,
+NGINX, hazır önek tablosu) bugünkü trafikte gereksiz; ihtiyaç ölçülünce.
+
+**🔗 İlgili:**
+- [docs/phases/phase-16b-search.md](../phases/phase-16b-search.md) — kararlar ve ölçümler
+- [Home.tsx](../../frontend/src/pages/Home.tsx) — bekleme, ipucu ve sıra düğmeleri
+- [database.md](database.md) #16 — önek aramasının bedeli · [backend-and-web.md](backend-and-web.md) #10 — iptalden ayrılmış sorgu
+- [#3 Erişilebilirlik ve rol tabanlı test](#3-erişilebilirlik-ve-rol-tabanlı-test-bütün-kartı-tıklanır-yapmak-dahil)

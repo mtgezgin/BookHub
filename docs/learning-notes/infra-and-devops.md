@@ -18,6 +18,7 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 11. [NGINX'i canlıda gözlemlemek: access log, API logu ve istek kimliği](#11-nginxi-canlıda-gözlemlemek-access-log-api-logu-ve-istek-kimliği)
 12. [CI'a bağlı yayın: push'tan canlıya otomasyon nasıl ilerliyor?](#12-cia-bağlı-yayın-pushtan-canlıya-otomasyon-nasıl-ilerliyor)
 13. [Kubernetes var ama canlı Northflank'ta: kind ile PaaS farkı ve merge'ün canlıya etkisi](#13-kubernetes-var-ama-canlı-northflankta-kind-ile-paas-farkı-ve-mergeün-canlıya-etkisi)
+14. [Kalıcı önbellek başlığı ve `always`: bulunamayan dosyanın 404'ü neden bir yıl saklanabilir?](#14-kalıcı-önbellek-başlığı-ve-always-bulunamayan-dosyanın-404ü-neden-bir-yıl-saklanabilir)
 
 ---
 
@@ -702,7 +703,7 @@ referrer · tarayıcı · `X-Forwarded-For`.
 - **Gizlilik tutarsızlığı:** API sorguyu bilerek yazmıyor, ama NGINX'in varsayılan biçimi
   (`"$request"`) `?q=…`'yu olduğu gibi yazıyor → karar bu katmanda delinmiş. Referrer da aynı
   sorguyu taşıyabilir (aynı origin'e giden isteklerde tarayıcı sayfanın tam adresini yollar).
-  Çözüm (henüz yapılmadı): yolu sorgusuz yazan özel bir `log_format`. `$uri` işe yaramaz:
+  Çözüm (Faz 16b'de yapıldı, 2026-11-17: `log_format bookhub` ve `$request_path`, default.conf): yolu sorgusuz yazan özel bir `log_format`. `$uri` işe yaramaz:
   `try_files`'tan sonra SPA sayfalarında `/index.html` olur (denendi: `/books/42?q=…` →
   `/index.html`). Doğrusu sorguyu `$request_uri`'den bir `map` ile atmak:
   `map $request_uri $path_only { ~^(?<p>[^?]*) $p; }` → biçimde `"$request_method $path_only"`.
@@ -883,3 +884,49 @@ bir sadelik.
 - [backend/Dockerfile](../../backend/Dockerfile) (imaja hangi binary'lerin girdiği)
 - [#4 Kubernetes'in temel parçaları](#4-kubernetesin-temel-parçaları-ve-deploy-ederken-çıkan-iki-hata) ·
   [#12 CI'a bağlı yayın](#12-cia-bağlı-yayın-pushtan-canlıya-otomasyon-nasıl-ilerliyor)
+
+---
+
+## 14. Kalıcı önbellek başlığı ve `always`: bulunamayan dosyanın 404'ü neden bir yıl saklanabilir?
+
+**🗓️ Bağlam:** 2026-11-17, ikinci incelemede NGINX ayarı okunurken (F35). #3'te `add_header`'ın
+miras tuzağını öğrenmiştim; bu kez aynı satırdaki tek bir kelimenin (`always`) etkisini gördük ve
+yerel yığında `curl -sI http://localhost:3000/assets/yok-boyle-dosya.js` ile doğruladık.
+
+**⚡ Kısa cevap:** `add_header … always` başlığı **her** durum koduna ekler. Adında içerik özeti olan
+dosyalar için doğru olan "bir yıl sakla, hiç sorma" başlığı böylece 404'e de yapışır. Yayın sırasında
+yeni sayfanın istediği dosya eski sunucuya düşerse tarayıcı "yok" cevabını bir yıl hatırlayabilir.
+
+**📖 Açıklama:**
+
+Tek sayfalı bir uygulamada üç ayrı önbellek sözleşmesi vardır:
+
+| Kaynak | Başlık | Neden |
+| --- | --- | --- |
+| `index.html` | `no-cache` | her açılışta sorulsun: yeni sürümün dosya adlarını o taşır |
+| `/assets/index-BM18by0l.js` | `public, max-age=31536000, immutable` | içerik değişirse ad da değişir; aynı ad hep aynı içeriktir |
+| bulunamayan dosya (404) | önbellek başlığı yok | "yok" kalıcı bir bilgi değildir |
+
+`always` olmadan `add_header` yalnız başarılı ve yönlendirme cevaplarına eklenir (200, 201, 204, 206,
+301, 302, 303, 304, 307, 308). `always` ile 404 ve 500'e de eklenir. Ölçüm:
+
+```
+HTTP/1.1 404 Not Found
+Cache-Control: public, max-age=31536000, immutable
+```
+
+**Senaryo:** yayın sürerken tarayıcı yeni `index.html`'i alır ve yeni adlı dosyayı ister; istek hâlâ
+ayakta olan eski örneğe düşer, 404 döner ve tarayıcı bu cevabı bir yıl taze sayar. Sayfa o tarayıcıda
+sert yenilemeye kadar açılmaz. (Yayın sırasında eski ve yeni örneğin birlikte hizmet verip vermediği
+doğrulanmadı.)
+
+**`always` nerede doğru:** güvenlik başlıklarında (CSP, `X-Content-Type-Options`); hata sayfaları da
+korunmalı. Yanlış olduğu yer yalnız bu önbellek satırı.
+
+**Durum:** bulgu kayıtlı (F35), henüz düzeltilmedi. Düzeltme tek kelime; yanına üç sözleşmeyi
+sınayan bir uçtan uca test.
+
+**🔗 İlgili:**
+- [default.conf](../../frontend/nginx/default.conf) — `location /assets/`
+- [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F35
+- [#3 Reverse proxy ve add_header tuzağı](#3-reverse-proxy-tek-origin-gerçek-istemci-ipsi-ve-add_header-tuzağı) · [#8 NGINX'in görevleri](#8-nginxin-görevleri-ve-bir-isteğin-yolu-location-seçimi-spa-fallback-ve-rate-limit)

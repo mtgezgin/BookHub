@@ -126,6 +126,9 @@ Eski `release.yml` (etiketle ghcr'ye imaj yayını) hiç çalışmadığı için
 - **IP başına sınır herkes için ortak.** `TRUSTED_PROXIES` boş: API, NGINX'in iç adresini
   istemci sanıyor; NGINX de Northflank ağ geçidinin adresini görüyor. Giriş denemesi sınırı tüm
   ziyaretçiler arasında paylaşılıyor ([REVIEW_FEEDBACK](REVIEW_FEEDBACK.md) F04 ile ilgili).
+  Katalog listesi ve araması (`GET /api/books`) ayrıdır: NGINX orada ağ geçidinin yazdığı
+  `X-Envoy-External-Address` başlığıyla **ziyaretçi başına** sınırlar (10 istek/sn, anında 30). Başlığın
+  canlıda geldiği yayından sonra doğrulanacak ([Faz 16b](phases/phase-16b-search.md)).
 - **Supabase ücretsiz projesi** bir hafta hareketsiz kalınca duruyor ve kendiliğinden uyanmıyor;
   panelden *Restore*.
 - **Küçük makine** (`nf-compute-10`, 0.1 vCPU): giriş ve kayıt 3–4 sn sürüyor (2026-10-12 ölçümü:

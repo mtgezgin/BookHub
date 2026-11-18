@@ -37,6 +37,9 @@ yazılır — kuralın "neden"i silinmesin.
 - Config yalnız env'den (12-factor), açılışta doğrulanır; dotenv paketi yok. Yeni değişken:
   `internal/config` + `.env.example` + DEPLOYMENT.md'deki tablo, üçü birlikte.
 - Hata zarfı her yerde `{"error":{"code","message"}}`; ham hata istemciye gitmez.
+- Arama: belge de sorgu da `search_fold`'dan geçer ([0014](backend/migrations/0014_book_search.sql)); metin
+  araması `ILIKE` ya da `lower()` ile yazılmaz (Türkçe harfler veritabanının yerel ayarına göre değişir;
+  [Faz 16b](docs/phases/phase-16b-search.md)).
 
 ## Güvenlik — review'da engelleyici
 
@@ -50,9 +53,9 @@ yazılır — kuralın "neden"i silinmesin.
   logu (`requestLogger`) yolu **sorgusuz** yazar. Ziyaretçi IP'si kötüye kullanım incelemesi
   için bilerek loglanır; canlıda yalnız NGINX logunun `X-Forwarded-For` alanında durur (API'nin
   `remote`'u orada NGINX'in iç adresi, çünkü `TRUSTED_PROXIES` boş —
-  [DEPLOYMENT §5](docs/DEPLOYMENT.md)). **Bilinen açık:** NGINX'in varsayılan erişim logu sorgu
-  dizesini ve referrer'ı yazıyor; özel bir `log_format` gelene kadar açık
-  ([öğrenme notu #11](docs/learning-notes/infra-and-devops.md)).
+  [DEPLOYMENT §5](docs/DEPLOYMENT.md)). NGINX'in erişim logu da yolu sorgusuz ve
+  referrer'sız yazar (`log_format bookhub`, [default.conf](frontend/nginx/default.conf)); varsayılan biçime
+  (`main`) dönülmez, kural `scripts/checks.sh`'ta ([öğrenme notu #11](docs/learning-notes/infra-and-devops.md)).
 - İstek gövdeleri ayrı DTO + `DisallowUnknownFields` ile okunur (mass assignment yok); kaynak
   sahipliği servis ya da SQL katmanında kontrol edilir (IDOR yok).
 - bcrypt cost ≥ 12; JWT algoritması sabit (HS256), `iss`/`aud`/`exp` doğrulanır.

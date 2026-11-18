@@ -388,8 +388,91 @@ func TestRepositoryListRatingUsesDatabaseAverage(t *testing.T) {
 	if _, _, err := repo.List(context.Background(), ListFilter{Sort: SortRating, MinVotes: 5, ColdStart: 3, Limit: 20}); err != nil {
 		t.Fatalf("liste okunamadı: %v", err)
 	}
-	// Sıra sqlc'nin ürettiği çağrıdakidir: genre, query, m, c, offset, limit.
-	if len(args) < 4 || args[3] != 7.25 {
+	// Sıra sqlc'nin ürettiği çağrıdakidir: genre, m, c, offset, limit.
+	if len(args) < 3 || args[2] != 7.25 {
 		t.Errorf("C olarak genel ortalama (7.25) bekleniyordu, gelen argümanlar %v", args)
+	}
+}
+
+// TestRepositorySearchArguments: aramanın sorguya verdiği sıra ve puan parametreleri.
+// Sıra sqlc'nin ürettiği çağrıdakidir: query, sort, m, c, genre, offset, limit.
+//   - Sıra belirtilmemişse (ya da aramasız listeden kalan bir değerse) ilgi sırası gider.
+//   - Puan sırasının C'si List'teki gibi veritabanındaki genel ortalamadır; diğer sıralarda genel
+//     ortalama HİÇ okunmaz (yazarken arama için fazladan bir sorgu olurdu).
+func TestRepositorySearchArguments(t *testing.T) {
+	tests := []struct {
+		name     string
+		filter   ListFilter
+		wantSort string
+		wantM    float64
+		wantC    float64
+	}{
+		{"varsayılan → ilgi sırası", ListFilter{Query: "dune", Limit: 12}, "relevance", 0, 0},
+		{"ilgi sırası açıkça", ListFilter{Query: "dune", Sort: SortRelevance, Limit: 12}, "relevance", 0, 0},
+		{"en yeni", ListFilter{Query: "dune", Sort: SortNewest, Limit: 12}, "newest", 0, 0},
+		{"puan: m filtreden, C veritabanından", ListFilter{Query: "dune", Sort: SortRating, MinVotes: 5, ColdStart: 3, Limit: 12}, "rating", 5, 7.25},
+		{"tanınmayan sıra → ilgi sırası", ListFilter{Query: "dune", Sort: Sort("title"), Limit: 12}, "relevance", 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var args []any
+			// averageRow: genel ortalama okunursa 7.25 döner; okunmazsa C sıfır kalır.
+			repo := NewRepository(captureDBTX{row: averageRow{c: 7.25}, args: &args})
+			hits, total, err := repo.Search(context.Background(), tt.filter)
+			if err != nil {
+				t.Fatalf("arama: %v", err)
+			}
+			if hits == nil || len(hits) != 0 || total != 0 {
+				t.Errorf("boş sonuç nil olmayan boş dilim ve 0 toplam olmalı: %#v, %d", hits, total)
+			}
+			if len(args) != 7 {
+				t.Fatalf("7 argüman bekleniyordu, gelen %v", args)
+			}
+			if args[0] != "dune" || args[1] != tt.wantSort || args[2] != tt.wantM || args[3] != tt.wantC {
+				t.Errorf("argümanlar (query, sort, m, c): gelen %v; istenen dune %s %v %v", args[:4], tt.wantSort, tt.wantM, tt.wantC)
+			}
+			if g, ok := args[4].(*string); !ok || g != nil {
+				t.Errorf("tür verilmediyse NULL gitmeli, gelen %#v", args[4])
+			}
+		})
+	}
+}
+
+// TestRepositorySearchErrorWrapping: arama sorgusu hata verirse bağlamıyla sarılır; puan sırasında
+// genel ortalama okunamazsa arama sorgusuna hiç geçilmez.
+func TestRepositorySearchErrorWrapping(t *testing.T) {
+	errConn := errors.New("bağlantı koptu")
+
+	_, _, err := NewRepository(fakeDBTX{queryErr: errConn}).Search(context.Background(), ListFilter{Query: "dune", Limit: 12})
+	if !errors.Is(err, errConn) || !strings.Contains(err.Error(), "kitap arama sorgusu") {
+		t.Errorf("\"kitap arama sorgusu\" bağlamıyla sarılı hata bekleniyordu, gelen %v", err)
+	}
+
+	errSearch := errors.New("arama sorgusu atılmamalıydı")
+	_, _, err = NewRepository(fakeDBTX{row: fakeRow{err: errConn}, queryErr: errSearch}).
+		Search(context.Background(), ListFilter{Query: "dune", Sort: SortRating, Limit: 12})
+	if !errors.Is(err, errConn) || errors.Is(err, errSearch) || !strings.Contains(err.Error(), "genel ortalama sorgusu") {
+		t.Errorf("genel ortalama hatası bekleniyordu (arama sorgusu atılmadan), gelen %v", err)
+	}
+}
+
+// TestDecodeGenres: SearchBooks'un jsonb tür dizisi db.Genre'ye çevrilir; boş dizi nil olmayan boş
+// dilimdir (cevapta "genres": [] çıkar), bozuk veri hata verir.
+func TestDecodeGenres(t *testing.T) {
+	got, err := decodeGenres([]byte(`[{"id": 3, "name": "Roman", "slug": "roman"}, {"id": 7, "name": "Bilim Kurgu", "slug": "bilim-kurgu"}]`))
+	if err != nil {
+		t.Fatalf("çözülemedi: %v", err)
+	}
+	want := []db.Genre{{ID: 3, Name: "Roman", Slug: "roman"}, {ID: 7, Name: "Bilim Kurgu", Slug: "bilim-kurgu"}}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("gelen %+v, istenen %+v", got, want)
+	}
+
+	empty, err := decodeGenres([]byte(`[]`))
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Errorf("boş dizi nil olmayan boş dilim olmalı: %#v, %v", empty, err)
+	}
+	if _, err := decodeGenres([]byte(`{"id": 3}`)); err == nil {
+		t.Error("dizi olmayan veri hata vermeliydi")
 	}
 }

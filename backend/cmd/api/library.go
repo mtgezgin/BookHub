@@ -184,6 +184,7 @@ func parseLibraryFilter(r *http.Request) (library.ListFilter, error) {
 	v.check(f.Status == "" || library.ValidStatus(f.Status), "status yalnız WANT_TO_READ, READING, READ ya da ABANDONED olabilir")
 	v.match("genre", f.Genre, slugPattern, "tür slug'ı; ör. bilim-kurgu")
 	v.maxLen("q", f.Query, maxQueryLen)
+	v.text("q", f.Query)
 	switch f.Rated {
 	case "", library.RatedYes, library.RatedNo:
 	default:

@@ -210,6 +210,34 @@ check_go_version() {
 	fi
 }
 
+# Kural: NGINX erişim logu sorgu dizesini ve referrer'ı yazmaz (CLAUDE.md "Güvenlik": arama terimleri
+# kişisel veri olabilir; API'nin logu da yolu sorgusuz yazar). default.conf kendi biçimini
+# (log_format bookhub) tanımlar ve yalnız onu kullanır; biçimde sorguyu taşıyan değişken bulunmaz.
+# NGINX'in varsayılan biçimi (main) "$request" ve "$http_referer" yazar.
+check_nginx_log() {
+	local conf fmt other
+	conf="$(file_at frontend/nginx/default.conf)"
+	[[ -z "$conf" ]] && return
+	# Biçim tanımı birkaç satıra yayılabilir: "log_format bookhub" satırından ';' ile biten satıra kadar.
+	fmt="$(sed -n '/^[[:space:]]*log_format[[:space:]]\{1,\}bookhub[[:space:]]/,/;[[:space:]]*$/p' <<<"$conf")"
+	if [[ -z "$fmt" ]]; then
+		fail "frontend/nginx/default.conf: 'log_format bookhub' yok — NGINX'in varsayılan biçimi sorgu dizesini ve referrer'ı loglar"
+		return
+	fi
+	# $request_method, $request_time gibi adlar serbest: eşleşme değişken adının TAMAMINA bakar.
+	# shellcheck disable=SC2016 # desen NGINX değişken adlarını ($request …) düz metin olarak arar; açılmamalı
+	if grep -Eq '\$(request|request_uri|args|query_string|http_referer|arg_[a-z0-9_]+)([^a-z0-9_]|$)' <<<"$fmt"; then
+		fail "frontend/nginx/default.conf: 'log_format bookhub' sorgu dizesini ya da referrer'ı taşıyan bir değişken içeriyor"
+	fi
+	other="$(grep -E '^[[:space:]]*access_log[[:space:]]' <<<"$conf" | grep -vE 'access_log[[:space:]]+off;|[[:space:]]bookhub;' || true)"
+	if [[ -n "$other" ]]; then
+		fail "frontend/nginx/default.conf: 'bookhub' biçimini kullanmayan bir access_log satırı var"
+	fi
+	if ! grep -Eq '^[[:space:]]*access_log[[:space:]]+[^;]*[[:space:]]bookhub;' <<<"$conf"; then
+		fail "frontend/nginx/default.conf: 'access_log … bookhub;' yok — sunucu varsayılan biçimle loglar"
+	fi
+}
+
 # Kural: sır commit'lenmez.
 check_secrets() {
 	if ! command -v gitleaks >/dev/null 2>&1; then
@@ -265,6 +293,7 @@ staged)
 	check_forbidden_paths
 	check_migrations
 	check_go_version
+	check_nginx_log
 	check_secrets
 	check_generated
 	check_lint
@@ -294,6 +323,7 @@ range)
 	check_forbidden_paths
 	check_migrations
 	check_go_version
+	check_nginx_log
 	check_secrets
 	check_generated
 	check_lint

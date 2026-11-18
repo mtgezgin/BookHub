@@ -22,16 +22,13 @@ SELECT * FROM book_view
 WHERE id = $1
   AND status = 'APPROVED';
 
--- Ana liste: sadece onaylılar, en yeniden eskiye; opsiyonel TÜR filtresi, METİN araması
--- ve SAYFALAMA ile.
+-- Ana liste: sadece onaylılar, en yeniden eskiye; opsiyonel TÜR filtresi ve SAYFALAMA ile.
+-- Metin araması bu sorguda DEĞİL: ?q= geldiğinde SearchBooks (aşağıda) çalışır.
 --
 -- Opsiyonel filtre deseni: `(param IS NULL OR koşul)`. Parametre gönderilmezse (NULL)
 -- koşul devre dışı kalır. sqlc'nin "dinamik sorgularda hantal" dediğimiz zayıflığının
 -- standart çözümü bu: sorgu metni sabit kalır, filtreyi DEĞER açıp kapatır — string
 -- birleştirerek SQL kurmaya (injection kapısı) hiç gerek kalmaz.
---
--- Arama ILIKE ile (büyük/küçük harf duyarsız). `%` ve `_` istemci girdisinde joker
--- olmasın diye Go tarafında kaçışlanıyor (bkz. books.EscapeLike).
 --
 -- Sıralamada id ikincil anahtar: aynı created_at'e sahip iki kitap sayfalar arasında
 -- yer değiştirmesin (kararlı sayfalama). Partial index (created_at DESC) WHERE
@@ -43,9 +40,6 @@ WHERE b.status = 'APPROVED'
         SELECT 1 FROM book_genres bg
         JOIN genres g ON g.id = bg.genre_id
         WHERE bg.book_id = b.id AND g.slug = sqlc.narg('genre')))
-  AND (sqlc.narg('query')::text IS NULL
-       OR b.title  ILIKE '%' || sqlc.narg('query') || '%'
-       OR b.author ILIKE '%' || sqlc.narg('query') || '%')
 ORDER BY b.created_at DESC, b.id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
@@ -55,7 +49,8 @@ LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 -- okur. Burada ikinci bir kopyası olsaydı şerit ile katalog sırası sessizce ayrışabilirdi.
 -- Oysuz kitap NULL → en sonda (kendi aralarında en yeni önce). CASE, m = 0 iken oysuz
 -- kitapta 0/0 bölmesini de önler (RATING_MIN_VOTES 0 olabilir).
--- Filtreler ListBooks ile birebir aynı; birini değiştiren ikisini de değiştirir.
+-- Tür filtresi ListBooks ile birebir aynı; birini değiştiren ikisini de değiştirir. Aynı skor
+-- SearchBooks'un rating sırasında da var.
 -- name: ListBooksByRating :many
 SELECT b.* FROM book_view b
 WHERE b.status = 'APPROVED'
@@ -63,9 +58,6 @@ WHERE b.status = 'APPROVED'
         SELECT 1 FROM book_genres bg
         JOIN genres g ON g.id = bg.genre_id
         WHERE bg.book_id = b.id AND g.slug = sqlc.narg('genre')))
-  AND (sqlc.narg('query')::text IS NULL
-       OR b.title  ILIKE '%' || sqlc.narg('query') || '%'
-       OR b.author ILIKE '%' || sqlc.narg('query') || '%')
 ORDER BY
   CASE WHEN b.rating_count = 0 THEN NULL ELSE
        (b.rating_count::float8 / (b.rating_count + sqlc.arg('m')::float8)) * b.average_rating::float8
@@ -74,17 +66,76 @@ ORDER BY
   b.rating_count DESC, b.created_at DESC, b.id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
--- Aynı filtrelerle toplam sayı (sayfalama arayüzü "57 sonuçtan 1-20" diyebilsin).
+-- Aynı filtreyle toplam sayı (sayfalama arayüzü "57 sonuçtan 1-20" diyebilsin).
 -- name: CountBooks :one
 SELECT count(*) FROM books b
 WHERE b.status = 'APPROVED'
   AND (sqlc.narg('genre')::text IS NULL OR EXISTS (
         SELECT 1 FROM book_genres bg
         JOIN genres g ON g.id = bg.genre_id
-        WHERE bg.book_id = b.id AND g.slug = sqlc.narg('genre')))
-  AND (sqlc.narg('query')::text IS NULL
-       OR b.title  ILIKE '%' || sqlc.narg('query') || '%'
-       OR b.author ILIKE '%' || sqlc.narg('query') || '%');
+        WHERE bg.book_id = b.id AND g.slug = sqlc.narg('genre')));
+
+-- Katalog araması (?q=): Türkçe duyarlı ve index'li (0014_book_search.sql). Sayfa, toplam ve türler
+-- TEK sorguda döner: canlıda her sorgu ayrı bir ağ gidiş-dönüşüdür (REVIEW_FEEDBACK F20).
+--
+-- q (tek satır, MATERIALIZED): sorgu metni BİR kez katlanır ve arama ifadeleri bir kez kurulur.
+--   Bu adım olmasaydı, hazırlanmış deyim genel plana geçtiğinde fonksiyonlar eşleşen her satır için
+--   yeniden çalışırdı (ölçüm: 10 ms'lik sorgu 42–181 ms'ye çıkıyordu).
+-- page: eşleşen belgeler (GIN index), sıralama anahtarları, toplam ve sayfa. Dar book_search
+--   tablosunda kalır; books ve editions'a yalnız sayfadaki kitaplar için gidilir.
+--   total: count(*) OVER (), LIMIT'ten ÖNCE süzülmüş satırları sayar. Sayfa sonun ötesindeyse
+--   satır da toplam da dönmez; repository o durumda ilk satırı ister (ListLibrary ile aynı).
+--
+-- Sıra (sort):
+--   relevance: başlık sorguyla aynı > başlık sorguyla başlıyor > kademe (2: bütün kelimeler
+--     başlıkta, 1: başlık + yazarda, 0: baskı adı ya da çevirmende) > oy sayısı.
+--     ts_rank kullanılmaz: kelime tekrarını ödüllendirir, başka baskıdaki başlık tekrarı çok
+--     okunan kitabın önüne geçer.
+--   newest: en yeni önce.   rating: ListBooksByRating ile aynı ağırlıklı skor (m ve c parametre).
+--   Seçilmeyen sıranın CASE'i NULL üretir ve sırayı etkilemez (ListLibrary'deki desen).
+-- LIKE q.f || '%': katlanmış metinde % ve _ kalmaz (noktalama boşluğa döner), joker olamaz.
+-- Son JOIN'deki status koşulu ikinci hat: belge ile kitap ayrışırsa (olmamalı) yayında olmayan
+-- kitap yine de dönmez.
+-- name: SearchBooks :many
+WITH q AS MATERIALIZED (
+    SELECT x.f,
+           search_tsquery(x.f, '')   AS tsq,
+           search_tsquery(x.f, 'A')  AS tsq_title,
+           search_tsquery(x.f, 'AB') AS tsq_title_author
+    FROM (SELECT search_fold(sqlc.arg('query')::text) AS f) x
+), page AS (
+    SELECT s.book_id, s.created_at,
+           CASE WHEN sqlc.arg('sort')::text = 'relevance' THEN s.title_fold = q.f END AS k_exact,
+           CASE WHEN sqlc.arg('sort')::text = 'relevance' THEN s.title_fold LIKE q.f || '%' END AS k_prefix,
+           CASE WHEN sqlc.arg('sort')::text = 'relevance' THEN
+                CASE WHEN s.tsv @@ q.tsq_title THEN 2 WHEN s.tsv @@ q.tsq_title_author THEN 1 ELSE 0 END
+           END AS k_tier,
+           CASE WHEN sqlc.arg('sort')::text = 'rating' AND s.rating_count > 0 THEN
+                (s.rating_count::float8 / (s.rating_count + sqlc.arg('m')::float8)) * s.average_rating::float8
+              + (sqlc.arg('m')::float8 / (s.rating_count + sqlc.arg('m')::float8)) * sqlc.arg('c')::float8
+           END AS k_score,
+           CASE WHEN sqlc.arg('sort')::text <> 'newest' THEN s.rating_count END AS k_votes,
+           count(*) OVER () AS total
+    FROM q
+    JOIN book_search s ON s.tsv @@ q.tsq
+    WHERE s.status = 'APPROVED'
+      AND (sqlc.narg('genre')::text IS NULL OR EXISTS (
+            SELECT 1 FROM book_genres bg
+            JOIN genres g ON g.id = bg.genre_id
+            WHERE bg.book_id = s.book_id AND g.slug = sqlc.narg('genre')))
+    ORDER BY k_exact DESC NULLS LAST, k_prefix DESC NULLS LAST, k_tier DESC NULLS LAST,
+             k_score DESC NULLS LAST, k_votes DESC NULLS LAST, s.created_at DESC, s.book_id DESC
+    LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
+)
+SELECT sqlc.embed(b), p.total,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object('id', g.id, 'name', g.name, 'slug', g.slug) ORDER BY g.name)
+                 FROM book_genres bg
+                 JOIN genres g ON g.id = bg.genre_id
+                 WHERE bg.book_id = p.book_id), '[]'::jsonb)::jsonb AS genres
+FROM page p
+JOIN book_view b ON b.id = p.book_id AND b.status = 'APPROVED'
+ORDER BY p.k_exact DESC NULLS LAST, p.k_prefix DESC NULLS LAST, p.k_tier DESC NULLS LAST,
+         p.k_score DESC NULLS LAST, p.k_votes DESC NULLS LAST, p.created_at DESC, p.book_id DESC;
 
 -- submitted_by: kitabı kim getirdi (öneren kullanıcı ya da doğrudan ekleyen admin).
 -- Kapak ve sayfa sayısı kitaba değil varsayılan baskıya yazılır (editions.sql → CreatePrimaryEdition,

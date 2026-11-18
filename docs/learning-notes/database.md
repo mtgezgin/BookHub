@@ -19,6 +19,11 @@ Format ve nasıl çalıştığı: [README.md](README.md).
 12. [COMMIT'ten sonra başarısız olabilecek adım bırakma](#12-committen-sonra-başarısız-olabilecek-adım-bırakma)
 13. [Genişlet ve daralt: bir kolonu silmek neden iki yayın ister?](#13-genişlet-ve-daralt-bir-kolonu-silmek-neden-iki-yayın-ister)
 14. [Eser ve baskı modeli: kısmi benzersiz index ile tek varsayılan](#14-eser-ve-baskı-modeli-kısmi-benzersiz-index-ile-tek-varsayılan)
+15. [Türkçe duyarlı arama: katlama (folding) neden `lower()` ile olmaz?](#15-türkçe-duyarlı-arama-katlama-folding-neden-lower-ile-olmaz)
+16. [Tam metin araması: tsvector, GIN ve önek aramasının bedeli](#16-tam-metin-araması-tsvector-gin-ve-önek-aramasının-bedeli)
+17. [Hazırlanmış deyim ve plan önbelleği: sorgu altıncı çalıştırmada neden yavaşladı?](#17-hazırlanmış-deyim-ve-plan-önbelleği-sorgu-altıncı-çalıştırmada-neden-yavaşladı)
+18. [Seçmeli süzgeç kalıbı ve yarı-birleştirme: `param IS NULL OR EXISTS` neden pahalı?](#18-seçmeli-süzgeç-kalıbı-ve-yarı-birleştirme-param-is-null-or-exists-neden-pahalı)
+19. [Sayfalama ve sayımın bedeli: OFFSET, anahtarla sayfalama ve "önce kimlik, sonra satır"](#19-sayfalama-ve-sayımın-bedeli-offset-anahtarla-sayfalama-ve-önce-kimlik-sonra-satır)
 
 ---
 
@@ -716,3 +721,238 @@ gerekiyor. Burada SQL'i zaten biz yazdığımız için tek satır.
 - [docs/FEATURE_REQUESTS.md](../FEATURE_REQUESTS.md) CAT-02 — aynı ayrımın ürün tarafı
 - [#3 Natural key vs surrogate key](#3-natural-key-vs-surrogate-key-isbn-neden-pk-olmaz) — ISBN'in neden kimlik olmadığı
 - [#7 Kayıp güncelleme](#7-kayıp-güncelleme-lost-update-neden-kilit-neden-türetilmiş-veri)
+
+---
+
+## 15. Türkçe duyarlı arama: katlama (folding) neden `lower()` ile olmaz?
+
+**🗓️ Bağlam:** 2026-11-17, arama işinde (Faz 16b). Canlıda "ince memed" yazınca İnce Memed
+çıkmıyordu; aynı sorgu yerelde çalışıyordu. Sebebini ararken büyük/küçük harf eşlemesinin
+veritabanının kurulduğu yerel ayara (locale) bağlı olduğunu gördük. JS'te `toLowerCase()` ile
+`toLocaleLowerCase("tr")` farkını bilirdim; aynı ayrımın veritabanında sessizce yaşandığını
+bilmiyordum.
+
+**⚡ Kısa cevap:** `ILIKE` ve `lower()` harfleri veritabanının yerel ayarına göre eşler; `I`'nın
+küçüğü dile göre `i` ya da `ı`'dır. Arama için metni yerel ayardan bağımsız tek bir "arama biçimine"
+indiren bir fonksiyon (`search_fold`) yazılır ve **hem belge hem sorgu** ondan geçirilir.
+
+**📖 Açıklama:**
+
+`search_fold` beş adımdır ([0014](../../backend/migrations/0014_book_search.sql)):
+
+1. `normalize(t, NFKD)`: harfi taban harf + birleşen işaretlere ayırır ("ş" → "s" + çengel,
+   "İ" → "I" + nokta); bitişik biçimleri de açar ("ﬁ" → "fi").
+2. Birleşen işaretler (U+0300–U+036F) atılır: ş, ğ, ü, ö, ç, â taban harfe iner.
+3. Ayrışmayan harfler açık tabloyla çevrilir: `I` ve `ı` → `i`, `ø` → `o`, `ł` → `l`.
+4. `lower()`, ICU'nun dilden bağımsız kuralıyla (`COLLATE "und-x-icu"`): kalan büyük harfler ve
+   başka alfabeler. `I` buraya hiç ulaşmaz, yani sonuç yerel ayara bağlı kalmaz.
+5. Boşluk ve noktalama öbekleri tek boşluğa iner.
+
+| Girdi | Katlanmış |
+| --- | --- |
+| `İnce Memed`, `INCE MEMED`, `ınce memed` | `ince memed` |
+| `Kürk Mantolu Madonna` | `kurk mantolu madonna` |
+| `IŞIK` | `isik` |
+| `“Aşk” — Elif Şafak…` | `ask elif safak` |
+
+**Kural:** eşleşmenin tek tanımı bu fonksiyondur. Belge bir kuralla, sorgu başka bir kuralla
+katlanırsa (ör. biri JS'te, biri SQL'de) arama sessizce bozulur. Bu yüzden sorgu metni de ham
+hâliyle veritabanına gider ve orada katlanır.
+
+**Bedeli:** `ı` ile `i`, `ş` ile `s` ayrımı aramada kaybolur ("kısa" ile "kisa" aynı sayılır). Arama
+için istenen budur; **sıralama** için değildir: alfabetik sıra Türkçe kuralla (`tr-x-icu`) yapılır,
+Kitaplığım'ın başlığa göre sırasında olduğu gibi.
+
+**JS/TS'te karşılığı:** `s.normalize("NFKD").replace(/[̀-ͯ]/g, "")` aynı fikrin ilk iki
+adımıdır. Fark dilde değil, kuralın **nerede** yaşadığında: veri veritabanındaysa katlama da orada
+olmalı.
+
+**🔗 İlgili:**
+- [docs/phases/phase-16b-search.md](../phases/phase-16b-search.md) — arama işinin kararları ve ölçümleri
+- [0014_book_search.sql](../../backend/migrations/0014_book_search.sql) — `search_fold` ve gerekçeleri
+- [#16 Tam metin araması](#16-tam-metin-araması-tsvector-gin-ve-önek-aramasının-bedeli) — katlanmış metnin nasıl index'lendiği
+
+---
+
+## 16. Tam metin araması: tsvector, GIN ve önek aramasının bedeli
+
+**🗓️ Bağlam:** 2026-11-17, aynı iş. Hedef "kitap sayısı yüz binleri bulsa da en hızlı arama" idi.
+`ILIKE '%…%'` 500 bin kitaplık deneyde arama başına yaklaşık 2 saniye sürüyordu ve #8'de öğrendiğim
+B-tree index'i bu sorguya yaramıyordu (baştaki `%`). "Hangi index?" sorusunun cevabı bu not.
+
+**⚡ Kısa cevap:** Metin kelimelere ayrılır (`tsvector`) ve GIN ile index'lenir: GIN "bu kelime hangi
+belgelerde geçiyor" listesidir. Sorgu da bir ifadedir (`tsquery`): `'ince' & 'memed':*`. Tam kelime
+index'te doğrudan bulunur; **önek** (`:*`) o önekle başlayan bütün kelimeleri gezer, bu yüzden önek
+kısaldıkça pahalılaşır.
+
+**📖 Açıklama:**
+
+- **`'simple'` yapılandırma:** kök bulma ve yok sayılan kelime yok. Kitap adı ve kişi adı için doğrusu
+  bu ("Atay" bir kelime kökü değildir).
+- **Ağırlıklar:** belge üç parçadan kurulur: A = başlık, B = yazar, C = baskı adları ve çevirmenler.
+  Sıralamada "bütün kelimeler başlıkta mı, başlık + yazarda mı" sorusu bu ağırlıklarla cevaplanır.
+- **`ts_rank` neden değil:** kelime tekrarını ödüllendiriyor; başka baskıdaki başlık tekrarı çok
+  okunan kitabın önüne geçti. Yerine açık bir sıra kullanıldı: başlık sorguyla aynı > başlıkla
+  başlıyor > kademe > oy sayısı.
+
+Önek uzunluğuna göre süre (500 bin kitap, tek kelime, ortanca):
+
+| Sorgu | Süre |
+| --- | --- |
+| Tam kelime | 0,07 ms |
+| 1 harflik önek | 154 ms |
+| 2 harflik önek | 29 ms (en kötü 180 ms) |
+| 3 harflik önek | 7,6 ms |
+| 4 ve üstü | 2,6 ms ve altı |
+| İki kelime ("ince memed") | 1 ms |
+
+Bu tablo iki kuralı doğurdu: tek kelimelik sorguda önek en az 2 harfte başlar (sunucu), yazarken
+arama en az 3 harfte başlar (arayüz).
+
+**Belge nerede durur:** kitap başına bir satırlık dar bir tabloda (`book_search`); `books` ve
+`editions` üzerindeki tetikleyiciler güncel tutar. Migration'da sıra önemli: **önce tetikleyici,
+sonra ilk doldurma**. `CREATE TRIGGER` tabloya yazımı transaction bitene kadar bekletir; ters sırada
+doldurma ile tetikleyici arasında kaçan bir yazım belgeye hiç yansımazdı.
+
+**Dürüst not:** ayrı bir arama motoru (Elasticsearch, Meilisearch) yazım hatası toleransını ve daha
+iyi sıralamayı hazır verir. Bu ölçekte ikinci bir sistemi çalıştırmak ve veriyi eşitlemek, kazandırdığından
+pahalı; Postgres'in içindeki araç yetiyor.
+
+**🔗 İlgili:**
+- [books.sql](../../backend/sql/queries/books.sql) — `SearchBooks` sorgusu ve sıra
+- [docs/phases/phase-16b-search.md](../phases/phase-16b-search.md) — kararlar tablosu
+- [#8 EXPLAIN ANALYZE](#8-explain-analyze-nasıl-okunur-indexin-neden-kullanılmadığını-bulmak) · [#15 Katlama](#15-türkçe-duyarlı-arama-katlama-folding-neden-lower-ile-olmaz)
+
+---
+
+## 17. Hazırlanmış deyim ve plan önbelleği: sorgu altıncı çalıştırmada neden yavaşladı?
+
+**🗓️ Bağlam:** 2026-11-17, arama sorgusunu ölçerken. psql'de 10 ms süren sorgu, uygulamanın
+gönderdiği biçimde (hazırlanmış deyim) birkaç çalıştırmadan sonra 42–181 ms'ye çıktı. İncelemede
+aynı şey bir sayım sorgusunda da görüldü: 21 kitaplık bir tür için altıncı çalıştırmada 96 ms.
+"Aynı sorgu neden bazen yavaş?" diye sormuştum.
+
+**⚡ Kısa cevap:** pgx sorguları hazırlanmış deyim (prepared statement) olarak gönderir. Postgres ilk
+beş çalıştırmada parametre değerine özel plan kurar; sonra, daha pahalı görünmüyorsa, parametreden
+bağımsız **genel plana** (generic plan) geçer. Genel planda `$1`'in değeri bilinmez: ona bağlı
+hesaplar sabit olmaktan çıkar ve seçicilik ortalama varsayılır.
+
+**📖 Açıklama:**
+
+| | Değere özel plan | Genel plan |
+| --- | --- | --- |
+| `search_fold($1)` | planlama anında bir kez hesaplanır | eşleşen **her satır** için yeniden çalışır |
+| `genre_id = $1` | "bu türde 21 kitap var" bilinir | "ortalama bir tür" varsayılır |
+
+**Birinci çare:** parametreyi işleyen hesabı tek satırlık bir ara sorguya alıp `MATERIALIZED` demek.
+Ara sorgu bir kez çalışır, sonucu satır başına yeniden hesaplanmaz:
+
+```sql
+WITH q AS MATERIALIZED (
+    SELECT search_fold($1) AS f   -- bir kez
+)
+SELECT … FROM q JOIN book_search s ON s.tsv @@ search_tsquery(q.f, '');
+```
+
+**İkinci çare** (en iyi plan değere göre değişiyorsa): sorguyu her değerde iyi çalışacak biçimde
+yazmak ya da o sorguyu genel plandan uzak tutmak (`plan_cache_mode = force_custom_plan`).
+
+**Nasıl görülür:** psql'de `PREPARE q AS …;` ardından altı kez `EXECUTE q(…)`, sonra
+`EXPLAIN (ANALYZE) EXECUTE q(…)`. Planda değer yerine `$1` görünüyorsa plan geneldir.
+
+**Ders:** "psql'de hızlıydı" bir ölçüm değildir. Sorgu, uygulamanın gönderdiği biçimde ve birkaç kez
+çalıştırılarak ölçülür.
+
+**JS/TS'te de aynı:** `pg` adlandırılmış sorgularda (`name: …`), Prisma her zaman hazırlanmış deyim
+kullanır; davranış Postgres'in, sürücünün değil.
+
+**🔗 İlgili:**
+- [books.sql](../../backend/sql/queries/books.sql) — `SearchBooks`'taki `q` ara sorgusu
+- [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F24 — sayım sorgusunun genel plana geçişi
+- [#8 EXPLAIN ANALYZE](#8-explain-analyze-nasıl-okunur-indexin-neden-kullanılmadığını-bulmak)
+
+---
+
+## 18. Seçmeli süzgeç kalıbı ve yarı-birleştirme: `param IS NULL OR EXISTS` neden pahalı?
+
+**🗓️ Bağlam:** 2026-11-17, ikinci incelemede. "Index kararları yeterince düşünülmüş mü?" diye
+sormuştum. Tür süzgeciyle katalog listesi 500 bin kitapta 120 ms, 20 kitaplık bir türde 391 ms
+çıktı; süzgeçsiz liste 0,75 ms'ydi. Index'ler yerindeydi; sorun sorgunun biçimindeydi (F24).
+
+**⚡ Kısa cevap:** Postgres bir `EXISTS` alt sorgusunu birleştirmeye (semi join) ancak WHERE'in üst
+düzeyinde, `AND` ile duruyorsa çevirebilir. `OR`'un altında kalınca alt sorgu her istekte baştan sona
+çalışan bir süzgece dönüşür ve planlayıcı "türden başla" yolunu hiç değerlendiremez.
+
+**📖 Açıklama:**
+
+Kalıp sqlc'de dinamik sorgunun standart çözümü (#2): sorgu metni sabit kalır, süzgeci değer açıp
+kapatır.
+
+```sql
+WHERE b.status = 'APPROVED'
+  AND ($1::text IS NULL OR EXISTS (SELECT 1 FROM book_genres bg … WHERE bg.book_id = b.id AND g.slug = $1))
+```
+
+- **Düz kolon koşulunda zararsız:** `$1 IS NULL OR b.language = $1` değer bilinince sadeleşir.
+- **Alt sorguda zararlı:** planlayıcı alt sorguyu birleştirmeye çevirme kararını sabitleri
+  sadeleştirmeden önce verir; o anda koşul hâlâ `OR`'un altındadır. Planda `hashed SubPlan` görünür:
+  o türün **bütün** kitapları her istekte okunup bir özet tablosuna konur (yaygın türde 232 bin satır).
+
+| Tür | Liste (kalıpla) | Liste (tür kimliğiyle, ayrı sorgu) |
+| --- | --- | --- |
+| Yaygın (232 bin kitap) | 120 ms | 1,1 ms |
+| Çok nadir (21 kitap) | 391 ms | 0,7 ms |
+
+**Yetmeyen düzeltme:** `EXISTS`'i üst düzeye alıp türü yine slug'la birleştirmek, çok nadir türde
+1.289 ms'ye çıktı. Planlayıcı slug'ın hangi türe denk geldiğini plan anında bilmediği için o türün
+kaç kitabı olduğunu da bilemedi. Sorguya **tür kimliği** verilince istatistikleri kullanabildi.
+
+**Ders:** seçmeli süzgeç kalıbı sorgu metnini sabit tutar ama planı da tek biçime mahkûm eder. Pahalı
+bir süzgeç (alt sorgu, birleştirme) için ayrı sorgu yazmak daha doğru.
+
+**🔗 İlgili:**
+- [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F24 — ölçümlerin tamamı
+- [books.sql](../../backend/sql/queries/books.sql) — `ListBooks`, `CountBooks`
+- [#2 sqlc nedir](#2-sqlc-nedir-sqli-sen-yaz-goyu-makine-yazsın) · [#17 Plan önbelleği](#17-hazırlanmış-deyim-ve-plan-önbelleği-sorgu-altıncı-çalıştırmada-neden-yavaşladı)
+
+---
+
+## 19. Sayfalama ve sayımın bedeli: OFFSET, anahtarla sayfalama ve "önce kimlik, sonra satır"
+
+**🗓️ Bağlam:** 2026-11-17, ikinci incelemede liste ucunu ölçerken (F25). Süzgeçsiz ilk sayfa 0,75 ms
+sürüyordu ama aynı isteğin sayım sorgusu 50 ms, 10.000. kayıttan başlayan sayfa 58 ms'ydi. "Listeyi
+index'ledik, neden hâlâ pahalı?" sorusu.
+
+**⚡ Kısa cevap:** Üç şey sayfa boyutuyla değil veriyle büyür: `count(*)` eşleşen her satırı sayar,
+`OFFSET n` n satırı üretip atar, görünüm (`book_view`) ise `LIMIT` uygulanmadan önce her satır için
+birleşir.
+
+**📖 Açıklama:**
+
+- **Sayım:** 460 bin onaylı kitabı index'ten saymak bile 50 ms; her liste isteğinde. Seçenekler:
+  sayıyı kısa süre bellekte tutmak, toplam yerine "devamı var mı" döndürmek (bir fazla satır
+  istenir), yaklaşık sayı.
+- **Önce kimlik, sonra satır:** atlanan 10.000 satırın her biri için baskı tablosuna da gidiliyordu.
+  İç sorguda yalnız kimlikler seçilip sayfa kesilir, dış sorgu yalnız o 12 satır için görünüme
+  birleşir: 58 → 1,2 ms.
+
+  ```sql
+  SELECT v.* FROM (SELECT id, created_at FROM books WHERE status = 'APPROVED'
+                   ORDER BY created_at DESC, id DESC LIMIT 12 OFFSET 10000) p
+  JOIN book_view v ON v.id = p.id
+  ORDER BY p.created_at DESC, p.id DESC;
+  ```
+
+- **Anahtarla sayfalama (keyset):** "10.000 satır atla" yerine "şu satırdan sonrakiler":
+  `WHERE (created_at, id) < ($1, $2) ORDER BY created_at DESC, id DESC LIMIT 12`. 0,47 ms ve
+  derinlikten bağımsız. Bedeli: "5. sayfaya atla" yoktur, yalnız ileri ve geri; sıra anahtarı
+  benzersiz olmalıdır (bu yüzden `id` eklenir, #8'deki index dersiyle aynı).
+- **`count(*) OVER ()`:** toplamı sayfayla aynı sorguda verir, yani bir ağ gidiş-dönüşü kazandırır;
+  ama yine bütün eşleşenleri sayar.
+
+**JS/TS'te karşılığı:** Prisma'da `skip`/`take` OFFSET'tir, `cursor` anahtarla sayfalamadır.
+
+**🔗 İlgili:**
+- [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F25 — sayım, derin sayfa ve 10.000 sınırı
+- [library.sql](../../backend/sql/queries/library.sql) — `count(*) OVER ()` kullanan sorgu
+- [backend-and-web.md](backend-and-web.md) #9 — gidiş-dönüş sayısının isteğin süresine etkisi

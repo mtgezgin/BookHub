@@ -26,6 +26,7 @@ import (
 type bookStore interface {
 	Get(ctx context.Context, id int64) (db.BookView, error)
 	List(ctx context.Context, f books.ListFilter) ([]db.BookView, int64, error)
+	Search(ctx context.Context, f books.ListFilter) ([]books.SearchHit, int64, error)
 	GenresForBook(ctx context.Context, bookID int64) ([]db.Genre, error)
 	GenresForBooks(ctx context.Context, bookIDs []int64) (map[int64][]db.Genre, error)
 	SetGenres(ctx context.Context, bookID int64, genreIDs []int64) error
@@ -147,6 +148,10 @@ type bookPage struct {
 
 // parseListFilter, ?genre=&q=&sort=&limit=&offset= parametrelerini doğrulayıp filtreye çevirir.
 // minVotes: ağırlıklı puandaki m (config'ten); yalnız ?sort=rating'te kullanılır.
+//
+// sort: verilmezse varsayılan (aramasız en yeni, aramada ilgi sırası). newest ve rating her iki
+// durumda da geçerlidir; relevance yalnız aramada anlam taşır, aramasız istekte varsayılana düşer
+// (adres çubuğunda kalmış bir ?sort=relevance 400 üretmesin).
 func parseListFilter(r *http.Request, minVotes int64) (books.ListFilter, error) {
 	q := r.URL.Query()
 	f := books.ListFilter{
@@ -157,12 +162,18 @@ func parseListFilter(r *http.Request, minVotes int64) (books.ListFilter, error) 
 	var v validator
 	v.match("genre", f.Genre, slugPattern, "tür slug'ı; ör. bilim-kurgu")
 	v.maxLen("q", f.Query, maxQueryLen)
+	v.text("q", f.Query)
 	switch sort := q.Get("sort"); sort {
-	case "", "newest":
+	case "":
+	case "newest":
+		if f.Query != "" {
+			f.Sort = books.SortNewest
+		}
+	case "relevance":
 	case "rating":
 		f.Sort, f.MinVotes, f.ColdStart = books.SortRating, float64(minVotes), ratings.ColdStartMean
 	default:
-		v.check(false, "sort yalnız newest ya da rating olabilir")
+		v.check(false, "sort yalnız relevance, newest ya da rating olabilir")
 	}
 	f.Limit, f.Offset = parsePage(q, &v)
 	return f, v.err()
@@ -185,9 +196,32 @@ func parsePage(q url.Values, v *validator) (limit, offset int32) {
 	return limit, offset
 }
 
-// handleListBooks, GET /api/books — onaylı kitapları sayfalı listeler (varsayılan en yeni önce).
-// Opsiyonel: ?genre=<slug> (türe göre), ?q=<metin> (başlık/yazar), ?sort=rating (ağırlıklı
-// puan), ?limit=&offset=. Görünürlük sınırı (yalnızca APPROVED) SQL'de yaşıyor.
+// listQueryTimeout, katalog listesi ve aramasının veritabanı süre bütçesi (bkz. detached).
+const listQueryTimeout = 5 * time.Second
+
+// statusClientClosedRequest, istemci cevabı beklemeden gittiğinde erişim loguna yazılan durum
+// (NGINX'in 499'u). Standart bir HTTP kodu değildir ve kimseye ulaşmaz: bağlantı zaten kapalıdır.
+// Amaç logda bu isteğin 200 ya da 500 gibi görünmemesi.
+const statusClientClosedRequest = 499
+
+// detached, sorguları isteğin İPTALİNDEN ayırır ve kendi süre sınırını koyar.
+//
+// NEDEN: yazarken aramada kullanıcı yeni bir harf yazdığında tarayıcı önceki isteği iptal eder.
+// İptal isteğin context'ine, oradan uçuştaki sorguya ulaşırsa pgx o sorgunun BAĞLANTISINI kapatır
+// (ölçüm: yarıda kesilen 20 istek 19 yeni veritabanı bağlantısı açtırdı; REVIEW_FEEDBACK F21).
+// Milisaniyeler süren bir okumayı bitirmek, bağlantıyı yeniden kurmaktan ucuzdur. Süre sınırı,
+// beklenmedik biçimde uzayan bir sorgunun (ve artık kimsenin beklemediği işin) tavanıdır.
+// WithoutCancel değerleri (request id) korur.
+func detached(r *http.Request, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), timeout)
+}
+
+// handleListBooks, GET /api/books — onaylı kitapları sayfalı listeler ya da arar.
+// Opsiyonel: ?genre=<slug> (türe göre), ?q=<metin> (arama), ?sort=relevance|newest|rating,
+// ?limit=&offset=. Görünürlük sınırı (yalnızca APPROVED) SQL'de yaşıyor.
+//
+// ?q= varsa arama (Türkçe duyarlı, index'li; sayfa + toplam + türler tek sorgu), yoksa liste
+// (liste + sayım + türler). İki yol aynı cevap biçimini üretir.
 func handleListBooks(store bookStore, minVotes int64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filter, err := parseListFilter(r, minVotes)
@@ -195,28 +229,53 @@ func handleListBooks(store bookStore, minVotes int64) http.HandlerFunc {
 			writeRequestError(w, err)
 			return
 		}
+		ctx, cancel := detached(r, listQueryTimeout)
+		defer cancel()
 
-		list, total, err := store.List(r.Context(), filter)
-		if err != nil {
-			writeInternalError(w, "ListBooks", err)
+		var (
+			items []bookResponse
+			total int64
+		)
+		if filter.Query != "" {
+			var hits []books.SearchHit
+			hits, total, err = store.Search(ctx, filter)
+			if err != nil {
+				writeInternalError(w, "SearchBooks", err)
+				return
+			}
+			// make(..., 0, n): sayfa BOŞ olsa bile JSON'da "null" değil "[]" çıkar.
+			items = make([]bookResponse, 0, len(hits))
+			for _, h := range hits {
+				items = append(items, toBookResponse(h.Book, h.Genres))
+			}
+		} else {
+			var list []db.BookView
+			list, total, err = store.List(ctx, filter)
+			if err != nil {
+				writeInternalError(w, "ListBooks", err)
+				return
+			}
+			// Türleri TOPLU yükle: tek sorgu, kitap sayısından bağımsız (N+1'den kaçınma).
+			ids := make([]int64, 0, len(list))
+			for _, b := range list {
+				ids = append(ids, b.ID)
+			}
+			genresByBook, err := store.GenresForBooks(ctx, ids)
+			if err != nil {
+				writeInternalError(w, "GenresForBooks", err)
+				return
+			}
+			items = make([]bookResponse, 0, len(list))
+			for _, b := range list {
+				items = append(items, toBookResponse(b, genresByBook[b.ID]))
+			}
+		}
+
+		// İstemci bu arada gittiyse (yeni harf, sayfadan ayrılma) yazacak kimse yok: gövde
+		// kurulmaz, erişim loguna 499 düşer.
+		if r.Context().Err() != nil {
+			w.WriteHeader(statusClientClosedRequest)
 			return
-		}
-
-		// Türleri TOPLU yükle: tek sorgu, kitap sayısından bağımsız (N+1'den kaçınma).
-		ids := make([]int64, 0, len(list))
-		for _, b := range list {
-			ids = append(ids, b.ID)
-		}
-		genresByBook, err := store.GenresForBooks(r.Context(), ids)
-		if err != nil {
-			writeInternalError(w, "GenresForBooks", err)
-			return
-		}
-
-		// make(..., 0, n): sayfa BOŞ olsa bile JSON'da "null" değil "[]" çıkar.
-		items := make([]bookResponse, 0, len(list))
-		for _, b := range list {
-			items = append(items, toBookResponse(b, genresByBook[b.ID]))
 		}
 		writeJSON(w, http.StatusOK, bookPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset})
 	}

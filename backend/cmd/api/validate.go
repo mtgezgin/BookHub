@@ -54,6 +54,15 @@ func (v *validator) maxLen(field, value string, max int) {
 	}
 }
 
+// text, serbest metnin Postgres'in kabul edeceği bir metin olmasını ister: geçerli UTF-8 ve NUL
+// (0x00) içermeyen. İkisi de sorguya ulaşırsa veritabanı "invalid byte sequence" (SQLSTATE 22021)
+// hatası verir ve istemcinin düzeltebileceği bir girdi 500'e dönüşür (REVIEW_FEEDBACK F30).
+func (v *validator) text(field, value string) {
+	if !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
+		v.add("%s geçerli bir metin olmalı", field)
+	}
+}
+
 // match, boş olmayan değerin kalıba uymasını ister (boşluğu required denetler).
 func (v *validator) match(field, value string, re *regexp.Regexp, hint string) {
 	if value != "" && !re.MatchString(value) {

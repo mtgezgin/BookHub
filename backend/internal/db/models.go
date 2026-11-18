@@ -43,6 +43,16 @@ type BookGenre struct {
 	GenreID int64 `json:"genre_id"`
 }
 
+type BookSearch struct {
+	BookID        int64       `json:"book_id"`
+	Status        string      `json:"status"`
+	RatingCount   int32       `json:"rating_count"`
+	AverageRating *float64    `json:"average_rating"`
+	CreatedAt     time.Time   `json:"created_at"`
+	TitleFold     string      `json:"title_fold"`
+	Tsv           interface{} `json:"tsv"`
+}
+
 type BookView struct {
 	ID              int64      `json:"id"`
 	Title           string     `json:"title"`

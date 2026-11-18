@@ -7,6 +7,9 @@
 > (kitaplık), [phase-16](phase-16-works-editions.md) (baskılar), [phase-05](phase-05-comments-ratings.md)
 > (yorum ve puan), [phase-04](phase-04-suggestions-moderation.md) (durum makinesi)
 
+> **Migration numaraları (2026-11-17):** bu belgedeki numaralar birer kaydı (`0015`–`0017`). `0014` aramaya
+> verildi ([Faz 16b](phase-16b-search.md)); goose sırasız migration'ı reddettiği için numara yayın sırasını izler.
+
 ## 🎯 Amaç
 
 Kullanıcı bir kitabı okumaya başlar, nerede kaldığını kaydeder, bitirir ya da yarım bırakır ve
@@ -75,7 +78,7 @@ doğrulanır.
 | İlerleme birimi | Tek birim: `page` ya da `percent`; dönüşüm yok. Birim ya da baskı değişirse ilerleme sıfırlanır (arayüz uyarır) | READ-01 "tahmin yapılmaz"; CAT-02 "baskı değişimi ilerlemeyi dönüştürmez". |
 | Faz 15'ten kalan "Şu an okuyorum" | Geçerli durum: alanlar boş = "ilerleme henüz girilmedi" | Veri taşıma gerekmez. |
 | Eşzamanlılık | `version`; yalnız ilerleme/alan düzeltmesinde zorunlu, uyuşmazsa 409 `version_conflict` | Kavram 4. Komutlar (başla, bitir…) hedef duruma idempotent, sürüm istemez. |
-| Kısıt zamanı | Kolonlar 0014'te kısıtsız; CHECK'ler 0015'te, 17A canlıda doğrulandıktan sonra | Kullanıcı kararı (2026-11-16): yayın penceresinde eski kod hata vermesin (kavram 5). |
+| Kısıt zamanı | Kolonlar 0015'te kısıtsız; CHECK'ler 0016'da, 17A canlıda doğrulandıktan sonra | Kullanıcı kararı (2026-11-16): yayın penceresinde eski kod hata vermesin (kavram 5). |
 | Eski `PUT /api/me/library/{id}` | Kalır, aynı servise komut olarak çevrilir | Yayın penceresindeki eski arayüz ve tek yazma yolu. |
 | Geçmiş ve kitaplık | Kitaplıktan çıkarmak geçmişi silmez | Faz 15'teki "çıkarmak puanı silmez" ile tutarlı. |
 | İnceleme ↔ yorum | Ayrı `reviews` tablosu; yorumlar ve silme kuralları aynen kalır | Kullanıcı kararı (2026-11-16); REV-01 "brief ile ilişki". |
@@ -97,15 +100,15 @@ doğrulanır.
 
 ## 🗺️ Bölümler
 
-- **17A-1 — okuma takibi:** migration `0014` (kolonlar + `reading_log`, kısıtsız), `internal/library`
+- **17A-1 — okuma takibi:** migration `0015` (kolonlar + `reading_log`, kısıtsız), `internal/library`
   servisi, raf uçları, kitap sayfasında tek raf kontrolü, Kitaplığım'da ilerleme.
-- **17A-2 — kısıt:** migration `0015` (temizlik + CHECK'ler). 17A-1 canlıda doğrulandıktan sonra.
-- **17B — inceleme:** migration `0016_reviews`, `internal/reviews`, inceleme uçları ve admin gizleme,
+- **17A-2 — kısıt:** migration `0016` (temizlik + CHECK'ler). 17A-1 canlıda doğrulandıktan sonra.
+- **17B — inceleme:** migration `0017_reviews`, `internal/reviews`, inceleme uçları ve admin gizleme,
   kitap sayfasında İncelemeler bölümü, spoiler gösterimi, bitirince inceleme daveti.
 
 ## 🪜 17A — adımlar
 
-### 1. Şema: `0014_reading.sql` (genişletme)
+### 1. Şema: `0015_reading.sql` (genişletme)
 
 ```sql
 ALTER TABLE library_entries
@@ -137,9 +140,9 @@ CREATE INDEX reading_log_user_book_idx ON reading_log (user_id, book_id, created
   bunları hiç anmadan çalışmaya devam eder. `reading_log` yeni tablo olduğu için kısıtları baştan taşır.
 - Eski kod yayın penceresinde okuyan bir satırın durumunu değiştirirse okuma alanları satırda **bayat**
   kalabilir. Yeni kod bu alanları yalnız `status = 'READING'` iken okur ve her "başla"da üzerine yazar;
-  bayat alanlar 0015'te temizlenir.
+  bayat alanlar 0016'da temizlenir.
 
-### 2. Şema: `0015_reading_checks.sql` (daraltma, ayrı PR)
+### 2. Şema: `0016_reading_checks.sql` (daraltma, ayrı PR)
 
 ```sql
 UPDATE library_entries
@@ -230,7 +233,7 @@ durumu ve oradan yapılabilecekleri gösterir:
 
 ## 🪜 17B — adımlar
 
-### 1. Şema: `0016_reviews.sql`
+### 1. Şema: `0017_reviews.sql`
 
 ```sql
 CREATE TABLE reviews (
@@ -279,8 +282,8 @@ POST   /api/admin/reviews/{id}/unhide                     — audit ile aynı tr
 
 - **Yayın penceresi (17A-1):** migration'dan sonra eski kod birkaç dakika çalışır. Eski kod yeni
   kolonları bilmez; kısıt henüz olmadığı için hiçbir yazımı reddedilmez. Bedeli: o pencerede eski
-  arayüzden durumu değiştirilen bir okumanın ilerlemesi günlüğe yazılmaz (bayat alanlar 0015'te silinir).
-- **0015 ancak 17A-1 doğrulandıktan sonra** merge edilir (CLAUDE.md: daraltma ayrı PR).
+  arayüzden durumu değiştirilen bir okumanın ilerlemesi günlüğe yazılmaz (bayat alanlar 0016'da silinir).
+- **0016 ancak 17A-1 doğrulandıktan sonra** merge edilir (CLAUDE.md: daraltma ayrı PR).
 - **404 ile 409'u karıştırmamak:** PATCH reading'de güncellenmeyen satır "kitaplıkta yok / okumuyor"
   (404) da olabilir, "sürüm eski" (409) de. Servis satırı kilitleyip ayırır.
 - **`resume` bir satırı günlükten siler:** aynı transaction'da; yarıda kalırsa ikisi de geri alınır.
@@ -306,7 +309,7 @@ POST   /api/admin/reviews/{id}/unhide                     — audit ile aynı tr
 9. Başkasının günlük kaydına her uç 404; eski `PUT {status}` aynı sonuçları üretir.
 10. Canlı (17A-1): demo hesabıyla başla → ilerle → ertele → devam et → bitir; kitap sayfası ve
     Kitaplığım tutarlı.
-11. Canlı (17A-2): 0015 öncesi sayım PR'da; sonrasında kural dışı yazım veritabanında reddedilir
+11. Canlı (17A-2): 0016 öncesi sayım PR'da; sonrasında kural dışı yazım veritabanında reddedilir
     (entegrasyon testi), canlı akış yine çalışır.
 
 17B:

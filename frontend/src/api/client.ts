@@ -350,7 +350,8 @@ export const api = {
   },
 
   // Katalog
-  books: (p: { q?: string; genre?: string; limit?: number; offset?: number; sort?: "rating" }) =>
+  // sort verilmezse sunucunun varsayılanı: aramasız en yeni, aramada (q) ilgi sırası.
+  books: (p: { q?: string; genre?: string; limit?: number; offset?: number; sort?: "rating" | "newest" }) =>
     request<Page<Book>>("GET", `/api/books${qs(p)}`),
   book: (id: number) => request<BookDetail>("GET", `/api/books/${id}`),
   topRated: (limit = 10) => request<TopRated>("GET", `/api/books/top-rated${qs({ limit })}`),

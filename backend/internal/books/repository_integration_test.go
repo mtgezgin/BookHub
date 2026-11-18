@@ -183,24 +183,6 @@ func TestRepositoryCreateDuplicateSlugRealDB(t *testing.T) {
 	}
 }
 
-// TestRepositoryListByRatingQueryFilter, puan sırasında da başlık/yazar aramasının (ILIKE)
-// uygulandığını gerçek Postgres'le doğrular: yalnız aranan başlığı taşıyan kitap döner.
-func TestRepositoryListByRatingQueryFilter(t *testing.T) {
-	f := newFixture(t)
-	match := f.createBook(t, StatusApproved)
-	other := f.createBook(t, StatusApproved)
-	token := testdb.Unique("puanara")
-	testdb.Exec(t, f.pool, "UPDATE books SET title = $1 WHERE id = $2", "Kitap "+token, match.ID)
-
-	got, total, err := f.repo.List(context.Background(), ListFilter{Sort: SortRating, Query: token, MinVotes: 10, ColdStart: 5.5, Limit: 100})
-	if err != nil {
-		t.Fatalf("liste okunamadı: %v", err)
-	}
-	if len(got) != 1 || got[0].ID != match.ID || total != 1 {
-		t.Errorf("yalnız aranan kitap dönmeliydi (id=%d, diğer=%d), gelen %d kitap, toplam %d", match.ID, other.ID, len(got), total)
-	}
-}
-
 // TestRepositoryListByRatingGenreFilter, puan sırasında da tür filtresinin (book_genres)
 // uygulandığını gerçek Postgres'le doğrular: yalnız o türe bağlı kitap döner.
 func TestRepositoryListByRatingGenreFilter(t *testing.T) {

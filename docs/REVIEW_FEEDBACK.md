@@ -3,6 +3,8 @@
 İnceleme tarihi: **19 Eylül 2026**  
 Takip dosyasının oluşturulması: **20 Eylül 2026**
 
+İkinci inceleme: **17 Kasım 2026**. F20–F40 ve F04, F07, F08, F10'a eklenen kanıtlar [aşağıda](#ikinci-inceleme--17-kasım-2026).
+
 Bu belge kod, güvenlik, yapılandırma, mimari ve UI/UX incelemesinin bulgularını içerir. Bulgular inceleme anındaki çalışma dizinine, commit edilmemiş değişiklikler dahil, dayanır. Sonraki değişiklikler uygulanmadan önce ilgili bulgunun hâlâ geçerli olduğu kontrol edilmelidir. Bu dosyanın oluşturulması herhangi bir bulgunun düzeltildiği anlamına gelmez.
 
 ## Kapsam ve doğrulama sınırları
@@ -34,7 +36,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [ ] | F07 | Orta | Readiness gerçek hizmet verebilirliği ölçmüyor |
 | [ ] | F08 | Orta | İşlem, sorgu ve kilit bekleme süre bütçeleri eksik |
 | [ ] | F09 | Orta | Cache ve güvenlik sayaçları aynı eviction politikasını paylaşıyor |
-| [ ] | F10 | Yüksek | Eski frontend yanıtları yeni ekran verisinin üzerine yazabiliyor |
+| [x] | F10 | Yüksek | Eski frontend yanıtları yeni ekran verisinin üzerine yazabiliyor |
 | [ ] | F11 | Orta | Formlarda tekrar gönderim ve eşzamanlı puan yazımı korunmuyor |
 | [ ] | F12 | Yüksek — ürün | Moderasyon ekranı karar için gereken içeriği göstermiyor |
 | [ ] | F13 | Orta | Mobil yerleşim ve erişilebilirlik eksikleri var |
@@ -44,6 +46,27 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [ ] | F17 | İyileştirme | Frontend oturum sorumlulukları sadeleştirilmeli |
 | [x] | F18 | Düşük | Dokümanlar mevcut uygulamayla eşitlenmeli |
 | [ ] | F19 | Düşük | `manage migrate` hangi migration'ları uyguladığını yazmıyor |
+| [ ] | F20 | Yüksek | Uygulama ile veri ayrı bölgede; istekler sıralı ve çok sorgulu |
+| [ ] | F21 | Orta | Yarıda kesilen istek veritabanı bağlantısını kapatıyor ve hata olarak loglanıyor |
+| [ ] | F22 | Orta | Yayın akışı canlıda hangi sürümün çalıştığını doğrulamıyor |
+| [ ] | F23 | Orta | Yedek ve geri yükleme tanımlı değil |
+| [ ] | F24 | Orta — ölçekle | Tür süzgeci kalıbı planlayıcının iyi planı kurmasını engelliyor |
+| [ ] | F25 | Orta — ölçekle | Her listede tam sayım, derin sayfa maliyeti ve 10.000 sınırı |
+| [ ] | F26 | Orta — ölçekle | Puana göre sıralama ve "en sevilenler" önbelleği |
+| [ ] | F27 | Düşük | Kitap satırı kilidi gereğinden güçlü; puan istatistiği iki yerde hesaplanıyor |
+| [ ] | F28 | Düşük | Index'siz yabancı anahtarlar ve küçük index düzeltmeleri |
+| [ ] | F29 | Orta | Aynı başlıklı ikinci öneri reddediliyor; yazar düz metin |
+| [ ] | F30 | Orta | Geçersiz bayt içeren metin 500 üretiyor |
+| [ ] | F31 | Orta | `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor |
+| [ ] | F32 | Orta | Bir isteğin süresinin nereye gittiği görünmüyor |
+| [ ] | F33 | Orta | Sunucu verisi her sayfada elle çekiliyor |
+| [ ] | F34 | Orta | Hata sınırı yok; NGINX'in ürettiği hatalar boş mesajla görünüyor |
+| [ ] | F35 | Orta | Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir |
+| [ ] | F36 | Orta | Açılıştaki geçici hata "çıkış yapılmış" gibi görünüyor |
+| [ ] | F37 | Orta | Kapak görselleri denetlenmeyen adreslerden yükleniyor |
+| [ ] | F38 | Orta | CI taze kurulumu sınıyor, canlı yükseltme yapıyor; migration'da süre sınırı yok |
+| [ ] | F39 | Düşük | Sınanan imaj çalışan imaj değil; geri dönüş denenmedi; CI zorunlu kontrol değil |
+| [ ] | F40 | Düşük | Küçük bulgular |
 
 ## F01 — Başarısız logout sonrasında sunucu oturumu canlı kalabiliyor
 
@@ -119,6 +142,8 @@ Uygulama rate limit'i login/register uçlarında var. Yorum, öneri, puan yazım
 
 **Kabul kriteri:** Kota aşımı 429 ve uygun Retry-After üretmeli. Çok instance ve Redis kesintisi senaryoları doğrulanmalı. Meşru kullanıcı akışları için limitler ölçülerek seçilmeli.
 
+**Ek kanıt (17 Kasım 2026):** Yerel API 0,1 işlemciyle sınırlanarak ölçüldü (bu makinede tek özet 2,2 sn; canlıda belgelenen değer 3,3 sn). Tek giriş denemesi 2,2 sn sürdü; dört eşzamanlı denemenin her biri 8,4–9,0 sn; beş eşzamanlı denemenin beşi de 502 döndü (Go'nun 10 sn'lik yazma süresi doldu, NGINX "upstream prematurely closed connection" yazdı). Üç deneme sürerken katalog isteği 0,1 sn yerine 1,3 sn sürdü. Canlıda eşik 3–4 eşzamanlı giriş: bu kadarı girişi herkes için düşürür ve o sırada bütün API yavaşlar. İki ek gözlem: kayıt iki özet hesaplatıyor (`register`, ardından `login`; [Auth.tsx](../frontend/src/pages/Auth.tsx)) ve kayıtta özet, e-postanın kayıtlı olup olmadığına bakılmadan önce hesaplanıyor ([service.go](../backend/internal/auth/service.go)). **Önerinin somut hâli:** parola özeti çevresinde tek yuvalı bir kuyruk; kuyruk doluysa 503 ve `Retry-After`. `register` oturumu da döndürsün (tek özet).
+
 ## F05 — API ile migration veritabanı yetkileri ayrılmamış
 
 **Öncelik:** Yüksek — aynı yapı üretime taşınırsa · En az yetki
@@ -167,6 +192,8 @@ Yetki kararı access token içindeki role dayanıyor. Kullanıcının güncel ro
 
 **Kabul kriteri:** DB erişimi kesildiğinde readiness başarısız, süreç çalışırken liveness başarılı olmalı. DB geri geldiğinde pod yeniden hazır olmalı.
 
+**Ek kanıt (17 Kasım 2026):** Canlıda Northflank'ta hiç sağlık kontrolü tanımlı değil ([DEPLOYMENT.md](DEPLOYMENT.md) §5). Hazırlık kontrolü olmadan, açılışta düşen bir sürüm (hatalı ortam değişkeni, duraklamış Supabase) başarısız bir yayın yerine kesintiye dönüşebilir; Northflank'ın bu durumdaki davranışı doğrulanmadı. İlk adım kod gerektirmiyor: `api` için `/health`, `web` için `/healthz` kontrolü panelden tanımlanır.
+
 ## F08 — İşlem, sorgu ve kilit bekleme süre bütçeleri eksik
 
 **Öncelik:** Orta · Kaynak yönetimi
@@ -180,6 +207,8 @@ HTTP ReadTimeout/WriteTimeout var; normal handler işlemleri için genel context
 **Kabul kriteri:** Uzun sorgu/kilit beklemesi süre sınırında sonlanmalı; bağlantı havuzu ve goroutine kaynakları serbest kalmalı.
 
 **Referans:** [Go WriteTimeout ve request context davranışı](https://github.com/golang/go/issues/59602).
+
+**Ek kanıt (17 Kasım 2026):** Bağlantı havuzu bütünüyle varsayılan ayarlarla kuruluyor (`pgxpool.New`). En çok bağlantı sayısı `max(4, çekirdek sayısı)`: 0,1 vCPU kotasını değil düğümün çekirdek sayısını izler; Supabase'in oturum havuzu ise varsayılan 15 bağlantı ve fazlası bir dakikaya kadar sıraya girer. En az bağlantı 0 ve boşta kalma süresi 30 dakika olduğu için seyrek trafikte ilk istekler yeni bir TLS bağlantısı kurar. Düzeltirken dikkat: `pool_max_conns`'ı `DATABASE_URL`'e yazmak `manage migrate`'i bozar, çünkü aynı adres `database/sql` üzerinden de açılıyor ve pgx bilinmeyen anahtarı sunucuya iletir (pgx kaynağı okunarak); değer koddan verilmeli. Canlıdaki çekirdek sayısı ve havuz ayarı doğrulanmadı. Migration oturumunun süre sınırları için F38.
 
 ## F09 — Cache ve güvenlik sayaçları aynı eviction politikasını paylaşıyor
 
@@ -218,6 +247,8 @@ usePaged içinde eski yanıt koruması var; ana katalog ve kitap detayında ayn�
 **Doğrulama ve sonuç:** Hatayı yeni Playwright katalog senaryosu buldu: yerel, kalabalık bir veritabanında filtresiz sorgu (tüm katalog taranır) "Dune" aramasından yavaş dönüyor ve ızgaranın üstüne boyuyordu (47 ms'e karşı 243 ms; URL `?q=Dune` derken liste her kitabı gösteriyordu). Regresyon testi `Home.test.tsx`'te iki isteği elle TERS sırayla çözüyor → düzeltme olmadan zamanlamadan bağımsız olarak kırılıyor.
 
 **Kalan risk / erteleme gerekçesi:** BookDetail'de route değişimi sırasında eski kitap kısa süre görünmeye devam edebilir; o ekrandaki puan/yorum yazma butonları görünen kitapla hedefin eşleştiğini henüz şart koşmuyor.
+
+**İlerleme (17 Kasım 2026):** BookDetail yarısı da kapanmış görünüyor: bileşen `key={id}` ile yeniden kuruluyor ([BookDetail.tsx](../frontend/src/pages/BookDetail.tsx)); regresyon testi "başka kitaba geçince öncekinin içeriği yeni kitap yüklenirken kalmaz" ([BookDetail.test.tsx](../frontend/src/pages/BookDetail.test.tsx)). Test koşusu 17 Kasım'da yeşil (vitest, 374 test); kutu işaretlendi.
 
 ## F11 — Formlarda tekrar gönderim ve eşzamanlı puan yazımı korunmuyor
 
@@ -364,6 +395,356 @@ DEPLOYMENT.md'nin bilinen sınırlar bölümünde refresh token'ın localStorage
 
 **Kabul kriteri:** Yeni migration'lı bir Deploy logunda uygulanan dosyanın adı ve sürümü görünür; migration'sız koşuda "uygulanacak migration yok" yazar. Başarısızlıkta "güncel" yazılmaz (mevcut `TestMigrateCommandRealDB` sözleşmesi korunur, beklenen çıktı güncellenir).
 
+## İkinci inceleme — 17 Kasım 2026
+
+**Kapsam:** Faz 1–16'nın tamamı (API, veritabanı şeması ve sorgular, arayüz, NGINX, CI/CD ve yayın). `docs/phase-16-close` dalında (`abaa3a4`) yapıldı; inceleme sırasında uygulama kodu değişmedi.
+
+### Yöntem ve doğrulama sınırları
+
+- **Üç bağımsız okuma:** API, arayüz ve altyapı ayrı ayrı, ilgili dosyaların tamamı okunarak incelendi. Bu belgeye giren her bulgu ayrıca kodda, ölçümle ya da yerel yığında doğrulandı. Doğrulanamayan kısım bulgunun içinde yazılı.
+- **Veritabanı ölçümleri:** yerel Postgres 16'da üretim şemasının (0001–0013) kopyası ve sentetik veri: 500.033 kitap (460.041'i yayında), 770 bin baskı, 26 tür ve 932 bin tür bağı, 100 bin kullanıcı, 3,1 milyon puan, 2 milyon kitaplık kaydı, 1,05 milyon yorum. Sorgular uygulamanın gönderdiği metinle (sqlc çıktısından alınarak) hazırlanmış deyim olarak, paralel işçi olmadan 8'er kez çalıştırıldı; ilk 3 ölçüm atıldı, kalanların ortancası alındı.
+- **Yerel yığın deneyleri:** `make app-up` kurulumu (NGINX → API → Postgres), API bu büyük veritabanına bağlı.
+- **Canlı:** yalnız okuma istekleri (yaklaşık 45 GET). Canlıda giriş, yazma ya da yük denemesi yapılmadı.
+- **Ölçeğe dair uyarı:** canlıda 54 kitap var ve aşağıdaki sorguların hepsi orada 1 ms'nin altında. "Ölçekle" işaretli bulgular bugünün yavaşlığını değil, katalog büyüdüğünde ilk neyin yavaşlayacağını gösterir.
+- **Doğrulanmayanlar:** Northflank ayarları (sağlık kontrolü, derleme önbelleği, düğümdeki çekirdek sayısı, yayın sırasında eski ve yeni örneğin birlikte çalışması), GitHub dal koruması, Supabase'in sürümü, yedekleri ve havuz ayarı, Upstash'in kota aşımındaki davranışı.
+
+### Genel değerlendirme
+
+**Kötü yapılmış bir mimari karar var mı?** Temel kararlar sağlam ve çoğu yazılı gerekçesiyle duruyor. Geri dönülmesi gereken tek karar yerleşim: uygulama Londra'da, veri Frankfurt'ta (F20). Bugün her sayfanın gecikmesini bu belirliyor ve kodla değil taşımayla düzelir. İkinci sırada arayüzün sunucu verisini her sayfada elle yönetmesi var (F33): yanlış değil, ama her yeni ekranda aynı hata sınıfını yeniden üretiyor.
+
+**Performansta ne daha iyi yapılabilirdi?** Bugün: istek başına sorgu sayısı (F20) ve yarıda kesilen isteğin bağlantı kapatması (F21). Katalog büyüdüğünde: tür süzgeci (F24), her istekteki tam sayım (F25) ve puana göre sıralama (F26). Üçü de ölçüldü ve üçünün de ölçülmüş bir çıkışı var.
+
+**Şema ve index kararları yeterince düşünülmüş mü?** Büyük ölçüde evet: kısıtlar veritabanında, türetilmiş veri kaynaktan hesaplanıyor, kilit sırası belgeli, 0005 index'i ölçümle düzeltilmiş. Eksik kalanlar: üç yabancı anahtarın index'i (F28), kitap kilidinin gücü (F27), isteğe bağlı süzgeç kalıbının alt sorgulardaki bedeli (F24) ve kullanılmayan benzersiz slug'ın yol açtığı öneri hatası (F29).
+
+**Güvenlik ve sağlamlık:** yeni bir açık bulunmadı. Düzeltilmesi ucuz dört hata var: geçersiz baytın 500 üretmesi (F30), `create-admin`'in davranışı (F31), bulunamayan `/assets/` dosyasının önbelleklenmesi (F35) ve eşzamanlı girişlerin API'yi kilitlemesi (F04'e eklenen kanıt).
+
+## F20 — Uygulama ile veri ayrı bölgede; istekler sıralı ve çok sorgulu
+
+**Öncelik:** Yüksek · Mimari ve performans
+
+**Kaynaklar:** [DEPLOYMENT.md](DEPLOYMENT.md) §1, [backend/cmd/api/books.go](../backend/cmd/api/books.go) (`handleGetBook`, `handleListBooks`), [backend/internal/books/repository.go](../backend/internal/books/repository.go) (`List`), [backend/cmd/api/community.go](../backend/cmd/api/community.go) (`handleListComments`), [backend/internal/auth/repository.go](../backend/internal/auth/repository.go) (`RotateRefreshToken`), [backend/internal/database/database.go](../backend/internal/database/database.go).
+
+API Londra'da (Northflank'ın ücretsiz plandaki tek bölgesi), Postgres ve Redis Frankfurt'ta. Her sorgu yaklaşık 13 ms ağ bekliyor ve sorgular sırayla gidiyor. Canlı ölçüm (17 Kasım, aynı bağlantı üzerinden): `/health` 74 ms, tek sorgulu `/api/genres` 86 ms, üç sorgulu `/api/books` 112–125 ms. Katalog isteğinin sunucudaki ~40 ms'sinin neredeyse tamamı üç gidiş-dönüş; sorguların kendisi 54 kitapta 1 ms'nin altında.
+
+Uç başına veritabanı gidiş-dönüşü (kod okunarak sayıldı):
+
+| Uç | Gidiş-dönüş | Not |
+|---|---|---|
+| Katalog listesi | 3 (puan sırasında 4) | liste, sayım, türler ayrı ayrı |
+| Kitap detayı | 3 | kitap, türler, baskılar |
+| Yorum listesi | 3 | kitap yalnız görünürlük için yeniden okunuyor |
+| Puan özeti | 2 | kitap yeniden okunuyor |
+| Puan verme | 5 | BEGIN ve COMMIT dahil |
+| Oturum yenileme | 7 | giriş yapmış kullanıcının her sayfa açılışında |
+
+Anonim bir kitap sayfası dört API çağrısıyla 11 sorgu çalıştırıyor ve aynı kitap satırını üç kez okuyor. İki ek maliyet: havuz, 1 saniyeden uzun boşta kalmış bağlantıyı kullanmadan önce yokluyor (pgx varsayılanı), yani seyrek trafikte her isteğe bir gidiş-dönüş daha ekleniyor; Redis de Frankfurt'ta olduğu için "en sevilenler" önbelleğinden okumak, yerine geçtiği sorgu kadar ağ bekliyor (F26).
+
+**Etki:** Her sayfa gereğinden 30–150 ms geç geliyor. Yazarken arama gibi sık istek atan özelliklerde fark doğrudan hissedilir.
+
+**Öneri:** Önce veriyi uygulamanın yanına taşıyın: Supabase ve Upstash belgelerinde London (eu-west-2) bölgesi var. 54 kitapla taşıma küçük bir iş: yeni proje, döküm ve geri yükleme, iki sırrın güncellenmesi. Sonra okuma uçlarını tek sorguya indirin; repoda örnekleri var ([library.sql](../backend/sql/queries/library.sql)'deki `count(*) OVER ()`, [comments.sql](../backend/sql/queries/comments.sql)'deki CTE). Sıra önemli: gidiş-dönüş 1–2 ms'ye inerse ikinci adımın getirisi küçülür; hangisinin gerektiğini F32'deki ölçüm gösterir.
+
+**Doğrulanmadı:** London bölgesinin ücretsiz planda seçilebildiği ve taşımadan sonraki gidiş-dönüş süresi.
+
+**Kabul kriteri:** Canlıda `/api/genres` ile `/health` arasındaki fark 5 ms'nin altına iner ya da katalog listesi tek sorguyla cevaplanır. Ölçüm PR'da yazılı.
+
+## F21 — Yarıda kesilen istek veritabanı bağlantısını kapatıyor ve hata olarak loglanıyor
+
+**Öncelik:** Orta · Kaynak yönetimi
+
+**Kaynaklar:** [GO_CONVENTIONS.md](GO_CONVENTIONS.md) §1, [backend/internal/database/database.go](../backend/internal/database/database.go), [backend/cmd/api/respond.go](../backend/cmd/api/respond.go) (`writeInternalError`).
+
+Her sorguya isteğin context'i veriliyor; bu doğru alışkanlık. pgx'in varsayılan davranışında ise context iptal olunca uçuştaki sorgunun bağlantısı kapatılıyor. Yerel yığında NGINX üzerinden ölçüldü: 20 olağan istek tek bağlantıyı yeniden kullandı; yarıda kesilen 20 istek 19 yeni bağlantı açtırdı. Her biri ayrıca ERROR düzeyinde "istek başarısız … context canceled" satırı bıraktı ve handler gitmiş istemciye 500 yazmaya çalıştı.
+
+**Etki:** Sayfadan ayrılma, sekme kapatma ve arayüzün isteği iptal etmesi sunucuda bağlantının yeniden kurulmasına dönüşüyor (canlıda TLS ve kimlik doğrulamayla birkaç gidiş-dönüş). Hata logu ve ileride kurulacak alarm, istemci davranışıyla kirleniyor.
+
+**Öneri:** İki yol var. Kısa okuma sorgularını istemci iptalinden ayırın (`context.WithoutCancel` ve kısa bir zaman aşımı); katalog listesi için bu, arama işiyle birlikte geliyor. Ya da havuzu pgx'in `CancelRequestContextWatcherHandler`'ıyla kurun: ölçümde 20 iptal yeni bağlantı açtırmadı, iptal edilen çağrı yaklaşık 100 ms geç döndü; Supabase'in havuzlayıcısı üzerinden denenmedi. İstemcinin gittiği durumu 500 ve ERROR yerine ayrı bir düzeyde loglayın.
+
+**Kabul kriteri:** Yarıda kesilen 20 istekten sonra havuzun açtığı bağlantı sayısı artmaz ve logda ERROR satırı oluşmaz.
+
+**İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), yayın bekliyor):** katalog listesi ve araması (`GET /api/books`) sorgularını istemci iptalinden ayırıyor (`detached`, 5 sn sınır) ve giden istemciyi 499 olarak logluyor. Yerel yığında 500 bin kitapla yarıda kesilen 40 istek: 4 yeni bağlantı (eşzamanlılık için havuz büyümesi), 0 ERROR. Diğer uçlar ve havuz düzeyindeki çözüm açık.
+
+## F22 — Yayın akışı canlıda hangi sürümün çalıştığını doğrulamıyor
+
+**Öncelik:** Orta · Yayın
+
+**Kaynaklar:** [.github/workflows/deploy.yml](../.github/workflows/deploy.yml) (`Release`, `Summary`), [backend/cmd/api/router.go](../backend/cmd/api/router.go) (`handleHealth`), [PROCESS.md](PROCESS.md) §6.
+
+Deploy iş akışı `release` dalını ilerletip "Yayına çıktı" yazıyor; Northflank'ın imajı derleyip derlemediğine bakılmıyor. `/health` sürüm bilgisi taşımıyor. "Derlenen commit `release`'teki commit" kontrolü PROCESS §6'da elle yapılan bir madde.
+
+**Etki:** Migration uygulanıp Northflank derlemesi düşerse eski kod yeni şemayla çalışmaya devam eder ve Deploy yeşil görünür. Bir sonraki migration'ın "o an canlıda çalışan kodla uyumu", çalışmayan bir sürüme göre değerlendirilir.
+
+**Öneri:** Commit'i derlemede iki imaja da gömün ve `/health` cevabında döndürün. Deploy'a sır kullanmayan üçüncü bir iş ekleyin: iki servis de bu commit'i bildirene kadar bekler, süre dolarsa kırmızı biter. Northflank'ın commit'i derleme argümanı olarak verip vermediği belgelerinden doğrulanmalı.
+
+**Kabul kriteri:** Derlemesi bilerek bozulmuş bir yayında Deploy kırmızı biter.
+
+## F23 — Yedek ve geri yükleme tanımlı değil
+
+**Öncelik:** Orta · Veri
+
+**Kaynaklar:** [DEPLOYMENT.md](DEPLOYMENT.md), [.github/workflows/deploy.yml](../.github/workflows/deploy.yml) (migration adımı).
+
+Belgelerde yedek, döküm ya da geri yükleme geçmiyor. Kolon silen migration'lar (0013 gibi) canlıya kendiliğinden uygulanıyor.
+
+**Öneri:** Kararı yazın. Ya "veri atılabilir; geri yükleme migration, demo seed ve `create-admin`'dir" denir ya da migration adımından önce şifreli bir döküm alınır (repo public olduğu için düz artefakt olarak yüklenmez). Seçilen yol bir kez denenir. Supabase'in ücretsiz planda ne sakladığı doğrulanmadı.
+
+**Kabul kriteri:** Karar DEPLOYMENT.md'de; seçilen yol bir kez uygulandı ve süresi yazıldı.
+
+## F24 — Tür süzgeci kalıbı planlayıcının iyi planı kurmasını engelliyor
+
+**Öncelik:** Orta — ölçekle · Sorgu
+
+**Kaynaklar:** [backend/sql/queries/books.sql](../backend/sql/queries/books.sql) (`ListBooks`, `ListBooksByRating`, `CountBooks`), [backend/sql/queries/library.sql](../backend/sql/queries/library.sql) (`ListLibrary`).
+
+İsteğe bağlı süzgeç `($1 IS NULL OR EXISTS (…))` biçiminde. Postgres, OR'un altındaki EXISTS'i birleştirmeye çeviremiyor; alt sorgu her istekte o türün bütün kitaplarını okuyup bir özet tablosu kuruyor ("hashed SubPlan"). Sorgu, türün seyrek ya da yaygın olmasına göre farklı bir yol da seçemiyor.
+
+| Tür | Liste (bugün) | Sayım (bugün) | Liste (tür kimliğiyle) |
+|---|---|---|---|
+| Yaygın (232 bin kitap) | 120 ms | 278 ms | 1,1 ms |
+| Seyrek (17 bin) | 11 ms | 132 ms | 1,0 ms |
+| Nadir (501) | 3,9 ms | 130 ms | 2,9 ms |
+| Çok nadir (21) | 391 ms | 113 ms | 0,7 ms |
+
+Filtresiz liste 0,75 ms. Denenen ve yetmeyen bir yol: EXISTS'i üst düzeye alıp türü yine slug'la birleştirmek çok nadir türde 1.289 ms'ye çıktı, çünkü planlayıcı slug'ın hangi türe denk geldiğini plan anında bilmiyor.
+
+**Öneri:** Tür süzgeci için ayrı bir sorgu yazın; slug önce tür kimliğine çevrilsin (26 satırlık tablo bellekte tutulabilir) ve sorguya kimlik verilsin. Sayım için F25'e bakın: tür kimliğiyle sayım, hazırlanmış deyimin 6. çalıştırmasından sonra genel plana geçip 21 kitaplık tür için 96 ms harcadı.
+
+**Kabul kriteri:** 500 bin kitaplık veride her tür için liste 5 ms'nin altında; `EXPLAIN ANALYZE` çıktısı PR'da.
+
+## F25 — Her listede tam sayım, derin sayfa maliyeti ve 10.000 sınırı
+
+**Öncelik:** Orta — ölçekle · Sorgu ve API
+
+**Kaynaklar:** [backend/internal/books/repository.go](../backend/internal/books/repository.go) (`List`), [backend/sql/queries/books.sql](../backend/sql/queries/books.sql) (`CountBooks`), [backend/cmd/api/books.go](../backend/cmd/api/books.go) (`maxPageOffset`), [frontend/src/components/filters.tsx](../frontend/src/components/filters.tsx) (`asOffset`), [frontend/src/components/usePaged.tsx](../frontend/src/components/usePaged.tsx) (`Pager`), [0011_editions.sql](../backend/migrations/0011_editions.sql) (`book_view`).
+
+- **Sayım:** her liste isteği ayrıca tam sayım çalıştırıyor: filtresiz 50 ms, tür süzgeciyle 113–278 ms. Sayım, liste sorgusunun kendisinden pahalı.
+- **Derin sayfa:** `book_view`, LIMIT uygulanmadan önce her satır için varsayılan baskıya birleşiyor. Offset 10.000'de 58 ms; önce sayfanın kimliklerini seçip sonra görünüme birleşmek 1,2 ms; anahtarla sayfalama 0,47 ms.
+- **Erişilemeyen sayfalar:** API toplamı olduğu gibi bildiriyor ama offset 10.000'de kesiliyor. Katalog 10.012 kitabı geçince "Sonraki" düğmesi açık kalır; tıklanınca arayüz geçersiz offset'i 0 sayıp ilk sayfaya döner (kod okunarak; denenmedi).
+
+**Öneri:** Toplamı her istekte hesaplamayın: tür başına sayıları kısa süre bellekte tutun ya da `has_more` döndürün. Liste sorgularında önce kimlik, sonra görünüm; varsayılan sıra için anahtarla sayfalama. Sınıra gelindiğinde arayüz bunu söylesin.
+
+**Kabul kriteri:** 500 bin kitapta katalog isteğinin veritabanı süresi 5 ms'nin altında; 10.000 sınırındaki davranış bir testle sabit.
+
+## F26 — Puana göre sıralama ve "en sevilenler" önbelleği
+
+**Öncelik:** Orta — ölçekle · Sorgu ve önbellek
+
+**Kaynaklar:** [backend/sql/queries/books.sql](../backend/sql/queries/books.sql) (`ListBooksByRating`), [backend/sql/queries/ratings.sql](../backend/sql/queries/ratings.sql) (`GlobalAverageRating`, `ListTopRated`), [backend/internal/ratings/cached.go](../backend/internal/ratings/cached.go), [backend/cmd/api/community.go](../backend/cmd/api/community.go) (`handleTopRated`), [GO_CONVENTIONS.md](GO_CONVENTIONS.md) §7.
+
+Ağırlıklı skor sorgu anında hesaplanıyor. Karar bilinçli ve "yavaşladığı ölçülürse" çıkışı yazılı (§7). Ölçüm o noktayı gösteriyor:
+
+- Puana göre liste 1.125 ms; önündeki genel ortalama sorgusu 204 ms ve her istekte çalışıyor.
+- "En sevilenler" önbellek ıskasında 887 + 204 ms.
+- Önbellek her puan yazımında siliniyor. Puan gelen bir sitede hep soğuk kalır ve eşzamanlı ıskaların hepsi aynı sıralamayı yeniden çalıştırır.
+- İsabette de türler Postgres'ten okunuyor. Önbellek 50 kitabı saklıyor, ana sayfa 5 istiyor.
+
+Ölçülen seçenekler: önce kimlik sonra görünüm 267 ms; saklanan skor ve index'i 0,95 ms (en iyi 50 için 1,2 ms); genel ortalama için kapsayan kısmi index 74 ms.
+
+**Öneri:** Skoru kolon olarak saklayın: kitabın puanı değişince o anki genel ortalamayla yeniden hesaplanır, genel ortalama belirli aralıkla tazelenir (yavaş değişir, sıra kaymaz). Genel ortalamayı ve "en sevilenler" cevabını süreç içinde 60 saniye tutun; puan yazımında silmeyin.
+
+**Kabul kriteri:** 500 bin kitapta puana göre ilk sayfa 5 ms'nin altında; sürekli puan yazılırken "en sevilenler" isteklerinin çoğu sıralamayı yeniden çalıştırmaz.
+
+## F27 — Kitap satırı kilidi gereğinden güçlü; puan istatistiği iki yerde hesaplanıyor
+
+**Öncelik:** Düşük · Eşzamanlılık
+
+**Kaynaklar:** [ratings.sql](../backend/sql/queries/ratings.sql) (`LockApprovedBook`), [books.sql](../backend/sql/queries/books.sql) (`LockBookForModeration`), [book_genres.sql](../backend/sql/queries/book_genres.sql) (`LockBook`), [0006](../backend/migrations/0006_rating_stats_on_delete.sql), [backend/internal/ratings/service.go](../backend/internal/ratings/service.go) (`Remove`).
+
+- `FOR UPDATE`, yabancı anahtar denetiminin aldığı `FOR KEY SHARE` ile çakışır. Deney: kitap satırı `FOR UPDATE` ile tutulurken aynı kitabı kitaplığa ekleme 1 saniyelik kilit zaman aşımına takıldı; `FOR NO KEY UPDATE` ile 5 ms'de tamamlandı. Aynı ayrım [users.sql](../backend/sql/queries/users.sql)'de parola değişimi için zaten yapılmış.
+- Puan silmede istatistik iki kez hesaplanıyor: önce silme tetikleyicisi (0006), sonra servis.
+
+**Öneri:** Üç kilit sorgusunda `FOR NO KEY UPDATE` kullanın. İstatistiğin tek bir sahibi olsun (tetikleyici ya da servis).
+
+**Kabul kriteri:** Puan transaction'ı açıkken aynı kitaba kitaplık kaydı ve yorum eklenebilir; puan silme istatistiği bir kez günceller.
+
+## F28 — Index'siz yabancı anahtarlar ve küçük index düzeltmeleri
+
+**Öncelik:** Düşük · Şema
+
+**Kaynaklar:** [0004](../backend/migrations/0004_comments_ratings.sql), [0010](../backend/migrations/0010_library_entries.sql), [0005](../backend/migrations/0005_listing_indexes.sql).
+
+- **Index'siz yabancı anahtarlar:** `comments.deleted_by`, `comments.book_id` (yalnız kısmi index var) ve `library_entries.book_id`. 0001'deki "her FK'ye index" kuralı bu üçünde atlanmış. Ölçüm: kullanıcı silme 171 ms (149'u `deleted_by` taraması), kitap silme 262 ms. Uygulamada kullanıcı ya da kitap silen bir yol yok (testler ve temizlik betikleri siliyor); DATA-02'den önce gerekir.
+- **`ratings (book_id)` yerine `(book_id, score)`:** 100 bin oylu kitapta dağılım 29 → 6,2 ms, istatistik yenileme 12,7 → 6,0 ms.
+- **Yönetim listesi:** reddedilen ve arşivlenen kitapların listesi 247 ms (index yok). İki kısmi index yerine tek `(status, created_at DESC, id DESC)` bütün durumlara hizmet eder.
+- **Kullanıcı silmede puan tetikleyicisi** satır başına çalışıyor ve kitapları rastgele sırada kilitliyor. DATA-02 için deyim düzeyinde, kitapları sırayla kilitleyen bir tetikleyici gerekir.
+
+**Kabul kriteri:** Yabancı anahtar kolonu hiçbir index'in ilk kolonu olmayan kısıt kalmaz (katalog sorgusu bir testte).
+
+## F29 — Aynı başlıklı ikinci öneri reddediliyor; yazar düz metin
+
+**Öncelik:** Orta · Veri modeli
+
+**Kaynaklar:** [backend/cmd/api/books.go](../backend/cmd/api/books.go) (`normalize`), [0001](../backend/migrations/0001_books_genres.sql) (`slug UNIQUE`), [backend/cmd/api/moderation.go](../backend/cmd/api/moderation.go), [frontend/src/pages/Suggest.tsx](../frontend/src/pages/Suggest.tsx), [backend/internal/moderation/transitions.go](../backend/internal/moderation/transitions.go).
+
+- **Slug:** başlıktan türetiliyor ve bütün durumlarda benzersiz. Öneri formu slug göndermiyor. Aynı başlıklı ikinci kitap (başka bir şairin "Seçme Şiirler"i) ya da reddedilmiş bir başlığın yeniden önerilmesi, kullanıcının hiç yazmadığı bir alan için 409 `slug_conflict` alıyor. Slug hiçbir aramada kullanılmıyor: rotalar kimlikle çalışıyor. `TestSuggestBookDuplicateSlug` bu davranışı sabitliyor (kod okunarak).
+- **Yazar:** `books.author` düz metin. Yazar sayfası, birden çok yazar ve yazım farklarını birleştirme bu modelle yapılamaz. Bugün ihtiyaç yok.
+
+**Öneri:** Öneride slug'ı sunucu üretsin ve çakışmada sayısal ek koysun. "Zaten var" uyarısı yalnız başlık ve yazar birlikte eşleşirse verilsin. Yazar varlığı, yazar sayfası backlog'a girdiğinde genişlet/daralt ile gelir.
+
+**Kabul kriteri:** Aynı başlıklı iki öneri de kaydedilir; aynı başlık ve yazarla ikinci öneri anlaşılır bir mesaj alır.
+
+## F30 — Geçersiz bayt içeren metin 500 üretiyor
+
+**Öncelik:** Orta · Girdi doğrulama
+
+**Kaynaklar:** [backend/cmd/api/books.go](../backend/cmd/api/books.go) (`parseListFilter`), [backend/cmd/api/auth.go](../backend/cmd/api/auth.go), [backend/cmd/api/validate.go](../backend/cmd/api/validate.go).
+
+Yerel yığında `/api/books?q=%FF`, `q=%00` ve `q=a%C3` 500 döndü; logda SQLSTATE 22021. Aynı yol giriş, kayıt, yorum ve öneri gövdelerinde de açık (kod okunarak). Kayıtta 500, parola özeti hesaplandıktan sonra gelir.
+
+**Etki:** Herkes dilediği kadar 500 ve ERROR satırı üretebilir.
+
+**Öneri:** Metin girdilerini tek yerde doğrulayın (`utf8.ValidString`, NUL yok) ve 400 dönün. Yedek olarak SQLSTATE 22 sınıfını 400'e çevirin. Bir fuzz testi ekleyin.
+
+**Kabul kriteri:** Üç örnek istek 400 döner ve ERROR satırı oluşmaz.
+
+**İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), yayın bekliyor):** `q` parametresi katalogda ve Kitaplığım'da denetleniyor (`validator.text`); üç örnek istek yerel yığında 400 döndü. Gövde alanları (giriş, kayıt, yorum, öneri) açık.
+
+## F31 — `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor
+
+**Öncelik:** Orta · Güvenlik
+
+**Kaynaklar:** [backend/internal/auth/repository.go](../backend/internal/auth/repository.go) (`EnsureAdmin`), [backend/cmd/manage/main.go](../backend/cmd/manage/main.go).
+
+E-posta doğrulaması yok ve repo public. Yöneticinin kullanacağı adresle önceden kayıt olan biri, `create-admin` o adresle çalıştırıldığında kendi parolasıyla admin olur. Araç yöneticinin yazdığı parolayı atar ve tek satırlık bir bilgi yazar.
+
+**Öneri:** Var olan hesapta varsayılan davranış hata olsun. `-promote` verilirse parola da yazılsın ve hesabın bütün oturum aileleri aynı transaction'da iptal edilsin.
+
+**Kabul kriteri:** Var olan adresle `create-admin` hata verir; `-promote` ile eski parola ve eski oturumlar geçersiz olur.
+
+## F32 — Bir isteğin süresinin nereye gittiği görünmüyor
+
+**Öncelik:** Orta · Gözlemlenebilirlik
+
+**Kaynaklar:** [backend/cmd/api/middleware.go](../backend/cmd/api/middleware.go) (`requestLogger`), [backend/cmd/api/router.go](../backend/cmd/api/router.go) (`middleware.Recoverer`).
+
+Erişim satırı toplam süreyi yazıyor. Veritabanı ve Redis süresi, sorgu sayısı ve kullanıcı kimliği yok. F20'deki sayılar kod okunarak çıkarıldı; canlıda yavaş bir isteğin ağdan mı, işlemci kısıtından mı, kilit beklemesinden mi kaynaklandığı ayırt edilemiyor. Panik yolunda chi'nin `Recoverer`'ı hata zarfı olmadan boş gövdeli 500 dönüyor (kod okunarak; denenmedi).
+
+**Öneri:** İstek başına sorgu sayısını ve süresini toplayan bir `pgx.QueryTracer`; aynı ölçüm Redis için. Erişim satırına `db_queries`, `db_ms`, `redis_ms` ekleyin. Zarf ve `request_id` yazan küçük bir recoverer yazın. F20'den önce yapılırsa etkisi ölçülebilir.
+
+**Kabul kriteri:** Her erişim satırında sorgu sayısı ve veritabanı süresi var; panik eden bir handler hata zarfı döner.
+
+## F33 — Sunucu verisi her sayfada elle çekiliyor
+
+**Öncelik:** Orta · Arayüz mimarisi
+
+**Kaynaklar:** [Home.tsx](../frontend/src/pages/Home.tsx), [BookDetail.tsx](../frontend/src/pages/BookDetail.tsx), [Library.tsx](../frontend/src/pages/Library.tsx), [usePaged.tsx](../frontend/src/components/usePaged.tsx), [useLibraryStatuses.tsx](../frontend/src/components/useLibraryStatuses.tsx), [LibraryMenu.tsx](../frontend/src/components/LibraryMenu.tsx), [Moderation.tsx](../frontend/src/pages/admin/Moderation.tsx).
+
+Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kuralları yok. Eski cevap koruması kiminde bayrak, kiminde sayaç, kiminde hiç yok. Yeniden yükleme için sayaçlar ve ref'ler kullanılıyor. Önbellek yok: türler Home ve Library'de ayrı ayrı çekiliyor, geri dönüşte katalog yeniden yükleniyor. F10 ve Faz 15'teki yarış düzeltmeleri bu sınıfın örnekleri.
+
+**Öneri:** Tek bir sorgu katmanı: TanStack Query ya da aynı kuralları uygulayan tek bir ortak kanca. Sayfa sayfa geçilebilir; [client.ts](../frontend/src/api/client.ts) altında değişmeden kalır. Bu bir mimari yargıdır; effect sayıları sayıldı, kazanç ölçülmedi.
+
+**Kabul kriteri:** Veri çeken her sayfa aynı katmandan geçer; eski cevap, hata ve yeniden yükleme davranışı tek yerde tanımlı ve testli.
+
+## F34 — Hata sınırı yok; NGINX'in ürettiği hatalar boş mesajla görünüyor
+
+**Öncelik:** Orta · Arayüz sağlamlığı
+
+**Kaynaklar:** [frontend/src/main.tsx](../frontend/src/main.tsx), [frontend/src/App.tsx](../frontend/src/App.tsx), [frontend/src/api/client.ts](../frontend/src/api/client.ts) (`toError`), [frontend/src/components/common.tsx](../frontend/src/components/common.tsx) (`ErrorBox`).
+
+- **Hata sınırı:** uygulamada error boundary yok. Render sırasında fırlayan bir hata (iki kez yüklenemeyen tembel parça, tipe uymayan bir cevap) bütün kökü söker ve boş sayfa kalır.
+- **Boş mesaj:** `toError`, JSON zarfı olmayan cevapta `statusText`'i mesaj yapıyor. NGINX'in kendi 429, 502 ve 504 cevapları HTML'dir ve HTTP/2'de `statusText` her zaman boştur. Canlıdaki sonuç, içinde yalnız ikon olan kırmızı bir kutu. Yerelde (HTTP/1.1) "Bad Gateway" yazdığı için fark edilmiyor; birim testi de bu metni sabitliyor (kod okunarak; canlıda denenmedi).
+
+**Öneri:** Router'ın içine bir hata sınırı koyun. `toError` duruma göre Türkçe bir mesaj üretsin; boş mesaj genel metne düşsün.
+
+**Kabul kriteri:** Render hatasında başlık ve "yeniden yükle" seçeneği görünür; 429 ve 502'de kullanıcı anlamlı bir mesaj okur.
+
+**İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), yayın bekliyor):** NGINX'in kendi 429'u artık API'nin hata zarfıyla ve `Retry-After` ile dönüyor (giriş, kayıt, parola ve katalog sınırlarında). 502 ve 504 ile hata sınırı açık.
+
+## F35 — Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir
+
+**Öncelik:** Orta · Önbellek
+
+**Kaynak:** [frontend/nginx/default.conf](../frontend/nginx/default.conf) (`location /assets/`).
+
+`add_header Cache-Control "public, max-age=31536000, immutable" always;` satırındaki `always`, başlığı 404'e de ekliyor. Yerel yığında doğrulandı: var olmayan bir `/assets/…js` isteği 404 ile birlikte bu başlığı döndü.
+
+**Etki:** Yayın sırasında yeni `index.html`'in istediği dosya eski örneğe düşerse, 404 cevabı tarayıcıda bir yıl geçerli kalabilir ve sayfa o tarayıcıda sert yenilemeye kadar açılmaz. Yayın sırasında eski ve yeni örneğin birlikte hizmet verip vermediği doğrulanmadı.
+
+**Öneri:** O satırdan `always`'i kaldırın (güvenlik başlıklarında kalsın). Üç önbellek sözleşmesi için bir uçtan uca test ekleyin: `index.html` önbelleklenmez, var olan dosya kalıcıdır, bulunamayan dosya önbelleklenmez.
+
+**Kabul kriteri:** Bulunamayan `/assets/` dosyasının cevabında `Cache-Control: … immutable` yok.
+
+## F36 — Açılıştaki geçici hata "çıkış yapılmış" gibi görünüyor
+
+**Öncelik:** Orta · Oturum (F17 ile ilgili)
+
+**Kaynaklar:** [frontend/src/api/client.ts](../frontend/src/api/client.ts) (`restore`, yenileme), [frontend/src/auth/AuthContext.tsx](../frontend/src/auth/AuthContext.tsx), [frontend/src/App.tsx](../frontend/src/App.tsx) (`RequireRole`).
+
+- Yenileme geçici bir hatayla (ağ, 429, 502) dönerse istemci oturumu korur ama `restore()` boş döner. Arayüz "Giriş" gösterir, korumalı sayfalar `/login`'e yönlendirir ve yeniden deneyen bir şey yoktur.
+- Başarılı yenilemeden sonra `/api/auth/me` bir kez daha çağrılıyor; cevap yenilemede zaten var. Bu çağrı geçici bir hata verirse arayüz geçerli oturumu kapalı gösterir. Her açılışa bir istek ekler.
+
+**Öneri:** Üç durum tanımlayın (anonim, girişli, bilinmiyor) ve "bilinmiyor"da yeniden deneyin. `restore()`, yenilemenin döndürdüğü kullanıcıyı kullansın.
+
+**Kabul kriteri:** Açılışta yenileme 502 dönerse kullanıcı giriş sayfasına atılmaz; ağ düzelince oturum kendiliğinden görünür.
+
+## F37 — Kapak görselleri denetlenmeyen adreslerden yükleniyor
+
+**Öncelik:** Orta · Güvenlik ve gizlilik
+
+**Kaynaklar:** [backend/cmd/api/validate.go](../backend/cmd/api/validate.go) (`httpURL`), [backend/cmd/api/moderation.go](../backend/cmd/api/moderation.go) (`handleSuggestBook`), [frontend/nginx/security-headers.conf](../frontend/nginx/security-headers.conf) (`img-src`), [Moderation.tsx](../frontend/src/pages/admin/Moderation.tsx).
+
+Öneri formunda kapak alanı yok ama API öneride `cover_url` kabul ediyor ve her http(s) adresi geçerli. Moderasyon listesi kapağı göstermiyor (F12). Onaylanan kitabın kapağı, her ziyaretçinin tarayıcısından o sunucuya istek attırır (IP ve tarayıcı bilgisi gider) ve sunucu görseli onaydan sonra değiştirebilir.
+
+**Öneri:** Kapak sunucularını izin listesine alın (bugün yalnız `covers.openlibrary.org`) ve CSP'yi aynı listeye daraltın. Moderasyonda kapağı gösterin. İleride kapakları kendi origin'inizden sunun.
+
+**Kabul kriteri:** İzin listesi dışındaki bir kapak adresi 400 alır; CSP yalnız listedeki sunuculara izin verir.
+
+## F38 — CI taze kurulumu sınıyor, canlı yükseltme yapıyor; migration'da süre sınırı yok
+
+**Öncelik:** Orta · CI/CD
+
+**Kaynaklar:** [.github/workflows/ci.yml](../.github/workflows/ci.yml), [.github/workflows/deploy.yml](../.github/workflows/deploy.yml), [scripts/checks.sh](../scripts/checks.sh) (`check_migration_number`), [backend/internal/database/migrate.go](../backend/internal/database/migrate.go).
+
+- **Taze kurulum ve yükseltme:** CI her koşuda boş bir veritabanı kuruyor; canlıda migration dolu tabloya ve eski kod çalışırken uygulanıyor. Dolu veride düşen bir migration ancak yayında görülür. 0011 ve 0013 için yazılmış yükseltme testleri iyi bir örnek ama kural değil.
+- **Numara sırası:** migration numarası yalnız tekrar için denetleniyor. İki dalda 0015 önce yayınlanıp 0014 sonra birleştirilirse goose sırasız migration'ı reddeder ve yayın durur (goose kaynağı okunarak).
+- **Süre sınırı:** canlı migration oturumunda `lock_timeout` ve `statement_timeout` yok; Deploy işlerinde `timeout-minutes` yok. Uzun süren bir kilidin arkasında bekleyen `ALTER TABLE`, o tabloya gelen bütün sorguları sıraya sokar.
+
+**Öneri:** CI'a "`release` şeması ve demo veri üzerine HEAD migration'ları" işini ekleyin. Yeni migration numarası `main` ve `release`'teki en büyük numaradan büyük olsun (`checks.sh`). Migration oturumuna `lock_timeout`, işlere süre sınırı koyun.
+
+**Kabul kriteri:** Dolu veride düşen bir migration PR'da kırmızı olur; sıra dışı numara Kurallar'da yakalanır.
+
+## F39 — Sınanan imaj çalışan imaj değil; geri dönüş denenmedi; CI zorunlu kontrol değil
+
+**Öncelik:** Düşük · CI/CD
+
+**Kaynaklar:** [.github/workflows/ci.yml](../.github/workflows/ci.yml), [.github/workflows/scan.yml](../.github/workflows/scan.yml), [PROCESS.md](PROCESS.md) §1 ve §5, [backend/internal/testdb/testdb.go](../backend/internal/testdb/testdb.go).
+
+- CI imajları iki kez, Northflank üçüncü kez derliyor. Trivy'nin taradığı imaj çalışan imaj değil ve geri alınacak hazır bir imaj yok.
+- Geri dönüş yolu (`git revert`, PR, CI, Deploy) hiç denenmedi; ilgisiz bir güvenlik açığı bulgusu bu yolu kapatabilir.
+- Zorunlu kontrol yalnız Kurallar: CI kırmızıyken PR birleştirilebilir (belgeye dayanıyor; GitHub ayarı görülmedi).
+- `TEST_DATABASE_URL` yoksa entegrasyon testleri sessizce atlanıyor. CI'da değişken adı değişirse testler koşmadan yeşil kalır.
+- `deploy.yml`'de action'lar etiketle sabit; `ci.yml`'de üçüncü taraf action'lar SHA ile.
+
+**Öneri:** Geri dönüşü bir kez deneyip adımlarını yazın. CI'da `REQUIRE_INTEGRATION=1` ile atlamayı hataya çevirin. Her zaman çalışan tek bir "kapı" işini zorunlu kontrol yapın. `deploy.yml`'deki action'ları SHA ile sabitleyin.
+
+**Kabul kriteri:** Geri dönüş adımları PROCESS.md'de ve bir kez uygulandı; entegrasyon testlerinin atlandığı bir CI koşusu kırmızı biter.
+
+## F40 — Küçük bulgular
+
+**Öncelik:** Düşük
+
+Kod okunarak; "(ölçüldü)" yazanlar dışında ayrıca denenmedi.
+
+- **Liste cevabı detay boyutunda:** her kitap açıklamasını (5.000 karaktere kadar) taşıyor; kartlar kullanmıyor. Liste için dar bir cevap biçimi yeter.
+- **NGINX:** API'ye her istekte yeni bağlantı açıyor (upstream `keepalive` yok). Çekirdek sayısı kadar işçi başlatıyor (yerelde 16, ölçüldü); 0,1 vCPU'da tek işçi yeter.
+- **Redis istemcisi:** `MaxRetries` varsayılanı 3, yani yavaşlamış bir Redis çağrı başına 2 saniyeye kadar bekletir; kod yorumu 500 ms varsayıyor. API açılışta Redis'e ulaşamazsa başlamıyor, çalışırken ulaşamazsa devam ediyor.
+- **Arayüzde lint yok** (hooks ve erişilebilirlik kuralları); karşıtlık betiği CI'da değil.
+- **Kaydırma ve odak:** sayfa ve rota değişiminde yönetilmiyor; "Sonraki"den sonra görünüm sayfanın altında kalıyor.
+- **BookDetail:** "puanım" effect'i `user` nesnesine bağlı olduğu için her yenilemede yeniden istek atıyor; puan kartı özet gelene kadar "Henüz puan yok" gösteriyor (kitap cevabında puan var).
+- **Yorum silme** onaysız. `/books/abc`, "bulunamadı" yerine 400 hata kutusu gösteriyor.
+- **API tutarsızlıkları:** bazı uçlar düz dizi, bazıları sayfa zarfı dönüyor; token cevaplarında `Cache-Control: no-store` yok; doğrulama hataları tek metin olarak geliyor.
+- **Tek giriş parçası:** 347 kB, canlıda brotli ile 112 kB (ölçüldü). Her yayında React ve router da yeniden iniyor; sabit bir vendor parçası bunu önler.
+- **Yazı tipleri** (yaklaşık 204 kB) önceden yüklenmiyor.
+
+**Bakıldı, sorun değil:** canlıda ağ geçidi statik dosyaları ve JSON'u brotli ile sıkıştırıyor ve HSTS başlığını ekliyor (ölçüldü). NGINX'te sıkıştırma olmaması yalnız compose ve Kubernetes kurulumunu etkiler.
+
+### İkinci incelemenin önerdiği sıra
+
+1. **Küçük ve etkisi hemen görülenler:** F35 (tek kelime), F30, F31, F29'un öneri yarısı ve F04'e eklenen kuyruk önerisi.
+2. **Gecikme:** F32 (ölçüm) ile F20 (taşıma) birlikte; ardından F21 ve F36.
+3. **Katalog büyümeden önce:** F24, F25, F26 ve F28.
+4. **Yayın güveni:** F22, F23 ve F38.
+5. **Arayüz:** F33 ve F34; F40'taki maddeler ilgili ekrana dokunulduğunda.
+
 ## Korunması gereken iyi tasarım kararları
 
 | Desen / yaklaşım | Değerlendirme |
@@ -375,6 +756,11 @@ DEPLOYMENT.md'nin bilinen sınırlar bölümünde refresh token'ın localStorage
 | Decorator / cache-aside | CachedService temel servisi anlaşılır şekilde sarıyor. |
 | Functional options | Moderasyonun cache'i doğrudan tanımadan hook ile haber vermesi uygun. |
 | Kimlik ve veri koruması | Sabit JWT algoritması, refresh hash saklama, httpOnly çerez, merkezi admin rota koruması ve parametreli SQL iyi temeller. |
+| Görünürlük SQL'de | Yayında olmayan kitabın sızmaması sorgunun kendisinde; public ve admin sorguları ayrı. |
+| Kişisel veri katalog cevabında yok | Katalog ve "en sevilenler" herkes için aynı; kitaplık durumu ayrı uçtan gelir. Önbelleğe ve arama işine zemin hazırlıyor. |
+| Genişlet → yayınla → daralt | 0011 ve 0013 yükseltme testleriyle birlikte; kuralın makineyle denetlenen kısmı `checks.sh`'ta. |
+| Kurallar test edilmiş betikte | Aynı betik kancalarda ve CI'da çalışıyor; yeni kural testiyle geliyor. |
+| Yayın yetkilerinin ayrılması | Sırrı taşıyan iş salt okunur; dalı ilerleten iş repo kodu çalıştırmıyor. |
 
 ## Önerilen uygulama sırası
 

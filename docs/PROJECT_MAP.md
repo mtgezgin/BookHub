@@ -169,6 +169,7 @@ bağlanmaz, sır kullanmaz; adres `BOOKHUB_API_URL` (varsayılan `http://localho
 | `0011` | `editions` (Faz 16): kitap başına tek varsayılanı garanti eden kısmi benzersiz index, her kitaba bir varsayılan baskı açan taşıma, **`book_view`** (kitap + varsayılan baskının kapağı ve sayfası; kitap okuyan her sorgu buradan) ([phase-16](phases/phase-16-works-editions.md)) |
 | `0012` | demo baskılar (veri): varsayılan baskıların dili / yayınevi / çevirmeni / yılı (Open Library) + 8 özgün dil baskısı; Down yok, `make demo-seed` ve ilk kurulum seed'den sonra yeniden çalıştırır |
 | `0013` | daraltma (Faz 16): varsayılan baskısı olmayan kitaba eski kolonlardan baskı açar, sonra `books.cover_url` ve `books.page_count`'u siler; Down kolonları varsayılan baskıdan geri doldurur |
+| `0014` | arama (Faz 16b, yayın bekliyor): `search_fold` (Türkçe duyarlı katlama) ve `search_tsquery`, kitap başına bir satırlık `book_search` belgesi (GIN index), onu `books` ve `editions` yazımlarında güncelleyen iki tetikleyici, ilk doldurma; Up başında `und-x-icu` koruması ve `lock_timeout` ([phase-16b](phases/phase-16b-search.md)) |
 
 `sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
 
@@ -204,7 +205,7 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
 | `public/theme-init.js` | temayı ilk boyamadan önce uygular (CSP satır içi betiğe izin vermediği için ayrı dosya) |
 | `e2e/` | Playwright senaryoları (`catalog`, `auth-flow`, `reuse`, `tabs`, `cross-origin`, `rating-comment`, `moderation`) + `env.ts`, `helpers.ts` (**rate limit bütçesi tablosu**), `global-setup.ts` |
 | `playwright.config.ts` | yalnız chromium, `baseURL` = `E2E_BASE_URL`, `trace: retain-on-failure`, CI'da 1 yeniden deneme |
-| `nginx/` | `default.conf` (auth + **password** rate limit zone'ları, `$api_host` map'i), `api-proxy.conf` (`Host` = `$http_host` → port korunur), `security-headers.conf` |
+| `nginx/` | `default.conf` (auth + **password** + **catalog** rate limit zone'ları, 429 için hata zarfı, sorgusuz `log_format bookhub`, `$api_host` map'i), `api-proxy.conf` (`Host` = `$http_host` → port korunur), `security-headers.conf` |
 | `Dockerfile` | node build → nginx-unprivileged **stable-alpine-slim** (uid 101, :8080), tabanlar digest ile pinli |
 
 ---

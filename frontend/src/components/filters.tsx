@@ -18,6 +18,26 @@ export const asQuery = (v: string | null) => {
   const s = (v ?? "").trim();
   return [...s].length <= MAX_QUERY ? s : "";
 };
+/**
+ * Yazarken arama (Enter'a basmadan) bu metin için yapılır mı? Metin kırpılmış hâliyle verilir.
+ *
+ * - Tek kelime: en az MIN_AUTO_SEARCH harf. Bir iki harfin öneki kataloğun büyük bölümüyle eşleşir:
+ *   sonuç işe yaramaz, sunucudaki en pahalı sorgu da budur (500 bin kitapta 2 harf ortanca 29 ms,
+ *   en kötü 180 ms; 3 harf 7,6 ms). Yazarken en çok istek de bu aşamada gider.
+ * - Birden çok kelime: son kelime en az 2 harf. "ince m" yazılırken kullanıcı yeni kelimenin ortasındadır;
+ *   tek harflik önek yine geniş eşleşir ve bir harf sonra zaten yeniden aranacaktır.
+ * - Boş metin her zaman geçerlidir: kutu boşalınca arama kalkar.
+ *
+ * Kural yalnız OTOMATİK aramayı sınırlar. Enter her uzunlukta arar ("Us", "O" gibi kısa adlar için).
+ */
+export const MIN_AUTO_SEARCH = 3;
+export const autoSearchable = (text: string) => {
+  if (text === "") return true;
+  const words = text.split(/\s+/);
+  const last = [...words[words.length - 1]].length; // kod noktası: ç, ğ tek harf
+  return words.length === 1 ? last >= MIN_AUTO_SEARCH : last >= 2;
+};
+
 export const asOffset = (v: string | null) => {
   const n = Number.parseInt(v ?? "0", 10);
   return Number.isFinite(n) && n > 0 && n <= MAX_OFFSET ? n : 0;

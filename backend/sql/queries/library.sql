@@ -25,11 +25,18 @@ DELETE FROM library_entries WHERE user_id = $1 AND book_id = $2;
 -- WHERE'in ikinci kopyası) gerekmez. Sayfa sonun ötesindeyse satır, dolayısıyla toplam da dönmez;
 -- repository o durumda ilk satırı ister.
 -- r.score dönüşümsüz kalır: LEFT JOIN'in "boş olabilir" bilgisi korunur (sqlc.yaml → *int16, nil = puanım yok).
+-- Arama katalogla aynı kuralla eşleşir (search_fold ve book_search; 0014_book_search.sql): Türkçe
+-- harf, aksan ve kelime sırası fark etmez, son kelime önek sayılır. q tek satırlık ve MATERIALIZED:
+-- arama ifadesi bir kez kurulur, kitaplıktaki her kayıt için yeniden hesaplanmaz.
 -- name: ListLibrary :many
+WITH q AS MATERIALIZED (
+    SELECT search_tsquery(search_fold(sqlc.narg('query')::text), '') AS tsq
+)
 SELECT sqlc.embed(b), le.status, le.created_at AS added_at, r.score AS my_rating,
        (b.status = 'APPROVED')::boolean AS in_catalog,
        count(*) OVER () AS total
 FROM library_entries le
+CROSS JOIN q
 JOIN book_view b ON b.id = le.book_id
 LEFT JOIN ratings r ON r.user_id = le.user_id AND r.book_id = le.book_id
 WHERE le.user_id = sqlc.arg('user_id')
@@ -38,9 +45,9 @@ WHERE le.user_id = sqlc.arg('user_id')
         SELECT 1 FROM book_genres bg
         JOIN genres g ON g.id = bg.genre_id
         WHERE bg.book_id = b.id AND g.slug = sqlc.narg('genre')))
-  AND (sqlc.narg('query')::text IS NULL
-       OR b.title  ILIKE '%' || sqlc.narg('query') || '%'
-       OR b.author ILIKE '%' || sqlc.narg('query') || '%')
+  AND (sqlc.narg('query')::text IS NULL OR EXISTS (
+        SELECT 1 FROM book_search s
+        WHERE s.book_id = le.book_id AND s.tsv @@ q.tsq))
   AND (sqlc.narg('rated')::text IS NULL OR (sqlc.narg('rated') = 'yes') = (r.user_id IS NOT NULL))
 ORDER BY
   CASE WHEN sqlc.arg('sort')::text = 'title' THEN b.title COLLATE "tr-x-icu" END ASC,

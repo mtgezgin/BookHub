@@ -386,10 +386,21 @@ func TestListBooksByRatingMatchesWeightedScoreRealDB(t *testing.T) {
 			"Kitap "+token, r.count, r.avg, r.id)
 	}
 
+	// Bu iki kitabı veritabanındaki diğerlerinden ayıran teste özgü bir tür: liste sorgusunun tek
+	// süzgeci türdür (metin araması SearchBooks'ta; aynı skorun oradaki testi books paketinde).
+	slug := testdb.Unique("agirlik-tur")
+	var genreID int64
+	if err := pool.QueryRow(context.Background(),
+		"INSERT INTO genres (name, slug) VALUES ($1, $1) RETURNING id", slug).Scan(&genreID); err != nil {
+		t.Fatalf("tür eklenemedi: %v", err)
+	}
+	t.Cleanup(func() { testdb.Exec(t, pool, "DELETE FROM genres WHERE id = $1", genreID) })
+	testdb.Exec(t, pool, "INSERT INTO book_genres (book_id, genre_id) VALUES ($1, $3), ($2, $3)", lucky, steady, genreID)
+
 	const m = 10
 	q := db.New(pool)
 	for _, c := range []float64{5, 8} {
-		got, err := q.ListBooksByRating(context.Background(), db.ListBooksByRatingParams{Query: &token, M: m, C: c, Limit: 10})
+		got, err := q.ListBooksByRating(context.Background(), db.ListBooksByRatingParams{Genre: &slug, M: m, C: c, Limit: 10})
 		if err != nil {
 			t.Fatalf("C=%v: liste okunamadı: %v", c, err)
 		}

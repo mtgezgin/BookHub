@@ -13,6 +13,8 @@ Dil-bağımsız backend/web kavramları: HTTP, API tasarımı, config/12-factor,
 6. [Middleware ve context: kimlik isteğe nasıl taşınır? (401 vs 403)](#6-middleware-ve-context-kimlik-isteğe-nasıl-taşınır-401-vs-403)
 7. [Ağırlıklı (Bayes) puan: neden basit ortalama sıralamaya yetmez?](#7-ağırlıklı-bayes-puan-neden-basit-ortalama-sıralamaya-yetmez)
 8. [Cache-aside ve rate limit: neden paylaşılan state (Redis)?](#8-cache-aside-ve-rate-limit-neden-paylaşılan-state-redis)
+9. [Bir isteğin süresi nereye gider? Gidiş-dönüş sayısı ve bölge yerleşimi](#9-bir-isteğin-süresi-nereye-gider-gidiş-dönüş-sayısı-ve-bölge-yerleşimi)
+10. [Bir isteğin iptali ve bağlantı havuzu: `ctx` sorguya ne zaman verilmez?](#10-bir-isteğin-iptali-ve-bağlantı-havuzu-ctx-sorguya-ne-zaman-verilmez)
 
 ---
 
@@ -390,3 +392,101 @@ yazma:  DB'ye yaz → COMMIT → Redis'teki anahtarı SİL (bir sonraki okuma ta
 - [backend/internal/ratings/cached.go](../../backend/internal/ratings/cached.go)
 - [backend/internal/ratelimit/ratelimit.go](../../backend/internal/ratelimit/ratelimit.go)
 - [docs/WHY_GO_VS_TS.md](../WHY_GO_VS_TS.md) §12
+
+---
+
+## 9. Bir isteğin süresi nereye gider? Gidiş-dönüş sayısı ve bölge yerleşimi
+
+**🗓️ Bağlam:** 2026-11-17, yazarken aramayı tasarlarken canlıyı ölçtük. Sorguların kendisi 1 ms'nin
+altındaydı ama katalog isteği 112–125 ms sürüyordu. İkinci incelemede "performans açısından neler
+daha iyi yapılmalıydı?" sorumun ilk cevabı bu oldu (F20).
+
+**⚡ Kısa cevap:** Bir isteğin süresi çoğu zaman sorguların süresi değil, **sorgu sayısı × ağ
+gidiş-dönüşüdür**. API Londra'da, veritabanı Frankfurt'ta: her sorgu yaklaşık 13 ms yolda bekler ve
+sorgular sırayla gider.
+
+**📖 Açıklama:**
+
+Canlı ölçüm bir merdiven gibi okunur (aynı bağlantı üzerinden):
+
+| İstek | Süre | Fark neyi gösteriyor |
+| --- | --- | --- |
+| `/health` (sorgu yok) | 74 ms | tarayıcı ile sunucu arası |
+| `/api/genres` (1 sorgu) | 86 ms | bir gidiş-dönüş ≈ 12 ms |
+| `/api/books` (3 sorgu) | 112–125 ms | üç gidiş-dönüş ≈ 40 ms |
+
+Uç başına sorgu sayısı: katalog listesi 3, kitap detayı 3, yorum listesi 3, puan verme 5, oturum
+yenileme 7. `BEGIN` ve `COMMIT` de birer gidiş-dönüştür. Anonim bir kitap sayfası dört API çağrısıyla
+11 sorgu çalıştırır ve aynı kitap satırını üç kez okur.
+
+Üç kaldıraç, etki sırasıyla:
+
+1. **Yan yana koymak:** uygulama ile veri aynı bölgedeyse gidiş-dönüş 1–2 ms'ye iner. Kod değişmez.
+2. **Tek sorguya indirmek:** `count(*) OVER ()` (sayfa + toplam), CTE, `jsonb_agg` (kitap + türleri).
+   Arama ucu böyle yazıldı: üç sorgu yerine bir.
+3. **Tek gidiş-dönüşte birkaç sorgu:** sürücünün toplu gönderimi (pgx `Batch`).
+
+**Önce ölç:** sayılar kod okunarak çıkarıldı, çünkü erişim logu yalnız toplam süreyi yazıyor. İsteğe
+sorgu sayısı ve veritabanı süresi eklenirse (F32) hangi kaldıracın gerektiği görünür.
+
+**JS/TS'te de aynı:** ORM'lerde bir `include` bazen tek sorgu, bazen N sorgudur; sayıyı görmeden
+bilinmez. Sorun dile değil, "her sorgu bir yolculuktur" gerçeğine ait.
+
+**🔗 İlgili:**
+- [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F20 (yerleşim ve sorgu sayıları), F32 (ölçüm)
+- [DEPLOYMENT.md](../DEPLOYMENT.md) §1 — canlı mimari ve bölgeler
+- [database.md](database.md) #19 — `count(*) OVER ()` ve sayımın bedeli
+- [#8 Cache-aside ve rate limit](#8-cache-aside-ve-rate-limit-neden-paylaşılan-state-redis) — önbellek de aynı yolu yürür
+
+---
+
+## 10. Bir isteğin iptali ve bağlantı havuzu: `ctx` sorguya ne zaman verilmez?
+
+**🗓️ Bağlam:** 2026-11-17, yazarken aramada tarayıcının eski isteği iptal etmesini düşünürken
+denedik: yarıda kesilen 20 istek API'ye 19 yeni veritabanı bağlantısı açtırdı ve 20 ERROR satırı
+bıraktı. GO_CONVENTIONS §1 "`ctx` her çağrıya verilir" diyor; bunun bir bedeli olabileceğini
+bilmiyordum.
+
+**⚡ Kısa cevap:** İstemci gidince `r.Context()` iptal olur. pgx, sorgusu uçuşta olan bağlantıyı
+**kapatır**, çünkü protokolün neresinde kaldığını bilemez. Milisaniyeler süren okumalarda sorguyu
+iptalden ayırıp kendi kısa süre sınırını vermek, bağlantıyı yeniden kurmaktan ucuzdur.
+
+**📖 Açıklama:**
+
+Zincir: tarayıcı isteği bırakır → NGINX bağlantıyı kapatır (loguna 499 yazar) → Go isteğin
+context'ini iptal eder → pgx bağlantıyı kapatır → sonraki istek yeni bağlantı kurar (canlıda TLS ve
+kimlik doğrulamayla birkaç gidiş-dönüş).
+
+Liste ve arama ucunda sorgu artık iptalden ayrı çalışıyor ([books.go](../../backend/cmd/api/books.go)):
+
+```go
+func detached(r *http.Request, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), timeout)
+}
+```
+
+`WithoutCancel` değerleri (istek kimliği) korur, iptali ve süre sınırını bırakır; `WithTimeout`
+sorgunun kendi tavanını koyar. Sorgu bitince istemci gitmişse gövde yazılmaz ve loga 499 düşer.
+
+| İş | `ctx` |
+| --- | --- |
+| Kısa okuma (liste, arama) | iptalden ayır, kısa süre sınırı ver |
+| Uzun ya da pahalı iş (rapor, dışa aktarma) | iptali dinle: kimse beklemiyorsa durmalı |
+| Commit'ten sonraki temizlik (önbellek silme) | iptalden ayır (`InvalidateTopRated`) |
+
+Sonuç (yerel yığın, 500 bin kitap): yarıda kesilen 40 istek 4 bağlantı açtırdı (eşzamanlılık için
+havuz büyümesi), ERROR satırı yok.
+
+**Başka bir yol:** pgx'in `CancelRequestContextWatcherHandler`'ı iptalde bağlantıyı kapatmak yerine
+sunucuya "sorguyu durdur" der. Denemede 20 iptal yeni bağlantı açtırmadı; iptal edilen çağrı yaklaşık
+100 ms geç döndü. Bağlantı havuzlayıcısı üzerinden denenmedi.
+
+**JS/TS'te fark (dürüst not):** Node'da istek kapanınca sorgu çoğu zaman kendiliğinden sürer, çünkü
+iptal sinyalini sürücüye taşımak ayrıca yazılması gereken bir iştir. Bu tuzak, Go'nun iyi bir
+alışkanlığının ("`ctx`'i her yere ilet") yan etkisi.
+
+**🔗 İlgili:**
+- [REVIEW_FEEDBACK.md](../REVIEW_FEEDBACK.md) F21 — ölçüm ve kalan kısım (diğer uçlar)
+- [GO_CONVENTIONS.md](../GO_CONVENTIONS.md) §1 — `ctx` kuralı
+- [cached.go](../../backend/internal/ratings/cached.go) (`InvalidateTopRated`) — commit'ten sonra iptalden ayrılan bir adım
+- [#1 Graceful shutdown](#1-graceful-shutdown-nedir-neden-önemli) — iptalin öbür yüzü: sunucu kapanırken
