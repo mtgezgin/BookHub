@@ -1,6 +1,6 @@
 # Faz 16d — Sunucu verisi TanStack Query ile
 
-> Durum: 📝 spec (2026-11-19), adım 1 başlamadı · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
+> Durum: 🚧 adım 1 tamam (kullanıcı okudu, 2026-11-19); adım 2–4 yazılıyor · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
 > [ROADMAP](../ROADMAP.md) · Bulgu: [REVIEW_FEEDBACK](../REVIEW_FEEDBACK.md) F33 ·
 > İlgili: [client.ts](../../frontend/src/api/client.ts), [usePaged.tsx](../../frontend/src/components/usePaged.tsx),
 > [Home.tsx](../../frontend/src/pages/Home.tsx), [BookDetail.tsx](../../frontend/src/pages/BookDetail.tsx)
@@ -62,11 +62,14 @@ yüklüyor. Hangi verinin yenileneceğini her seferinde yazan kişi hatırlamak 
 Varsayılan değerler (TanStack belgesine göre; adım 1'de kurulan paketin kaynağından doğrulanacak):
 `staleTime` 0, `gcTime` 5 dk, hata alan sorgu 3 kez yeniden denenir, pencereye dönünce bayat sorgular tazelenir.
 
-## 🎨 Kararlar (adım 1'de kullanıcıya sorulacak; önerilerle)
+## 🎨 Kararlar
+
+**Durum (2026-11-19):** kullanıcı "Devam" dedi; adım 1 önerilerle yazıldı. Okurken değiştirmek
+istediğin bir karar olursa adım commit edilmeden değiştirilir.
 
 | # | Konu | Öneri | Gerekçe |
 |---|---|---|---|
-| 1 | Sürüm | `@tanstack/react-query` tam sürümle sabitlenir (package.json'daki diğer paketler gibi) | Ölçülen sürüm 5.108.0: ~10,5 KB gzip |
+| 1 | Sürüm | `@tanstack/react-query` ve devtools **5.106.0**, tam sürümle sabit | 5.108.0 iki günlüktü; "en az iki haftalık sürüm" kuralıyla 4 Kasım'daki 5.106.0 seçildi |
 | 2 | `staleTime` | 30 sn (genel); türler gibi seyrek değişen veride daha uzun | 0 olursa sayfalar arası geçişte her şey yeniden çekilir; önbelleğin faydası azalır. Sunucudaki önbellekler zaten 60 sn |
 | 3 | Yeniden deneme | 4xx'te hiç, ağ ve 5xx hatasında 1 kez | 404'ü üç kez denemek anlamsız; `client.ts` 401'de oturumu zaten kendisi yeniliyor |
 | 4 | Çıkış | Çıkışta `queryClient.clear()` | Aynı tarayıcıda sonraki kişi öncekinin kitaplığını önbellekten görmesin (gizlilik) |
@@ -83,7 +86,28 @@ Her adım: **amaç**, **neden**, **sonuç** (yazıldıkça doldurulur), **bakıl
   `QueryClientProvider` ile sarmak, testler için bir yardımcı (`renderWithQuery`) eklemek.
 - **Neden:** sonraki her adım bunlara dayanır. Bu adımda hiçbir sayfa değişmez, böylece "kurulum bir şey
   bozdu mu" sorusu tek başına cevaplanır.
-- **Sonuç:** paket boyutu önce/sonra ölçümü; tüm testler yeşil.
+- **Sonuç (2026-11-19):**
+  - Varsayılanlar paketin kaynağında doğrulandı (`query-core/build/modern`): `retry` tarayıcıda 3
+    (`retryer.js`), `staleTime` 0 (`query.js` `isStaleByTime`), `gcTime` 5 dk (`removable.js`), pencere
+    odağında tazeleme açık (`queryObserver.js` `shouldFetchOn`: seçenek `false` değilse ve veri bayatsa).
+  - Ana paket: **110,7 → 118,1 KB gzip (+7,4 KB)**. Önceki 10,5 KB'lık ölçüm paketin tamamıydı;
+    Vite yalnız kullanılan parçaları alıyor. Sonraki adımlarda kanca kullanıldıkça biraz büyüyebilir;
+    sınır 12 KB.
+  - Geliştirici aracı üretim paketinde **yok** (`dist/assets` içinde arandı).
+  - vitest 385 → 388 (yeni 3 test), `tsc -b` temiz. Davranış değişmedi: hiçbir sayfa henüz sorgu kullanmıyor.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`frontend/src/lib/queryClient.ts`](../../frontend/src/lib/queryClient.ts): önbelleğin ayarları.
+     İki `NEDEN` yorumu: neden 30 sn, neden 4xx'te yeniden deneme yok.
+  2. [`frontend/src/main.tsx`](../../frontend/src/main.tsx): `QueryClientProvider` neden en dışta, önbellek
+     neden bileşenin dışında kuruluyor, geliştirici aracı neden üretime girmiyor.
+  3. [`frontend/src/lib/queryClient.test.ts`](../../frontend/src/lib/queryClient.test.ts): kuralların testi.
+  4. [`frontend/src/test/render.tsx`](../../frontend/src/test/render.tsx) `withQuery`: testlerde neden her
+     seferinde yeni bir önbellek.
+  5. `package.json`: iki yeni satır. `package-lock.json`'daki ~480 satır paketlerin kendi bağımlılık
+    kayıtları; okumana gerek yok.
+- **Kendin dene:** `make dev` (ya da `cd frontend && npm run dev`), sayfanın sağ altında küçük bir TanStack
+  simgesi çıkar. Tıklayınca panel açılır; şimdilik boştur (henüz hiçbir sayfa sorgu kullanmıyor). Adım 2'den
+  sonra orada `["genres"]` kaydını göreceksin.
 
 ### Adım 2 — Türler: en basit okuma ve paylaşılan önbellek
 
