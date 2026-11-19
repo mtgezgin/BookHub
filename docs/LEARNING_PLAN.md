@@ -4,6 +4,12 @@
 > sonra yazıldı. Amacı: yeni bir oturum açıldığında "nerede kalmıştık, ne öğreneceğiz, nasıl"
 > sorularının cevabını sıfırdan türetmeye gerek kalmaması.
 > Durum ve mimari için: [STATUS.md](STATUS.md) · [PROJECT_MAP.md](PROJECT_MAP.md)
+>
+> **Not (2026-11-19):** "nerede kalmıştık" kısmı tarihseldir; güncel başlangıç noktası
+> [STATUS.md](STATUS.md). Çalışma modunun kuralları (kavram → deney → kod; kod asistandan, kullanıcı
+> okuyup onaylar) hâlâ geçerli ve özeti [CLAUDE.md](../CLAUDE.md)'de. Faz 16d'den beri ek bir yol var:
+> asistan bir adımı commit etmeden yazar, spec'te "amaç / neden / sonuç / bakılacak yerler" bölümünü
+> doldurur; kullanıcı editörde okuyup "tamam" deyince commit edilir.
 
 ## 1. Ne oldu, neden bu plan var
 

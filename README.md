@@ -15,7 +15,11 @@ içindeki Türkçe yorumlar "neden böyle"yi anlatır; her faz bir kavram öğre
 
 ## Özellikler
 
-- **Katalog:** arama (başlık/yazar), tür filtresi, sayfalama; kitap detayı, tür etiketleri.
+- **Katalog:** Türkçe duyarlı arama (başlık/yazar; "ince memed" "İnce Memed"i bulur) ve yazarken arama,
+  tür süzgeci, sıralama, sayfalama; kitap detayı, tür etiketleri. Eser ve baskı ayrımı: kitap sayfasında
+  "Diğer baskılar". Sorgular 500 bin kitapta ölçülerek tasarlandı (milisaniyenin altında liste).
+- **Kişisel kitaplık:** dört durumla gizli kitaplık (okumak istiyorum, şu an okuyorum, okudum, yarım bıraktım),
+  kartlarda durum rozeti, süzgeçleri adreste duran "Kitaplığım" sayfası.
 - **Kimlik:** kayıt/giriş, JWT (HS256, algoritma sabitli) + tek kullanımlık, döndürülen refresh
   token **httpOnly çerezte** (`SameSite=Strict`, `Secure`); token **ailesi** + yeniden kullanım
   (reuse) tespiti ve mutlak oturum tavanı; parola değişimi tüm cihazları düşürür; USER/ADMIN
@@ -27,19 +31,23 @@ içindeki Türkçe yorumlar "neden böyle"yi anlatır; her faz bir kavram öğre
 - **Sıralama:** `WR = v/(v+m)·R + m/(v+m)·C` sorgu anında; Redis cache (~8.8× verim).
 - **Koruma:** IP başına rate limit (Redis ile çok kopyada paylaşılan), güvenilen proxy'den gerçek
   IP, cross-origin yazma isteklerinin reddi (CSRF), CSP ve güvenlik başlıkları, root olmayan
-  konteynerler, imaj açık taraması (Trivy).
+  konteynerler, imaj ve bağımlılık açık taraması (Trivy, Dependabot, bağımlılık incelemesi).
+- **İşletme:** testlere bağlı yayın (yalnız CI'ın test ettiği commit canlıya çıkar, migration'lar
+  yeni koddan önce), istek başına süre bütçesi, erişim logunda veritabanı ve Redis süresi,
+  OpenTelemetry iz ve metrikleri (yerelde Grafana + Prometheus).
 
 ## Yığın
 
 | Katman | Teknoloji |
 |---|---|
-| API | Go 1.27 · chi · pgx/v5 · sqlc (ORM yok) · goose · slog |
-| Veri | PostgreSQL 16 · Redis 7 |
+| API | Go 1.27 · chi · pgx/v5 · sqlc (ORM yok) · goose · slog · OpenTelemetry |
+| Veri | PostgreSQL (yerelde 16; canlıda Supabase) · Redis 7 (canlıda Upstash) |
 | Web | React 19 · TypeScript · Vite · react-router |
-| Altyapı | Docker (distroless) · Docker Compose · NGINX · Kubernetes (kind) · GitHub Actions |
+| Altyapı | Docker (distroless) · Docker Compose · NGINX · Kubernetes (kind) · GitHub Actions · Northflank |
+| Kalite | Go testleri (gerçek Postgres/Redis) · vitest · Playwright · golangci-lint · SonarCloud · Trivy |
 
 ```
-tarayıcı ──▶ NGINX (statik frontend, /api proxy, CSP) ──▶ Go API (×2) ──▶ PostgreSQL
+tarayıcı ──▶ NGINX (statik frontend, /api proxy, CSP) ──▶ Go API ──▶ PostgreSQL
                                                               └──────────▶ Redis (cache, rate limit)
 ```
 
@@ -72,9 +80,12 @@ make help        # tüm hedefler
 Tarayıcıyı bir kereliğine indir: `cd frontend && npm run e2e:browsers`.
 
 Git kancaları (commit ve push öncesi repo kuralları, bir kez):
-`git config core.hooksPath .githooks` ve `brew install gitleaks shellcheck actionlint sqlc golangci-lint`.
-gitleaks zorunlu; diğerleri yoksa o kontrol yerelde atlanır, CI'daki **Kurallar** işi yine denetler
-([PROCESS](docs/PROCESS.md)).
+`git config core.hooksPath .githooks`, sonra araçlar: macOS'ta
+`brew install gitleaks shellcheck actionlint sqlc golangci-lint`; Windows'ta winget (Go, gitleaks,
+golangci-lint) ve Git Bash. gitleaks zorunlu; diğerleri yoksa o kontrol yerelde atlanır, CI'daki
+**Kurallar** işi yine denetler ([PROCESS](docs/PROCESS.md)).
+
+Gözlemlenebilirlik (yerel): `make obs-up` → Grafana http://localhost:3002, Prometheus http://localhost:9090.
 
 Kubernetes (yerel kind kümesi): `make k8s-up` → `make k8s-port` → http://localhost:3001.
 
@@ -86,7 +97,8 @@ Kubernetes (yerel kind kümesi): `make k8s-up` → `make k8s-port` → http://lo
 | `GET /api/books/{id}/comments` · `/ratings/summary` | herkes |
 | `POST /api/auth/register\|login\|refresh\|logout` · `GET /api/auth/me` | — / giriş |
 | `POST /api/auth/password` (parola değiştir; diğer tüm oturumları kapatır) | giriş |
-| `POST /api/books/suggestions` · `POST /api/books/{id}/comments` · `GET/PUT/DELETE /api/books/{id}/rating` | giriş |
+| `POST /api/books/suggestions` (kapak adresi kabul edilmez) · `POST /api/books/{id}/comments` · `GET/PUT/DELETE /api/books/{id}/rating` | giriş |
+| `GET /api/me/library` (süzgeçli) · `GET /api/me/library/statuses` (toplu) · `PUT/DELETE /api/me/library/{id}` | giriş |
 | `/api/admin/books…` (kuyruk, approve/reject/restore, PATCH, DELETE=arşiv, audit) · `POST /api/admin/books/{id}/editions` · `PATCH/DELETE /api/admin/editions/{id}` · `POST …/editions/{id}/primary` · `/api/admin/genres…` · `DELETE /api/admin/comments/{id}` | admin |
 
 Hata zarfı her yerde aynı: `{"error":{"code":"…","message":"…"}}`; her cevapta `X-Request-Id`.
@@ -94,8 +106,9 @@ Hata zarfı her yerde aynı: `{"error":{"code":"…","message":"…"}}`; her cev
 ## Dokümanlar
 
 - [docs/STATUS.md](docs/STATUS.md) — neredeyiz (oturum devri)
+- [docs/ROADMAP.md](docs/ROADMAP.md) — hangi sırayla ve neden
 - [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md) — neyin ne olduğu (dosya haritası, istek yolculuğu)
-- [docs/phases/](docs/phases/) — 13 fazın rehberleri · [docs/learning-notes/](docs/learning-notes/) — kavram notları
+- [docs/phases/](docs/phases/) — faz rehberleri ve spec'ler · [docs/learning-notes/](docs/learning-notes/) — kavram notları
 - [docs/REVIEW_FEEDBACK.md](docs/REVIEW_FEEDBACK.md) — inceleme bulguları ve çözüm kayıtları (canlı backlog)
 - [docs/WHY_GO_VS_TS.md](docs/WHY_GO_VS_TS.md) — Go vs TS: ölçülmüş, dürüst karşılaştırma
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — canlı kurulum (Northflank + Supabase + Upstash) ve yayın akışı
