@@ -1,6 +1,6 @@
 # Faz 16d — Sunucu verisi TanStack Query ile
 
-> Durum: 🚧 adım 1 tamam (kullanıcı okudu, 2026-11-19); adım 2–4 yazılıyor · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
+> Durum: 🚧 adım 1–4 tamam (kullanıcı okudu, 2026-11-19); sıradaki adım 5 · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
 > [ROADMAP](../ROADMAP.md) · Bulgu: [REVIEW_FEEDBACK](../REVIEW_FEEDBACK.md) F33 ·
 > İlgili: [client.ts](../../frontend/src/api/client.ts), [usePaged.tsx](../../frontend/src/components/usePaged.tsx),
 > [Home.tsx](../../frontend/src/pages/Home.tsx), [BookDetail.tsx](../../frontend/src/pages/BookDetail.tsx)
@@ -116,6 +116,14 @@ Her adım: **amaç**, **neden**, **sonuç** (yazıldıkça doldurulur), **bakıl
   önbellek paylaşımı burada görülür.
 - **Kendin dene:** Ağ sekmesinde ana sayfadan Kitaplığım'a geçince `/api/genres` isteğinin **ikinci kez
   gitmediğini** görmek.
+- **Ne yapıldı (2026-11-19, adım 2–4 tek okuma turu: üçü de ana sayfayı ilgilendiriyor):**
+  - Yeni dosya [`frontend/src/api/queries.ts`](../../frontend/src/api/queries.ts): bütün okuma kancaları ve
+    sorgu anahtarları tek yerde (`queryKeys`). Anahtarlar hiyerarşik: `["books", …]` ile başlayan her şey
+    kitap listesidir; adım 6'da moderasyon onayından sonra tek satırla hepsi tazelenecek.
+  - `useGenres()`: `staleTime` 5 dk (genel 30 sn yerine; türleri yalnız admin, nadiren değiştirir).
+  - `Library.tsx`'te `useState` + `useEffect` yerine tek satır: `useGenres().data ?? []`.
+- **Neden anahtarlar ayrı bir nesnede:** bir veri bir yerde okunur, başka bir yerde "geçersiz" ilan edilir. İki
+  yer anahtarı ayrı ayrı yazarsa, biri değişince öteki hiçbir hata vermeden boşa düşer.
 
 ### Adım 3 — Katalog listesi: parametreli sorgu ve eski cevap koruması
 
@@ -125,10 +133,46 @@ Her adım: **amaç**, **neden**, **sonuç** (yazıldıkça doldurulur), **bakıl
   cevap kendi anahtarına yazılır, ekran yalnız güncel anahtarı gösterir. Elle yazılmış bayrak silinir.
 - **Sonuç:** eski cevap yarışı için bir test (yavaş ilk istek, hızlı ikinci istek; ekranda ikincisi kalır).
 - **Kendin dene:** bir türe girip geri dönünce katalog **anında** görünür (önbellekten), sonra arka planda tazelenir.
+- **Ne yapıldı:** `Home.tsx`'teki üç `useState` (sayfa, hata, yükleniyor) ve `current` bayraklı `useEffect`
+  gitti; yerine `useBooks({ q, genre, limit, offset, sort })`.
+  - `listError` artık `books.error`: hata anahtara bağlı olduğu için filtre değişince eski hata
+    kendiliğinden kalkar (eskiden `setListError(null)` ile elle siliniyordu).
+  - `loading` artık `books.isPlaceholderData`: yeni anahtarın cevabı beklenirken önceki sayfa soluk
+    görünür. Bir fark var: aynı anahtarın arka planda tazelenmesi (pencereye dönünce) listeyi
+    **soluklaştırmaz**. Eskiden her istek soluklaştırıyordu; bu bilinçli bir iyileştirme.
+- **Sonuç:** spec'in istediği "eski cevap yarışı testi" zaten vardı ve yeni kod da ondan geçiyor:
+  `Home.test.tsx` "geç gelen ESKİ liste cevabı yeni filtrenin üstüne YAZMAZ" ve "geç gelen ESKİ isteğin
+  HATASI da yutulur". İki testin ikisi de elle yazılmış bayrağı sınıyordu; şimdi aynı davranışı
+  TanStack'in anahtar mantığı sağlıyor. Testin kendisi değişmedi.
+- **Test altyapısında öğrenilen bir şey:** testler ilk denemede 22 yerde kırıldı. TanStack, önbellek
+  değişikliğini bileşenlere `setTimeout(0)` ile bildiriyor (`query-core/notifyManager.js`); testlerin
+  `act(async () => {})` beklemesi zamanlayıcıyı beklemiyor. Cevap önbelleğe geliyor, ekrana gelmiyordu.
+  Tek tek koşunca geçmesi bu yüzden yanıltıcıydı. Çözüm `test/render.tsx`'te tek satır:
+  `notifyManager.setScheduler(queueMicrotask)`. Uygulamanın davranışı aynı, yalnız testteki zamanlama
+  değişiyor.
 
 ### Adım 4 — En sevilenler şeridi
 
 - **Amaç:** `topRated` çağrısını sorguya çevirmek. Küçük adım; adım 3'teki kalıbın tekrarı.
+- **Ne yapıldı:** `useTopRated(5)`. Anahtar `["books", "top-rated", 5]`: şerit de bir kitap listesi,
+  `["books"]` geçersiz kılınınca o da tazelenir. Şerit ve tür hatası eskisi gibi ortak kutuda (`error`).
+- **Sonuç (adım 2–4 birlikte):**
+  - vitest 388/388 (yeni test yok: davranış değişmedi; mevcut 51 Home testi aynen geçiyor).
+  - Playwright 20/20 (yerel, gerçek tarayıcı ve gerçek API; katalog, arama ve kitaplık senaryoları dahil).
+  - Ana paket: 118,1 → **120,7 KB gzip** (başlangıçtan +10,0 KB; sınır 12 KB). Kalan adımlarda
+    `useMutation` eklenecek; sınıra yaklaşırsa ölçüp söyleyeceğim.
+  - `Home.tsx`: −2 `useEffect`, −5 `useState`.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`frontend/src/api/queries.ts`](../../frontend/src/api/queries.ts): yeni dosyanın tamamı; üç kanca ve yorumları.
+  2. `frontend/src/pages/Home.tsx`: Source Control'de sol (eski) ve sağ (yeni) hâli yan yana. 34–68. satırların
+     yerine gelen blok asıl değişiklik.
+  3. `frontend/src/pages/Library.tsx`: türler kısmı (küçük).
+  4. `frontend/src/test/render.tsx`: `setScheduler` satırı ve yorumu.
+  5. `Home.test.tsx`, `Library.test.tsx`, `App.test.tsx`: yalnız bileşen `withQuery(…)` ile sarıldı.
+- **Kendin dene:** `make dev`, ana sayfa. Sağ alttaki TanStack panelinde üç kayıt: `["genres"]`,
+  `["books","top-rated",5]`, `["books","list",{…}]`. Bir türe tıkla: yeni bir `list` kaydı açılır, eskisi
+  durur. "Tümü"ye dön: liste **beklemeden** gelir (önbellekten). Kitaplığım'a geç: Ağ sekmesinde
+  `/api/genres` isteği gitmez.
 
 ### Adım 5 — Kitap sayfası ve ilk değişiklik (mutation)
 

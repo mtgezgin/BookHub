@@ -1,8 +1,7 @@
 import { Search, SearchX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api } from "../api/client";
-import type { Book, Genre, Page, TopRated } from "../api/types";
+import { useBooks, useGenres, useTopRated } from "../api/queries";
 import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
@@ -31,41 +30,27 @@ export function Home() {
   const sort: "" | "rating" | "newest" = sortParam === "rating" ? "rating" : sortParam === "newest" && q !== "" ? "newest" : "";
   const offset = asOffset(params.get("offset"));
 
-  const [page, setPage] = useState<Page<Book> | null>(null);
-  const [genres, setGenres] = useState<Genre[]>([]);
-  const [top, setTop] = useState<TopRated | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  // Liste hatası ayrı: yeni bir liste isteği yalnız KENDİ eski hatasını temizler (tür/şerit
-  // hatası kalır).
-  const [listError, setListError] = useState<unknown>(null);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(q);
 
-  useEffect(() => {
-    api.genres().then(setGenres).catch(setError);
-    api.topRated(5).then(setTop).catch(setError);
-  }, []);
-
-  // ESKİ CEVAP KORUMASI (usePaged'deki ile aynı dert, burada elle): filtre değişince yeni
-  // bir istek gider ama ÖNCEKİ istek hâlâ uçuyordur. Filtresiz sorgu tüm katalogu taradığı
-  // için tipik olarak daha YAVAŞTIR → "Dune" araması 47 ms'de dönerken 243 ms'lik filtresiz
-  // cevap sonra gelip ızgaranın üstüne yazıyordu: URL ?q=Dune, liste ise tüm kitaplar.
-  // (Playwright'in catalog senaryosu tam bu yüzden kırmızı yandı; katalog büyüdükçe fark
-  // açıldığı için hata "ara sıra" görünüyordu.) Temizlik fonksiyonu effect yeniden koşmadan
-  // ÖNCE çalışır: geç gelen cevabı sessizce düşürüyoruz.
-  useEffect(() => {
-    let current = true;
-    setListError(null);
-    setLoading(true);
-    // sort yalnız varsayılan değilken gider: istek adresi gereksiz yere uzamasın.
-    api.books({ q, genre, limit: PAGE, offset, ...(sort && { sort }) })
-      .then((p) => current && setPage(p))
-      .catch((e) => current && setListError(e))
-      .finally(() => current && setLoading(false));
-    return () => {
-      current = false;
-    };
-  }, [q, genre, offset, sort]);
+  // Sunucu verisi üç sorgudan gelir (Faz 16d adım 2–4; kancalar api/queries.ts'te). Eskiden burada üç
+  // useState, iki useEffect ve elle bir "current" bayrağı vardı.
+  //
+  // ESKİ CEVAP KORUMASI artık useBooks'un içinde: "Dune" araması dönmüşken geç gelen filtresiz cevap
+  // kendi önbellek kaydına yazılır, ekrana çıkmaz (gerçek hata: Playwright catalog senaryosu; testler
+  // "geç gelen ESKİ liste cevabı…" ve "…HATASI da yutulur").
+  const genres = useGenres();
+  const topRated = useTopRated(5);
+  // sort yalnız varsayılan değilken gider: istek adresi (ve önbellek anahtarı) gereksiz yere uzamasın.
+  const books = useBooks({ q, genre, limit: PAGE, offset, ...(sort && { sort }) });
+  const page = books.data;
+  const top = topRated.data;
+  // Liste hatası anahtara bağlı: filtre değişince yeni anahtarın hatası yoktur, eski hata kendiliğinden
+  // kalkar. Tür ya da şerit hatası ayrı sorgularda olduğu için listeyle birlikte silinmez.
+  const listError = books.error;
+  const error = genres.error ?? topRated.error;
+  // Yeni anahtarın cevabı beklenirken önceki sayfa "yer tutucu" olarak ekranda: soluk ve meşgul göster.
+  // Aynı anahtarın arka planda tazelenmesi (pencereye dönünce) listeyi soluklaştırmaz.
+  const loading = books.isPlaceholderData;
 
   // Gecikmeli çağrılar aşağıdaki `latest` üzerinden son render'ın update'ini kullanır (bkz. useParamUpdater).
   const update = useParamUpdater(setParams);
@@ -137,7 +122,7 @@ export function Home() {
 
   const filtered = q !== "" || genre !== "";
   // Puan sırasında şerit, listenin başıyla aynı şeyi gösterirdi.
-  const showTop = !filtered && sort === "" && offset === 0 && top !== null && top.items.length > 0;
+  const showTop = !filtered && sort === "" && offset === 0 && top !== undefined && top.items.length > 0;
   // Izgara ve şerit için TEK istek: kimlikler birleşir, tekrarları kanca ayıklar.
   const statuses = useLibraryStatuses([...(page?.items ?? []), ...(showTop && top ? top.items : [])].map((b) => b.id));
 
@@ -169,7 +154,7 @@ export function Home() {
         </p>
         <div role="group" aria-label="Türler" className="-mx-1 mt-1 flex gap-2 overflow-x-auto px-1 pb-1">
           <Chip active={genre === ""} onClick={() => select({ genre: "" })}>Tümü</Chip>
-          {genres.map((g) => (
+          {(genres.data ?? []).map((g) => (
             <Chip key={g.id} active={genre === g.slug} onClick={() => select({ genre: g.slug })}>{g.name}</Chip>
           ))}
         </div>

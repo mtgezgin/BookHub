@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withQuery } from "../test/render";
 import type { Book, LibraryItem, LibraryStatus, Page } from "../api/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,14 +63,16 @@ async function render(path: string) {
   const root = createRoot(el);
   act(() =>
     root.render(
-      <ToastProvider>
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/library" element={<><Library /><Probe /></>} />
-            <Route path="/" element={<p>katalog</p>} />
-          </Routes>
-        </MemoryRouter>
-      </ToastProvider>,
+      withQuery(
+        <ToastProvider>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/library" element={<><Library /><Probe /></>} />
+              <Route path="/" element={<p>katalog</p>} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>,
+      ),
     ),
   );
   cleanup.push(() => {

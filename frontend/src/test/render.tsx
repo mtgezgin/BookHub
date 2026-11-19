@@ -1,5 +1,5 @@
 import { act } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { notifyManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { afterEach } from "vitest";
 
@@ -18,6 +18,12 @@ export function render(node: React.ReactNode): HTMLDivElement {
   cleanup.push(() => act(() => root.unmount()));
   return el;
 }
+
+// TanStack, önbellekteki değişiklikleri bileşenlere toplu ve setTimeout(0) ile bildirir
+// (query-core notifyManager.js: defaultScheduler = systemSetTimeoutZero). Testlerin `act(async () => {})`
+// beklemesi mikro görevleri boşaltır ama zamanlayıcıları BEKLEMEZ: cevap önbelleğe gelir, ekrana gelmez.
+// Testte bildirimi mikro göreve alıyoruz; davranış aynı, yalnız zamanlama act'in gördüğü yere taşınıyor.
+notifyManager.setScheduler(queueMicrotask);
 
 /**
  * withQuery: bileşeni TAZE bir önbellekle sarar (Faz 16d). Her test kendi önbelleğini alır; yoksa bir

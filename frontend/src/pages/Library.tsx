@@ -2,7 +2,8 @@ import { BookMarked, Search, SearchX } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { Genre, LibraryItem, LibraryStatus, Page } from "../api/types";
+import { useGenres } from "../api/queries";
+import type { LibraryItem, LibraryStatus, Page } from "../api/types";
 import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
@@ -42,7 +43,6 @@ export function Library() {
 
   const toast = useToast();
   const [page, setPage] = useState<Page<LibraryItem> | null>(null);
-  const [genres, setGenres] = useState<Genre[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(q);
@@ -52,9 +52,10 @@ export function Library() {
 
   const update = useParamUpdater(setParams);
 
-  useEffect(() => {
-    api.genres().then(setGenres).catch(() => {});
-  }, []);
+  // Türler Home ile AYNI önbellek kaydından gelir (api/queries.ts useGenres): Home'dan buraya geçince istek
+  // ikinci kez gitmez. Hata bilerek gösterilmez (eskiden de öyleydi): türler yalnız süzgeç çipleri, kitaplık
+  // onlarsız da kullanılabilir.
+  const genres = useGenres().data ?? [];
   useEffect(() => {
     setSearch(q);
   }, [q]);
