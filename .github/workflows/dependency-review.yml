@@ -1,0 +1,38 @@
+# Bağımlılık incelemesi (#108) — bir PR'ın EKLEDİĞİ ya da YÜKSELTTİĞİ paketleri bilinen açıklara karşı
+# denetler; HIGH ya da CRITICAL açıklı bir paket gelirse PR kırmızı biter.
+#
+# NEDEN: Trivy yalnız yayınlanan İMAJLARI tarar. Web imajında derlenmiş JS var ama package-lock yok;
+# bu yüzden bir React ya da Vite paketinin açığı Trivy'de hiç görünmez. Dependabot güvenlik uyarıları
+# (repo ayarı, 2026-11-19'da açıldı) açık DUYURULUNCA haber verir; bu iş ise açıklı paketin repoya
+# GİRMESİNİ birleştirmeden önce durdurur. İkisi birbirini tamamlar.
+#
+# Nasıl çalışır: GitHub'ın bağımlılık grafiğinden PR'ın base ve head'i arasındaki farkı alır (go.mod,
+# package-lock.json, iş akışlarındaki action'lar) ve GitHub Advisory Database'e sorar. Kod çalıştırmaz,
+# sır kullanmaz. Public repoda ücretsiz.
+#
+# Eşik Trivy ile aynı (HIGH, CRITICAL): ikisi farklı olursa "biri geçiriyor öteki durduruyor" karışıklığı
+# çıkar.
+name: Bağımlılık incelemesi
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Bağımlılık incelemesi
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high

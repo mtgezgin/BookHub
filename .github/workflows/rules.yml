@@ -19,10 +19,19 @@ on:
 permissions:
   contents: read
 
+# Aynı PR'a yeni bir push gelince o PR'ın ESKİ koşusu iptal edilir: sonucu artık kimseyi ilgilendirmez
+# ve sırada dakika tutar. main'de grup commit'e özeldir (github.sha), yani hiçbir koşu iptal edilmez:
+# Deploy, main'deki her CI koşusunun SONUCUNU bekler (#108).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   rules:
     name: Kurallar (scripts/checks.sh)
     runs-on: ubuntu-latest
+    # Süre sınırı (#108): varsayılan 6 saat; bu iş genelde ~40 sn sürer.
+    timeout-minutes: 10
     env:
       # Olay verisi run: bloklarına ${{ }} ile değil ortam değişkeniyle girer (script injection'a karşı).
       PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -33,14 +42,14 @@ jobs:
       # PR'da varsayılan, GitHub'ın deneme birleştirmesidir; kurallar ise PR'ın kendi commit'ine bakar.
       # Araç kontrolleri (sqlc, tidy, lint) de aynı ağaçta koşsun diye PR head'i çekilir.
       - name: Checkout (tüm geçmiş ve dallar; aralık ve origin/release gerekiyor)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
 

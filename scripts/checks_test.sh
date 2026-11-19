@@ -242,6 +242,21 @@ go_file backend/internal/telemetry/telemetry.go 'package telemetry'
 go_file backend/internal/telemetry/telemetry_test.go 'package telemetry' '// otelhttp burada yalnız bir test açıklamasında geçiyor'
 expect pass "test dosyaları kuralın dışındadır" staged
 
+echo "▶ action sabitleme"
+new_repo pinning
+mkdir -p .github/workflows
+wf() { printf 'jobs:\n  a:\n    steps:\n%s\n' "$1" >.github/workflows/a.yml && git add .github/workflows/a.yml; }
+wf '      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1'
+expect pass "SHA ile sabitlenmiş action geçer" staged
+wf '      - uses: actions/checkout@v7'
+expect fail:"action commit SHA'sıyla sabitlenmeli" "etiketle çağrılan action durur" staged
+wf '        uses: "actions/setup-go@main"'
+expect fail:"action commit SHA'sıyla sabitlenmeli" "dal adıyla (tırnaklı) çağrılan action durur" staged
+wf '      - uses: ./.github/actions/yerel'
+expect pass "yerel action kuralın dışındadır" staged
+wf '      # uses: actions/checkout@v7 (yalnız yorum)'
+expect pass "yorum satırı kuralın dışındadır" staged
+
 echo "▶ sır taraması"
 if command -v gitleaks >/dev/null 2>&1; then
 	new_repo secrets
