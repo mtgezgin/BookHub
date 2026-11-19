@@ -1,6 +1,6 @@
 # BookHub — Yol haritası (ROADMAP)
 
-> Son güncelleme: **2026-11-17**. Bu dosya tek bir soruyu cevaplar: **hangi sırayla ve neden?**
+> Son güncelleme: **2026-11-19**. Bu dosya tek bir soruyu cevaplar: **hangi sırayla ve neden?**
 > "Ne yapılabilir?" → [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) (ürün) ve
 > [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) (teknik bulgular). "Neredeyiz?" → [STATUS.md](STATUS.md).
 
@@ -17,8 +17,13 @@ Gerçek kullanıcıya açılma kararı verilirse Faz 18 (katkı ve hesap) ile ca
 
 ## Neredeyiz
 
-- **Platform hazır:** Faz 1–14 bitti — API, veritabanı, auth, moderasyon, puan, önbellek, Docker,
-  React, CI/CD, NGINX, Kubernetes, oturum sertleştirme, arayüz ([STATUS](STATUS.md)).
+- **Platform hazır:** Faz 1–16c bitti — API, veritabanı, auth, moderasyon, puan, önbellek, Docker,
+  React, CI/CD, NGINX, Kubernetes, oturum sertleştirme, arayüz, kişisel kitaplık, eser ve baskı, Türkçe
+  arama, büyük katalog için sorgular ([STATUS](STATUS.md)).
+- **Faz 17'den önce (kullanıcı kararı, 2026-11-17/18):** ikinci incelemenin düzeltmeleri. Partiler
+  A, B, index'ler, arayüz sağlamlığı ve yayın güveni canlıda (#90–#95); sürenler: arayüz veri katmanı
+  (Faz 16d, [#105](https://github.com/mtgezgin/BookHub/issues/105)) ve yedek
+  ([#100](https://github.com/mtgezgin/BookHub/issues/100)).
 - **Ürün döngüsünün ilk adımı canlıda (2026-10-25):** Faz 15 ile "kitaplığına ekle" tamam — LIB-01 ve
   LIB-02, SOC-02'nin varsayılan gizlilik yarısı. 17 Ekim'deki durum: 34 maddenin 7'si kısmen vardı, 27'si
   yoktu ([FEATURE_REQUESTS § Durum özeti](FEATURE_REQUESTS.md#durum-özeti-17-ekim-2026)).
@@ -32,9 +37,11 @@ Gerçek kullanıcıya açılma kararı verilirse Faz 18 (katkı ve hesap) ile ca
 | --- | --- | --- | --- | --- |
 | ✅ | 15 — Kişisel kitaplık | Paket A: LIB-01, LIB-02, CAT-01'in kitaplık bölümü, SOC-02'nin "varsayılan gizli" kuralı; UX-01/02 kabul koşulu | En büyük ürün boşluğu: kullanıcının geri döneceği alan. Baskılara bağımlı değil (kitaplık kaydı kullanıcı–eser ilişkisi). | [canlıda](phases/phase-15-personal-library.md) (2026-10-25; [#42](https://github.com/mtgezgin/BookHub/issues/42), PR [#43](https://github.com/mtgezgin/BookHub/pull/43)) |
 | ✅ | 16 — Eser ve baskı | CAT-02 ([#36](https://github.com/mtgezgin/BookHub/issues/36)) | Okuma kaydının sayfa toplamı baskıdan gelecek (READ-01'in bağımlılığı). | [canlıda](phases/phase-16-works-editions.md) (2026-11-15; PR [#73](https://github.com/mtgezgin/BookHub/pull/73), [#74](https://github.com/mtgezgin/BookHub/pull/74)) |
-| Onay bekliyor | 16b — Arama | [DISC-01](FEATURE_REQUESTS.md)'in arama yarısı: Türkçe duyarlı, index'li arama; yazarken arama kuralları | Canlıda arama Türkçe başlıkları bulamıyor ("ince memed" sıfır sonuç) ve yazarken arama istek sayısını artırıyor. Faz 17'den bağımsız; şeması yalnız genişletme. | [#82](https://github.com/mtgezgin/BookHub/issues/82), [spec](phases/phase-16b-search.md); kod yazıldı ve yerelde doğrulandı (2026-11-17), yayın onay bekliyor |
-| **Şimdi** | 17 — Okuma takibi ve inceleme | Paket B: READ-01, READ-02, REV-01, REV-02 | Döngüyü kapatır. İnceleme geniş kullanıma açılmadan MOD-04 gerekir; demo hedefinde Faz 18'e kalır. | [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylandı |
-| Sonra | 18 — Katkı döngüsü ve hesap | Paket C: MOD-01, MOD-02, ACC-01–03, DATA-02; kullanıcının baskı önermesi ([#79](https://github.com/mtgezgin/BookHub/issues/79)) | Gerçek kullanıcının kapısı; bir e-posta sağlayıcısı gerektirir. | — |
+| ✅ | 16b — Arama | [DISC-01](FEATURE_REQUESTS.md)'in arama yarısı: Türkçe duyarlı, index'li arama; yazarken arama kuralları | Canlıda arama Türkçe başlıkları bulamıyordu ("ince memed" sıfır sonuç) ve yazarken arama istek sayısını artırıyordu. | [canlıda](phases/phase-16b-search.md) (2026-11-18; [#82](https://github.com/mtgezgin/BookHub/issues/82), PR [#89](https://github.com/mtgezgin/BookHub/pull/89)) |
+| ✅ | 16c — Katalog sorguları | REVIEW_FEEDBACK F24–F26: tür süzgeci, sayım, derin sayfa | "Yüksek trafik ve çok kayıt varmış gibi" (kullanıcı kararı, 2026-11-18); 500 bin kitapta ölçüldü. | [canlıda](phases/phase-16c-catalog-queries.md) (2026-11-19; [#98](https://github.com/mtgezgin/BookHub/issues/98), PR [#102](https://github.com/mtgezgin/BookHub/pull/102)) |
+| **Şimdi** | 16d — Arayüz veri katmanı | REVIEW_FEEDBACK F33: sunucu verisi TanStack Query ile | Faz 17 yeni yazma işlemleri getiriyor; yazmadan sonra hangi verinin tazeleneceği bugün her sayfada elle. Kullanıcı her adımı okuyarak ilerliyor. | [#105](https://github.com/mtgezgin/BookHub/issues/105), dal `feat/105-tanstack-query` (adım 1–4 bitti) |
+| Sonra | 17 — Okuma takibi ve inceleme | Paket B: READ-01, READ-02, REV-01, REV-02 | Döngüyü kapatır. İnceleme geniş kullanıma açılmadan MOD-04 gerekir; demo hedefinde Faz 18'e kalır. | [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylandı |
+| Daha sonra | 18 — Katkı döngüsü ve hesap | Paket C: MOD-01, MOD-02, ACC-01–03, DATA-02; kullanıcının baskı önermesi ([#79](https://github.com/mtgezgin/BookHub/issues/79)) | Gerçek kullanıcının kapısı; bir e-posta sağlayıcısı gerektirir. | — |
 | Daha sonra | — | Paket D (keşif: DISC-01–03, STATS-01, READ-03, REV-03) · Paket E (sosyal) | Veri ve kullanım oluştukça. | — |
 
 Faz 16, Paket A'nın "CAT-02 kimlik kararı" maddesini zaten karşılıyor: tasarım yapıldı, uygulaması
@@ -48,12 +55,15 @@ okuma takibinden hemen önceye kondu.
 | --- | --- | --- |
 | Node 26 LTS ([#71](https://github.com/mtgezgin/BookHub/issues/71); Dependabot #13, #46) | 2026-11-11 (LTS: 2026-10-28) | Derleme imajı, CI ve `@types/node` birlikte; derleme aşaması son imaja girmez |
 | Canlı imajlara haftalık güvenlik taraması (Trivy; [#48](https://github.com/mtgezgin/BookHub/issues/48)) | 2026-11 | `scan.yml`: pazartesi 06:00 UTC ve elle, `release` üzerinde; iki imaj her zaman taranır (ci.yml'de de). #47'nin açıkları canlıda 6 gün fark edilmemişti; canlı izlemenin ilk parçası |
-| Canlı izleme ve alarm (sağlık kontrolü, uptime, hata izleme) | Uptime 2026-11 ([#63](https://github.com/mtgezgin/BookHub/issues/63)); hata izleme zamanı açık, gerçek kullanıcı kararından önce şart | `uptime.yml`: günde bir üç uç (NGINX, API, Postgres). [PROCESS §7](PROCESS.md) · [DEPLOYMENT §5](DEPLOYMENT.md) |
+| Canlı izleme ve alarm (sağlık kontrolü, uptime, hata izleme) | Uptime 2026-11 ([#63](https://github.com/mtgezgin/BookHub/issues/63)); Northflank sağlık kontrolleri panelde yapılacak (adımlar verildi, 2026-11-19); hata izleme zamanı açık, gerçek kullanıcı kararından önce şart | `uptime.yml`: günde bir üç uç (NGINX, API, Postgres). [PROCESS §7](PROCESS.md) · [DEPLOYMENT §5](DEPLOYMENT.md) |
 | Salt okunur MCP sunucusu ([#52](https://github.com/mtgezgin/BookHub/issues/52)) | 2026-11-11 (PR #53) | `backend/cmd/mcp`: kataloğu bir modele altı okuma aracıyla açar; API istemcisi, imaja girmez. Yazma araçları ayrı karar |
-| Gözlemlenebilirlik: OpenTelemetry, Prometheus, Grafana ([#87](https://github.com/mtgezgin/BookHub/issues/87)) | 1. adım 2026-11 (yerel deney + API'nin donatılması); canlıya açmak ayrı issue | `make obs-up`: Grafana :3002, Prometheus :9090. İzler ve metrikler OTLP ile; adres boşsa kapalı. Canlıda collector çalıştırılamaz (iki servis sınırı): API doğrudan Grafana Cloud'a gönderir. Sıra: yerel → metrik/log → canlı → pano ve alarm |
+| Gözlemlenebilirlik: OpenTelemetry, Prometheus, Grafana ([#87](https://github.com/mtgezgin/BookHub/issues/87), [#96](https://github.com/mtgezgin/BookHub/issues/96)) | 1. adım canlıda kodda (2026-11-18, PR #94; telemetri adres verilmedikçe kapalı). Canlıya açmak #96: hazırlık PR #97'de, kullanıcının Grafana Cloud hesabı ve birlikte yürüyüş bekliyor | `make obs-up`: Grafana :3002, Prometheus :9090. İzler ve metrikler OTLP ile; adres boşsa kapalı. Canlıda collector çalıştırılamaz (iki servis sınırı): API doğrudan Grafana Cloud'a gönderir. Sıra: yerel → metrik/log → canlı → pano ve alarm |
 | `PROD_DATABASE_URL`'i bir GitHub Environment'a taşımak | Zamanı açık | Repo public olunca Environments ücretsiz: sır yalnız `main`'den koşan Deploy'a açılabilir ([DEPLOYMENT §2](DEPLOYMENT.md)) |
-| NGINX erişim logunda sorgu dizesi ve referrer | Faz 16b ile (yayın bekliyor) | `log_format bookhub` ([default.conf](../frontend/nginx/default.conf)); kural `scripts/checks.sh`'ta |
+| NGINX erişim logunda sorgu dizesi ve referrer | Faz 16b ile (canlıda 2026-11-18) | `log_format bookhub` ([default.conf](../frontend/nginx/default.conf)); kural `scripts/checks.sh`'ta |
 | REVIEW_FEEDBACK bulguları | İlgili fazın içinde | F10, F11 → Faz 15–17 (UX-01) · F13 → her fazın UX-02 kabulü · F12, F15 → Faz 18 (MOD-02) · F04 → Faz 18'den önce · F03, F06–F09, F16, F17 → ihtiyaç oldukça ayrı iş. İkinci inceleme (2026-11-17): F20–F40; önerilen sıra [REVIEW_FEEDBACK](REVIEW_FEEDBACK.md#ikinci-incelemenin-önerdiği-sıra)'te |
+| Canlı veritabanının şifreli yedeği ([#100](https://github.com/mtgezgin/BookHub/issues/100), F23) | Kod hazır (taslak PR #101) | Haftalık ve her migration'dan önce `age` ile şifreli döküm; CI her PR'da döküm → geri yükleme turunu sınar. Kullanıcının açık anahtarı ve `backup` ortamının sırrı bekleniyor |
+| CI: zorunlu kontroller, bağımlılık incelemesi, süre sınırları, action SHA kuralı ([#108](https://github.com/mtgezgin/BookHub/issues/108)) | 2026-11-19 (PR #99, #109) | `main`'de 8 zorunlu kontrol (Trivy ve SonarCloud dahil); Dependabot güvenlik uyarıları açık. Kalan öğrenme adımları: CodeQL, SonarCloud'da test kapsamı, "bir kez derle, aynısını yayınla" (F39) |
+| Web imajında süreli Trivy istisnası ([#106](https://github.com/mtgezgin/BookHub/issues/106)) | 2026-12-19'a kadar | nginx 1.30.6'nın 6 açığının koşulu bizde yok; düzeltilmiş temel imaj gelince istisna silinir. Süre dolarsa tarama yeniden kırmızı olur (bilerek) |
 | Dependabot, Sonar ve güvenlik bulguları | Geldikçe | Ürün fazını durdurmaz; güvenlik engelleyicisi hariç |
 
 ## Kurallar
@@ -86,3 +96,17 @@ Bu kurallar rastgeleliği önlemek için var:
     hedefi). Ücretsiz sınırlar resmi sayfalardan doğrulandı; ilk adım yalnız yerel ([#87](https://github.com/mtgezgin/BookHub/issues/87)).
   - İnceleme düzeltmeleri Faz 17'den önce, partiler hâlinde yapılıyor (kullanıcı kararı): A (#83), B (#84),
     index'ler (#85). Migration `0015` index düzeltmelerine verildi; Faz 17'nin migration'ları `0016`–`0018` oldu.
+- **2026-11-18 (kullanıcı):**
+  - Yedek: otomatik şifreli döküm, haftalık ve her migration öncesi ([#100](https://github.com/mtgezgin/BookHub/issues/100)).
+  - Veritabanı ve Redis Frankfurt'ta kalır; bölge taşıması (ve ücretli plana geçiş) gerçek kullanıcılar
+    gelince (F20).
+  - Faz 16c'nin okuma yolu da yapılır: "yüksek trafik ve çok kayıt varmış gibi" ilerlenir
+    ([#98](https://github.com/mtgezgin/BookHub/issues/98)). Saklanan puan skoru ertelendi (F26).
+  - "En sevilenler" önbelleği puan yazımında silinmez, 60 sn'de bir yenilenir; moderasyon silmeye devam eder.
+  - SonarCloud zorunlu kontrol olur; birleşen dallar otomatik silinir.
+- **2026-11-19 (kullanıcı):**
+  - Arayüz veri katmanı (F33) Faz 17'den önce, **TanStack Query** ile (Faz 16d). Kod asistandan; kullanıcı
+    her adımı commit'ten önce editörde okur.
+  - Kapak (F37) için A: önerilerde kapak adresi kabul edilmez (#104). İzin listesi ve CSP daraltması açık.
+  - Trivy de zorunlu kontrol olur. Aynı gün nginx açıkları için süreli istisna kabul edildi (#106, #107).
+  - CI iyileştirmeleri (bağımlılık incelemesi, süre sınırları, eski koşu iptali, SHA kuralı) yapıldı (#108).

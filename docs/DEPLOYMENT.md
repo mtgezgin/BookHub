@@ -1,6 +1,6 @@
 # BookHub — Dağıtım (Deploy)
 
-> **Durum (2026-10-05):** Canlıda — https://p01--web--4x2qb6s8vg5j.code.run
+> **Durum (2026-11-19):** Canlıda (2026-10-05'ten beri) — https://p01--web--4x2qb6s8vg5j.code.run
 > Yayın akışı: `main`'e push → CI → Deploy iş akışı (gerekirse migration + `release` dalı) →
 > Northflank. Süreç: [PROCESS.md](PROCESS.md) §5. Mimari kararlar: [PROJECT_BRIEF.md](PROJECT_BRIEF.md) §7, §13.
 
@@ -188,7 +188,13 @@ Eski `release.yml` (etiketle ghcr'ye imaj yayını) hiç çalışmadığı için
 - **İzleme sınırlı:** günde bir dışarıdan erişilebilirlik kontrolü var
   ([uptime.yml](../.github/workflows/uptime.yml), #63: `/healthz`, `/health`, `/api/books`) ve
   haftalık imaj taraması ([scan.yml](../.github/workflows/scan.yml), #48); ikisi de kırmızı
-  koşuda GitHub e-postasıyla bildirir. Northflank'ta sağlık kontrolü ve hata izleme (Sentry) henüz
-  yok. Uptime'ın `/api/books` isteği Supabase'in hareketsizlik duraklamasını da önlemeli.
+  koşuda GitHub e-postasıyla bildirir. Northflank'ta sağlık kontrolü ve hata izleme henüz yok
+  (sağlık kontrolü panelde kurulacak: `api` için `/health`, `web` için `/healthz`, ikisi de port 8080).
+  Uptime'ın `/api/books` isteği Supabase'in hareketsizlik duraklamasını da önlemeli.
+- **Yedek yok.** Supabase'in ücretsiz planında otomatik yedek yok. Şifreli yedek (haftalık ve her
+  migration'dan önce) PR #101'de, kullanıcının anahtarını bekliyor ([#100](https://github.com/mtgezgin/BookHub/issues/100)).
+- **Web imajında süreli Trivy istisnası:** temel imaj nginx 1.30.6'yı sabitliyor; altı açığın koşulu
+  (mail proxy, HTTP/2, HTTP/3, `listen … ssl`, değişkenli proxy adı + SSI/mirror) bizim yapılandırmada
+  yok. 2026-12-19'a kadar; düzeltilmiş temel imaj gelince silinir ([#106](https://github.com/mtgezgin/BookHub/issues/106)).
 - Access token'lar stateless: çıkış, parola ve rol değişikliği refresh tarafını anında keser ama
   verilmiş access token'lar `JWT_ACCESS_TTL` (15 dk) dolana kadar geçerli kalır.

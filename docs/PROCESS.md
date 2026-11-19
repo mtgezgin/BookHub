@@ -32,13 +32,15 @@ Backlog → Ready → In Progress → In Review → Testing → Released → Don
 Kuralların tek kaynağı `scripts/checks.sh`, testleri `scripts/checks_test.sh`. Aynı betiği CI'da
 **Kurallar** iş akışı (`rules.yml`) her push ve PR'da, yol filtresi olmadan çalıştırır: kancayı
 atlayan bir commit de orada yakalanır. Yeni bir kural eklenirken testi de eklenir. Repo public
-olduğundan (2026-11-09) `main` dal korumasıyla korunuyor: değişiklik yalnız PR'la girer ve
-**Kurallar** zorunlu kontroldür; yeşil bir Kurallar koşusu olmayan PR birleştirilemez (head
-commit'inde atlama bayrağı olan PR'da GitHub iş akışını hiç başlatmaz, kontrol bekler kalır).
+olduğundan (2026-11-09) `main` dal korumasıyla korunuyor: değişiklik yalnız PR'la girer. **Zorunlu
+kontroller (2026-11-19):** Kurallar, Backend (Go), Frontend (React), E2E, Yükseltme, İmaj taraması
+(Trivy), Bağımlılık incelemesi ve SonarCloud; biri yeşil değilse PR birleştirilemez (head commit'inde
+atlama bayrağı olan PR'da GitHub iş akışlarını hiç başlatmaz, kontroller bekler kalır). CI PR'da yol
+süzgeci olmadan koşar: hiç koşmayan bir zorunlu kontrol PR'ı sonsuza kadar bekletirdi. Bir kontrolün
+adı değişirse dal korumasındaki ad da değişmeli. Birleşen dal kendiliğinden silinir.
 Koruma yöneticiye uygulanmıyor (`enforce_admins` kapalı): repo sahibi isterse atlayabilir, kural
-olarak atlamaz. Güvenlik incelemesi, AI review
-paneli ve test coverage ise Claude Code eklenti kancalarıdır; yalnız Claude Code üzerinden
-yapılan push'ta çalışırlar. Terminalden push edildiyse bu kapıların koşmadığı PR'da yazılır.
+olarak atlamaz. Güvenlik incelemesi, AI review paneli ve test coverage Claude Code eklenti
+kancalarıydı (Mac kurulumu); bu Windows makinesinde kurulu değil (2026-11-19'da bakıldı).
 GitHub'daki asıl güvenlik ağı CI'dır.
 
 İş bir yerde takılırsa issue'ya nedenini yaz ve bulunduğu sütunda bırak; sessizce bekleyen
@@ -200,7 +202,15 @@ kırmızı koşuyu GitHub'ın iş akışı hata e-postasıyla bildirir:
   koşu önce logla ayrılır: Trivy veritabanının indirilememesi bir açık değildir; düzeltmesi olan
   bir açık ise bug olarak ele alınır (taban imaj ya da bağımlılık güncellemesi).
 
-Hata izleme (Sentry) ve gerçek zamanlı alarm henüz yok.
+- **Bağımlılık açıkları:** Dependabot güvenlik uyarıları açık (2026-11-19); her PR'da **Bağımlılık
+  incelemesi** eklenen paketi HIGH/CRITICAL açığa karşı denetler. Trivy imajı tarar ama web imajında
+  npm paketlerinin listesi yok: frontend bağımlılıklarının açığını bu ikisi yakalar.
+- **Süreli istisnalar:** `.trivyignore`'daki her girdi bir issue'ya ve bitiş tarihine (`exp:`) bağlı.
+  Bugün tek istisna nginx 1.30.6 (#106, 2026-12-19'a kadar). Bitiş tarihi geçince tarama yeniden
+  kırmızı olur: istisna ya uzatılır (gerekçesiyle) ya da imaj güncellenir.
+
+Northflank sağlık kontrolleri, hata izleme (Sentry ya da benzeri) ve gerçek zamanlı alarm henüz yok.
+Canlı telemetri (Grafana Cloud) hazır ama kapalı: [#96](https://github.com/mtgezgin/BookHub/issues/96).
 
 ## 8. Etiketler
 
