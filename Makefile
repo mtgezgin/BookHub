@@ -98,7 +98,7 @@ docker-build: ## API imajını derle
 scan: ## İmajları Trivy ile tara (önce make app-up ya da docker compose build)
 	@for img in bookhub-api:dev bookhub-web:dev; do \
 		echo "▶ trivy $$img"; \
-		trivy image --scanners vuln --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 "$$img" || exit 1; \
+		trivy image --scanners vuln --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore "$$img" || exit 1; \
 	done
 
 web: ## Frontend geliştirme sunucusu (http://localhost:5173; /api → localhost:8080)
