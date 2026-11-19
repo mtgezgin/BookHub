@@ -26,14 +26,22 @@ const MaxTopRated = 50
 // CachedService, Service'i top-rated cache'iyle sarar (cache-aside deseni):
 //
 //	oku:  cache'e bak → varsa dön; yoksa DB'den hesapla, cache'e yaz, dön
-//	yaz:  puan değişince (Rate/Remove) anahtarı SİL → bir sonraki okuma taze hesaplar
+//	yaz:  PUAN yazımında anahtar SİLİNMEZ; liste TTL (60 sn) ile yenilenir.
+//	      MODERASYON ve baskı değişikliğinde anahtar SİLİNİR (InvalidateTopRated).
+//
+// NEDEN puan yazımında silinmiyor (Faz 16c, karar 7; 2026-11-18): her puan anahtarı silince puan
+// gelen bir sitede liste HEP soğuktu ve eşzamanlı ıskaların hepsi aynı pahalı sıralamayı yeniden
+// çalıştırıyordu (REVIEW_FEEDBACK F26). Kullanıcı açısından: puan veren kişi o an kitap sayfasındadır
+// ve oradaki özet anında güncellenir (kendi yazdığını görür); şerit bir sıralamadır, tek bir oy onu
+// nadiren değiştirir ve 60 sn'lik gecikme fark edilmez. Moderasyon farklı: gizlenen ya da arşivlenen
+// bir kitabın listeden HEMEN kalkması doğruluk meselesidir.
 //
 // NEDEN BU UÇ: EXPLAIN ANALYZE ve yük testi (bkz. WHY_GO_VS_TS §12) — sıralama anahtarı
 // global C'ye bağlı olduğu için index'le hızlanamayan tek sorgu bu; ve herkese açık,
 // okunması yazılmasından çok daha sık.
 //
 // BİLİNEN YARIŞ (cache-aside'ın doğası): bir okuyucu DB'den ESKİ listeyi okur, bu arada bir
-// puan yazılır ve anahtar silinir, sonra okuyucu eski listeyi cache'e yazar → en çok TTL
+// moderasyon kararı yazılır ve anahtar silinir, sonra okuyucu eski listeyi cache'e yazar → en çok TTL
 // (60 sn) boyunca bayat. Sıralama için kabul edilebilir; kesinlik gerekseydi sürüm numaralı
 // anahtar ya da yazımda cache'i yeniden hesaplama gerekirdi.
 type CachedService struct {
@@ -72,26 +80,8 @@ func (s *CachedService) TopRated(ctx context.Context, limit int32) (TopRated, er
 	return first(t, limit), nil
 }
 
-// Rate / Remove: yazım başarılıysa (commit SONRASI) cache'i geçersiz kıl. Commit'ten önce
-// silseydik, commit'i beklemeyen bir okuyucu eski veriyi hemen yeniden cache'leyebilirdi.
-func (s *CachedService) Rate(ctx context.Context, userID, bookID int64, score int) (Result, error) {
-	res, err := s.Service.Rate(ctx, userID, bookID, score)
-	if err == nil {
-		s.InvalidateTopRated(ctx)
-	}
-	return res, err
-}
-
-func (s *CachedService) Remove(ctx context.Context, userID, bookID int64) (Stats, error) {
-	st, err := s.Service.Remove(ctx, userID, bookID)
-	if err == nil {
-		s.InvalidateTopRated(ctx)
-	}
-	return st, err
-}
-
-// InvalidateTopRated, listeyi etkileyen başka yazımlar (onay, arşiv, başlık düzeltme) için de
-// dışarı açık — moderasyon servisi bunu kanca (hook) olarak çağırır.
+// InvalidateTopRated, listenin HEMEN değişmesi gereken yazımlar içindir (onay, arşiv, başlık ve kapak
+// düzeltme): moderasyon ve baskı servisleri bunu kanca (hook) olarak çağırır. Puan yazımı çağırmaz.
 //
 // context.WithoutCancel: çağrı yazım COMMIT edildikten SONRA geliyor. İstemci tam o anda
 // bağlantıyı keserse istek ctx'i iptal olur ve DEL de iptal edilirdi — veri değişmiş ama

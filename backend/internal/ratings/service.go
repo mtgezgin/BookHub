@@ -57,12 +57,25 @@ type Service struct {
 	conn     db.DBTX
 	q        *db.Queries
 	minVotes int64
+	// average: genel ortalamanın (C) kaynağı. Varsayılanı her çağrıda veritabanı; main.go bunu
+	// süreç içi 60 sn'lik önbellekle (GlobalAverage) değiştirir.
+	average func(ctx context.Context) (float64, error)
 }
 
 // NewService, m (minVotes) ayarıyla bir Service kurar; negatif m 0 sayılır.
 func NewService(conn db.DBTX, minVotes int64) *Service {
-	return &Service{conn: conn, q: db.New(conn), minVotes: max(minVotes, 0)}
+	s := &Service{conn: conn, q: db.New(conn), minVotes: max(minVotes, 0)}
+	s.average = s.LoadGlobalAverage
+	return s
 }
+
+// LoadGlobalAverage, genel ortalamayı veritabanından okur (önbelleksiz). GlobalAverage'ın kaynağı.
+func (s *Service) LoadGlobalAverage(ctx context.Context) (float64, error) {
+	return s.q.GlobalAverageRating(ctx, ColdStartMean)
+}
+
+// UseGlobalAverage, genel ortalamanın kaynağını değiştirir (süreç içi önbellek).
+func (s *Service) UseGlobalAverage(fn func(ctx context.Context) (float64, error)) { s.average = fn }
 
 // TopRatedBook, sıralamadaki bir kitap ve ağırlıklı skoru.
 type TopRatedBook struct {
@@ -83,7 +96,7 @@ type TopRated struct {
 // C ve liste iki ayrı sorgu: arada gelen bir oy C'yi çok az kaydırabilir. Sıralama için
 // önemsiz; kesinlik gerekseydi ikisi tek REPEATABLE READ transaction'da okunurdu.
 func (s *Service) TopRated(ctx context.Context, limit int32) (TopRated, error) {
-	c, err := s.q.GlobalAverageRating(ctx, ColdStartMean)
+	c, err := s.average(ctx)
 	if err != nil {
 		return TopRated{}, fmt.Errorf("genel ortalama okunamadı: %w", err)
 	}

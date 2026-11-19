@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Page } from "../api/types";
+import { MAX_OFFSET } from "./filters";
 import { Button } from "./ui/button";
 
 /**
@@ -67,11 +68,23 @@ export function Pager<T>({ page, offset, onChange, prev = "← Önceki", next = 
   next?: string;
 }) {
   const last = Math.min(offset + page.limit, page.total);
+  const nextOffset = offset + page.limit;
+  // Sunucu en çok MAX_OFFSET'e kadar sayfa verir (derin sayfa pahalıdır; Faz 16c). Toplam daha büyükse
+  // "Sonraki" sınırda kapanır ve kullanıcıya nedeni söylenir. Eskiden düğme açık kalıyor, tıklanınca
+  // geçersiz offset 0 sayılıp ilk sayfaya dönülüyordu (REVIEW_FEEDBACK F25).
+  const atCap = nextOffset < page.total && nextOffset > MAX_OFFSET;
   return (
-    <nav aria-label="Sayfalar" className="mt-8 flex items-center justify-between gap-4">
-      <Button variant="outline" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - page.limit))}>{prev}</Button>
-      <span className="text-sm text-muted-foreground tabular-nums">{page.total ? `${offset + 1}–${last} / ${page.total}` : ""}</span>
-      <Button variant="outline" disabled={offset + page.limit >= page.total} onClick={() => onChange(offset + page.limit)}>{next}</Button>
-    </nav>
+    <div className="mt-8 space-y-2">
+      <nav aria-label="Sayfalar" className="flex items-center justify-between gap-4">
+        <Button variant="outline" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - page.limit))}>{prev}</Button>
+        <span className="text-sm text-muted-foreground tabular-nums">{page.total ? `${offset + 1}–${last} / ${page.total}` : ""}</span>
+        <Button variant="outline" disabled={nextOffset >= page.total || atCap} onClick={() => onChange(nextOffset)}>{next}</Button>
+      </nav>
+      {atCap && (
+        <p className="text-center text-sm text-muted-foreground">
+          En fazla ilk {MAX_OFFSET.toLocaleString("tr-TR")} sonuç sayfalanabiliyor; daha fazlası için aramanı ya da türü daralt.
+        </p>
+      )}
+    </div>
   );
 }

@@ -518,6 +518,8 @@ Filtresiz liste 0,75 ms. Denenen ve yetmeyen bir yol: EXISTS'i üst düzeye alı
 
 **Kabul kriteri:** 500 bin kitaplık veride her tür için liste 5 ms'nin altında; `EXPLAIN ANALYZE` çıktısı PR'da.
 
+**Durum (19 Kasım 2026, #98, yayın bekliyor):** tür süzgeci ayrı sorgu ve kimlikle (`ListBooksInGenre`); slug → kimlik süreç içinde 60 sn. 500 bin kitapta liste: yaygın 120 → 0,14 ms, çok nadir 391 → 0,12 ms. **Karşılanmayan:** 501 kitaplık nadir türde 36 ms (paralel planın yanlış seçimi; paralel taramayı kapatmak büyük taramaları üçe katladığı için yapılmadı; ayrıntı Faz 16c spec'i).
+
 ## F25 — Her listede tam sayım, derin sayfa maliyeti ve 10.000 sınırı
 
 **Öncelik:** Orta — ölçekle · Sorgu ve API
@@ -531,6 +533,8 @@ Filtresiz liste 0,75 ms. Denenen ve yetmeyen bir yol: EXISTS'i üst düzeye alı
 **Öneri:** Toplamı her istekte hesaplamayın: tür başına sayıları kısa süre bellekte tutun ya da `has_more` döndürün. Liste sorgularında önce kimlik, sonra görünüm; varsayılan sıra için anahtarla sayfalama. Sınıra gelindiğinde arayüz bunu söylesin.
 
 **Kabul kriteri:** 500 bin kitapta katalog isteğinin veritabanı süresi 5 ms'nin altında; 10.000 sınırındaki davranış bir testle sabit.
+
+**Durum (19 Kasım 2026, #98, yayın bekliyor):** önce kimlik sonra görünüm (offset 10.000: 58 → 1,1 ms); toplam sayı tür başına 60 sn süreç içinde; arayüz 10.000 sınırında "Sonraki"yi kapatıp nedenini yazıyor (`usePaged.test.tsx`). Bağlantılar `plan_cache_mode = force_custom_plan` ile açılıyor: genel planda liste 42–165 ms'ydi. Anahtarla sayfalama yapılmadı.
 
 ## F26 — Puana göre sıralama ve "en sevilenler" önbelleği
 
@@ -717,6 +721,8 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 **Öneri:** Kapak sunucularını izin listesine alın (bugün yalnız `covers.openlibrary.org`) ve CSP'yi aynı listeye daraltın. Moderasyonda kapağı gösterin. İleride kapakları kendi origin'inizden sunun.
 
 **Kabul kriteri:** İzin listesi dışındaki bir kapak adresi 400 alır; CSP yalnız listedeki sunuculara izin verir.
+
+**Ek gözlem (18 Kasım 2026, canlıda tarayıcı testi):** kapaklar `covers.openlibrary.org`'dan istenip `archive.org`'a **yönlendirilerek** yükleniyor (en yavaş üç ağ isteği kapaklardı: 470–878 ms; açılıştan ~3 sn sonra şeritteki kapak kutuları hâlâ boştu). CSP'nin `img-src` kuralı yönlendirmenin HEDEFİNE de uygulanır: izin listesi yalnız `covers.openlibrary.org` olursa kapaklar kırılır; liste yönlendirme hedeflerini de içermeli (hangi alan adları olduğu ağ kayıtlarından çıkarılacak; doğrulanmadı). Gecikme, önerideki "kapakları kendi origin'inizden sunun" maddesinin gerekçesini güçlendiriyor.
 
 ## F38 — CI taze kurulumu sınıyor, canlı yükseltme yapıyor; migration'da süre sınırı yok
 

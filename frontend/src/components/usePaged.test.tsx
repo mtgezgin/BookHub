@@ -136,6 +136,21 @@ describe("Pager", () => {
     expect(el.querySelector("span")!.textContent).toBe("5–5 / 5");
   });
 
+  // REVIEW_FEEDBACK F25: sunucu offset 10.000'den ötesini 400 ile reddeder. Toplam daha büyükse "Sonraki"
+  // sınırda kapanır ve nedeni yazılır; düğme açık kalıp ilk sayfaya dönmez.
+  it("10.000 sınırında sonraki kapanır ve nedeni yazılır", () => {
+    const atLimit = render({ items: [1, 2], total: 50_000, limit: 20, offset: 9_990 }, 9_990, () => {});
+    expect(atLimit.next.disabled).toBe(true);
+    expect(atLimit.el.textContent).toContain("En fazla ilk 10.000 sonuç");
+
+    const before = render({ items: [1, 2], total: 50_000, limit: 20, offset: 9_960 }, 9_960, () => {});
+    expect(before.next.disabled).toBe(false); // bir sonraki offset (9.980) hâlâ geçerli
+    expect(before.el.textContent).not.toContain("En fazla");
+
+    const small = render({ items: [5], total: 5, limit: 2, offset: 4 }, 4, () => {});
+    expect(small.el.textContent).not.toContain("En fazla"); // olağan son sayfada not yok
+  });
+
   it("tıklamalar onChange(offset ± limit) çağırır", () => {
     const calls: number[] = [];
     const { prev, next } = render({ items: [3, 4], total: 9, limit: 2, offset: 2 }, 2, (o) => calls.push(o));

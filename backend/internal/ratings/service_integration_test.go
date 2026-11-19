@@ -190,34 +190,49 @@ func TestTopRatedRealDB(t *testing.T) {
 	}
 }
 
-// TestCachedInvalidationRealDB: gerçek DB + sahte cache — başarılı puan yazımı cache'i siler,
-// başarısız (onaysız kitap) yazım silmez.
-func TestCachedInvalidationRealDB(t *testing.T) {
+// TestCachedRatingWritesKeepCacheRealDB: gerçek DB + sahte cache. PUAN yazımı ve silmesi top-rated
+// cache'ine DOKUNMAZ; liste TTL ile yenilenir (Faz 16c, karar 7). Eskiden her puan anahtarı siliyordu:
+// puan gelen bir sitede liste hep soğuk kalıyor ve pahalı sıralama her istekte yeniden çalışıyordu
+// (REVIEW_FEEDBACK F26). Moderasyonun kullandığı InvalidateTopRated ise silmeye devam eder: gizlenen
+// bir kitabın listeden hemen kalkması doğruluk meselesidir.
+func TestCachedRatingWritesKeepCacheRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	c := newMemCache()
 	s := NewCached(NewService(pool, DefaultMinVotes), c)
 	ctx := context.Background()
 	user := testdb.CreateUser(t, pool, "Okur")
+	book := testdb.CreateBook(t, pool, "", books.StatusApproved)
 
 	if _, err := s.TopRated(ctx, 5); err != nil {
 		t.Fatalf("TopRated: %v", err)
 	}
-	if _, ok := c.data[TopRatedCacheKey]; !ok {
+	cached := string(c.data[TopRatedCacheKey])
+	if cached == "" {
 		t.Fatal("ilk okuma cache'e yazmalı")
 	}
 
-	if _, err := s.Rate(ctx, user, testdb.CreateBook(t, pool, "", books.StatusPending), 7); err == nil {
-		t.Fatal("onaysız kitaba puan reddedilmeli")
-	}
-	if _, ok := c.data[TopRatedCacheKey]; !ok {
-		t.Error("BAŞARISIZ yazım cache'i silmemeli")
-	}
-
-	if _, err := s.Rate(ctx, user, testdb.CreateBook(t, pool, "", books.StatusApproved), 7); err != nil {
+	res, err := s.Rate(ctx, user, book, 7)
+	if err != nil {
 		t.Fatalf("Rate: %v", err)
 	}
+	// Yazanın kendi gördüğü cevap (kitap sayfasındaki özet) ANINDA günceldir.
+	if res.Stats.Count != 1 {
+		t.Errorf("puanın cevabı güncel istatistiği taşımalı: %+v", res.Stats)
+	}
+	if string(c.data[TopRatedCacheKey]) != cached {
+		t.Error("puan yazımı top-rated cache'ine dokunmamalı")
+	}
+	if _, err := s.Remove(ctx, user, book); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if string(c.data[TopRatedCacheKey]) != cached {
+		t.Error("puan silme top-rated cache'ine dokunmamalı")
+	}
+
+	// Moderasyon ve baskı değişikliğinin kancası: hemen siler.
+	s.InvalidateTopRated(ctx)
 	if _, ok := c.data[TopRatedCacheKey]; ok {
-		t.Error("başarılı puan yazımı top-rated cache'ini silmeli")
+		t.Error("InvalidateTopRated cache'i silmeli")
 	}
 }
 
@@ -310,36 +325,6 @@ func TestDeleteTriggerWaitsForBookLockRealDB(t *testing.T) {
 	}
 }
 
-// TestCachedRemoveInvalidationRealDB: başarılı puan silme top-rated cache'ini siler;
-// başarısız silme (ErrNotRated) cache'e dokunmaz.
-func TestCachedRemoveInvalidationRealDB(t *testing.T) {
-	pool := testdb.Pool(t)
-	c := newMemCache()
-	s := NewCached(NewService(pool, DefaultMinVotes), c)
-	ctx := context.Background()
-	user := testdb.CreateUser(t, pool, "Okur")
-	book := testdb.CreateBook(t, pool, "", books.StatusApproved)
-
-	if _, err := s.Rate(ctx, user, book, 7); err != nil {
-		t.Fatalf("Rate: %v", err)
-	}
-	c.data[TopRatedCacheKey] = []byte("{}")
-	if _, err := s.Remove(ctx, user, book); err != nil {
-		t.Fatalf("Remove: %v", err)
-	}
-	if _, ok := c.data[TopRatedCacheKey]; ok {
-		t.Error("başarılı puan silme top-rated cache'ini silmeli")
-	}
-
-	c.data[TopRatedCacheKey] = []byte("{}")
-	if _, err := s.Remove(ctx, user, book); !errors.Is(err, ErrNotRated) {
-		t.Fatalf("ikinci silme ErrNotRated vermeli: %v", err)
-	}
-	if _, ok := c.data[TopRatedCacheKey]; !ok {
-		t.Error("BAŞARISIZ silme cache'i silmemeli")
-	}
-}
-
 // TestNonApprovedBookRealDB: onaylı olmayan (ya da olmayan) kitapta puan silme ve özet
 // books.ErrNotFound vermeli — public görünürlük kuralı.
 func TestNonApprovedBookRealDB(t *testing.T) {
@@ -400,7 +385,7 @@ func TestListBooksByRatingMatchesWeightedScoreRealDB(t *testing.T) {
 	const m = 10
 	q := db.New(pool)
 	for _, c := range []float64{5, 8} {
-		got, err := q.ListBooksByRating(context.Background(), db.ListBooksByRatingParams{Genre: &slug, M: m, C: c, Limit: 10})
+		got, err := q.ListBooksByRatingInGenre(context.Background(), db.ListBooksByRatingInGenreParams{GenreID: genreID, M: m, C: c, Limit: 10})
 		if err != nil {
 			t.Fatalf("C=%v: liste okunamadı: %v", c, err)
 		}
@@ -411,8 +396,8 @@ func TestListBooksByRatingMatchesWeightedScoreRealDB(t *testing.T) {
 		if WeightedScore(10, 1, m, c) < WeightedScore(7, 10, m, c) {
 			want = steady
 		}
-		if got[0].ID != want {
-			t.Errorf("C=%v: ilk sırada %d bekleniyordu (WeightedScore'a göre), SQL %d verdi", c, want, got[0].ID)
+		if got[0].BookView.ID != want {
+			t.Errorf("C=%v: ilk sırada %d bekleniyordu (WeightedScore'a göre), SQL %d verdi", c, want, got[0].BookView.ID)
 		}
 	}
 }

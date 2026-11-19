@@ -1,6 +1,6 @@
 # Faz 16c — Katalog sorguları: tür süzgeci, sayım, derin sayfa, puan sırası
 
-> Durum: ✅ **kararlar verildi** (2026-11-18); kod yazılmadı · Issue: açılacak —
+> Durum: 🚧 iki dilim de yazıldı (2026-11-19), PR bekliyor · Issue: [#98](https://github.com/mtgezgin/BookHub/issues/98) —
 > [ROADMAP](../ROADMAP.md) · Bulgular: [REVIEW_FEEDBACK](../REVIEW_FEEDBACK.md) F24, F25, F26 ·
 > İlgili: [books.sql](../../backend/sql/queries/books.sql), [ratings.sql](../../backend/sql/queries/ratings.sql),
 > [repository.go](../../backend/internal/books/repository.go), [cached.go](../../backend/internal/ratings/cached.go)
@@ -78,6 +78,34 @@ veritabanı süresi (erişim logundaki `db_ms`; ileride Grafana'da rotaya göre 
 1. **Okuma yolu (şema değişmez):** karar 1, 2, 3, 4 ve 8. Geri alınması kolay.
 2. **Önbellek:** genel ortalama süreç içinde 60 sn; karar 7 ("en sevilenler" puan yazımında silinmez).
 3. ~~Saklanan skor~~: ertelendi (yukarıda).
+
+## 📏 Sonuç ölçümleri (2026-11-19; 500 bin kitap, yerel Postgres 16, 7 çalıştırmanın ortancası, ms)
+
+| Durum | Önce (eski sorgu) | Yeni sorgu, özel plan | Yeni sorgu, genel plan |
+|---|---|---|---|
+| Liste, türsüz, offset 0 | 0,75 | 0,10 | 155 |
+| Liste, türsüz, offset 10.000 | 58 | 1,1 | 156 |
+| Liste, yaygın tür (232 bin) | 120 | 0,14 | 87 |
+| Liste, seyrek tür (17 bin) | 11 | 0,70 | 44 |
+| Liste, nadir tür (501) | 3,9 | **36** | 42 |
+| Liste, çok nadir tür (21) | 391 | 0,12 | 42 |
+| Liste, yaygın tür, offset 10.000 | — | 27 | 107 |
+| Puan sırası, yaygın tür | 1.125 + 204 | 138 | 152 |
+| Sayım, yaygın tür (önbellekte 60 sn) | 278 | 72 | 80 |
+
+**Genel plan sorunu ve çözümü:** pgx sorguları hazırlanmış deyim olarak çalıştırır; Postgres birkaç
+çalıştırmadan sonra parametrelerin değerini bilmeden planlanan "genel plana" geçebilir ve LIMIT/OFFSET
+parametre olunca o plan kötüdür (son sütun). Uygulamanın her bağlantısı `plan_cache_mode =
+force_custom_plan` ile açılır (`internal/database`): her çalıştırma gerçek değerlerle planlanır; bedeli
+sorgu başına ~0,1–0,6 ms planlama.
+
+**Bilinen sınır, nadir tür (36 ms):** paralel tarama açıkken planlayıcı, 501 kitaplık türde "en yeniler"
+index'inde yürümeyi seçiyor (33 bin satır). Paralel taramayı kapatmak bunu 0,9 ms'ye indiriyor ama büyük
+taramaları üçe katlıyor (yaygın türde puan sırası 138 → 393 ms, sayım 72 → 241 ms); bu yüzden yapılmadı.
+Canlıdaki Supabase'in paralel çalışan sayısı doğrulanmadı.
+
+**Puan sırası (138 ms):** geç birleştirme 1.125 ms'yi 138 ms'ye indirdi; kalan maliyet skorun sorgu anında
+hesaplanması (ertelenen karar, yukarıda).
 
 ## ✅ Kabul kriterleri
 

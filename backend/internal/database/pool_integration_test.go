@@ -44,6 +44,7 @@ func TestPoolSettingsRealDB(t *testing.T) {
 		"statement_timeout":                   "10s",
 		"lock_timeout":                        "3s",
 		"idle_in_transaction_session_timeout": "15s",
+		"plan_cache_mode":                     "force_custom_plan",
 	} {
 		var got string
 		if err := pool.QueryRow(ctx, "SELECT current_setting($1)", name).Scan(&got); err != nil {

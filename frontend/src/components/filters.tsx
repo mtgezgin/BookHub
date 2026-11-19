@@ -8,7 +8,8 @@ import { Button } from "./ui/button";
 // Sınırlar sunucuyla aynı: backend/cmd/api/books.go (maxQueryLen, maxPageOffset) ve validate.go (slugPattern).
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_QUERY = 100;
-const MAX_OFFSET = 10_000;
+/** Sunucunun kabul ettiği en büyük offset (maxPageOffset). Pager da bunun ötesine geçmez. */
+export const MAX_OFFSET = 10_000;
 export const asGenre = (v: string | null) => {
   const s = (v ?? "").trim();
   return SLUG.test(s) ? s : "";
