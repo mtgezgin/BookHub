@@ -244,8 +244,11 @@ expect pass "test dosyaları kuralın dışındadır" staged
 
 echo "▶ action sabitleme"
 new_repo pinning
-mkdir -p .github/workflows
-wf() { printf 'jobs:\n  a:\n    steps:\n%s\n' "$1" >.github/workflows/a.yml && git add .github/workflows/a.yml; }
+mkdir -p .github/workflows .github/actions/yerel
+# Örnekler GEÇERLİ iş akışı olmalı: CI'da actionlint kurulu ve değişen iş akışlarını da denetliyor.
+printf 'name: yerel\ndescription: test\nruns:\n  using: composite\n  steps:\n    - run: "true"\n      shell: bash\n' >.github/actions/yerel/action.yml
+git add .github/actions/yerel/action.yml
+wf() { printf 'on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: "true"\n%s\n' "$1" >.github/workflows/a.yml && git add .github/workflows/a.yml; }
 wf '      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1'
 expect pass "SHA ile sabitlenmiş action geçer" staged
 wf '      - uses: actions/checkout@v7'
