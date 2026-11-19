@@ -135,8 +135,8 @@ yüklenebildiği** her değişiklikte sınanır.
 
 **Bir kez kurulum (kullanıcı; sırlar ve gizli anahtar asistana verilmez):**
 
-1. `age`'i kur: macOS'ta `brew install age`, Windows'ta `winget install FiloSottile.age` (paket adı
-   doğrulanmadı; olmazsa [sürüm sayfasından](https://github.com/FiloSottile/age/releases) indir).
+1. `age`'i kur: macOS'ta `brew install age`, Windows'ta `winget install FiloSottile.age` (paket
+   2026-11-19'da doğrulandı: sürüm 1.3.2; yedek yol [sürüm sayfası](https://github.com/FiloSottile/age/releases)).
 2. Anahtar çifti üret: `age-keygen -o bookhub-yedek.key`. Komut açık anahtarı ekrana yazar
    (`Public key: age1…`).
 3. `bookhub-yedek.key` dosyasının içeriğini parola yöneticisine (Keychain, 1Password) kaydet, dosyayı
