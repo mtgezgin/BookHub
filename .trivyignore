@@ -1,0 +1,13 @@
+# Trivy istisnaları — her girdi SÜRELİ (exp:) ve bir issue'ya bağlı. Kural: docs/PROCESS.md.
+# Bitiş tarihinden sonra girdi kendiliğinden geçersizleşir ve tarama yeniden kırmızı olur: bu bilerek.
+# ci.yml ve scan.yml bu dosyayı `trivyignores:` ile açıkça okur.
+
+# #106 — nginx 1.30.6-r1 (nginx.org paketi, temel imajda sabitli; apk upgrade yükseltemiyor).
+# Düzeltilmiş temel imaj henüz yok (Docker Hub, 2026-11-19). Beşinin koşulu da bizim yapılandırmada
+# yok: mail proxy, HTTP/3, HTTP/2 (iki açık), değişkenli proxy adı + SSI/mirror. Bizde: listen 8080
+# düz HTTP/1.1, proxy_pass http://api:8080 sabit, SSI ve mirror yok. Yeni digest gelince silinir.
+CVE-2026-113425 exp:2026-12-19
+CVE-2026-121810 exp:2026-12-19
+CVE-2026-123007 exp:2026-12-19
+CVE-2026-123633 exp:2026-12-19
+CVE-2026-123634 exp:2026-12-19
