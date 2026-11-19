@@ -122,6 +122,23 @@ func TestSuggestBook(t *testing.T) {
 			t.Errorf("401 bekleniyordu, gelen %d", rec.Code)
 		}
 	})
+	t.Run("cover_url → 400, servis çağrılmaz (F37)", func(t *testing.T) {
+		fake := &fakeModeration{}
+		rec := do(t, userRouter(deps{moderation: fake}), http.MethodPost, "/api/books/suggestions", `{"title":"T","author":"A","cover_url":"https://saldirgan.example/k.jpg"}`)
+		if rec.Code != http.StatusBadRequest || len(fake.calls) != 0 {
+			t.Fatalf("400 ve servis çağrısı YOK bekleniyordu: %d %v", rec.Code, fake.calls)
+		}
+		if !strings.Contains(rec.Body.String(), "cover_url") {
+			t.Errorf("hata hangi alanın reddedildiğini söylemeli: %s", rec.Body)
+		}
+	})
+	t.Run("boş cover_url → 201 (form alanı boş gönderebilir)", func(t *testing.T) {
+		fake := &fakeModeration{book: db.BookView{ID: 9, Status: books.StatusPending}}
+		rec := do(t, userRouter(deps{moderation: fake}), http.MethodPost, "/api/books/suggestions", `{"title":"T","author":"A","cover_url":"  "}`)
+		if rec.Code != http.StatusCreated {
+			t.Errorf("201 bekleniyordu, gelen %d (%s)", rec.Code, rec.Body)
+		}
+	})
 	t.Run("status alanı (mass-assignment) → 400", func(t *testing.T) {
 		fake := &fakeModeration{}
 		rec := do(t, userRouter(deps{moderation: fake}), http.MethodPost, "/api/books/suggestions", `{"title":"T","author":"A","status":"APPROVED"}`)
