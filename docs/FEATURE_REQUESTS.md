@@ -17,7 +17,7 @@ Kodla karşılaştırma (origin/main, Faz 14 sonrası). 34 maddenin hiçbiri tam
 | CAT-01 | kısmen | Detayda kapak (yüklenemezse üretilmiş kapak), yazar, yıl, sayfa, dil, türler, açıklama; kendi puanı topluluk ortalamasından ayrı; benzer kitaplar | Detaydan kitaplığa ekleme (LIB-01), kendi incelemesi (REV-01), yayınevi |
 | CAT-02 | tamamlandı (Faz 16) | Eser/baskı ayrımı, admin baskı uçları, "Diğer baskılar" şeridi ([phase-16](phases/phase-16-works-editions.md), [#36](https://github.com/mtgezgin/BookHub/issues/36)) | Kullanıcının baskı önermesi ([#79](https://github.com/mtgezgin/BookHub/issues/79)); okuma kaydının baskıya bağlanması (Faz 17) |
 | MOD-02 | kısmen | Backend: tekil kayıt, düzenleme (PATCH), onay/red/arşiv/geri yayın, denetim geçmişi. Arayüz: durum sekmeleri, red diyaloğu | Arayüzde bütün alanlar, öneren ve geçmiş; onay öncesi düzeltme; zorunlu red gerekçesi; eşzamanlı düzenleme uyarısı |
-| DISC-01 | kısmen | Başlık/yazar araması, tür filtresi, "En yeni" ve "En yüksek puan" sıralaması; filtre URL'de, bayat yanıt koruması, boş sonuçta "filtreleri temizle" | Dil ve sayfa aralığı filtresi, başlığa göre sıralama, aktif filtre etiketleri |
+| DISC-01 | kısmen | Türkçe duyarlı başlık/yazar araması ve yazarken arama (Faz 16b), tür filtresi, "En yeni" ve "En yüksek puan" sıralaması; filtre URL'de, bayat yanıt koruması, boş sonuçta "filtreleri temizle" | Dil ve sayfa aralığı filtresi, başlığa göre sıralama, aktif filtre etiketleri |
 | DISC-02 | kısmen | Detayda ilk türe göre benzer kitaplar, gerekçe başlıkta | Ortak türlerin birlikte değerlendirilmesi, ağırlıklı puanla sıralama |
 | ACC-02 | kısmen | Mevcut parolayla değiştirme; değişince diğer bütün oturumlar kapanır (Faz 13) | "Parolamı unuttum" ve e-postayla sıfırlama |
 | UX-01 | kısmen | İskelet yükleme, boş ve hata durumları, bildirimler, çift gönderim koruması, girişten güvenli dönüş | "Yeniden dene", girişten sonra yarım kalan işlemi sürdürme, F10/F11'in kalanları |
@@ -39,6 +39,11 @@ Baskıları yalnız admin ekler; kullanıcının baskı önermesi [#79](https://
 **Güncelleme (17 Kasım 2026):** ACC-05 (Google ile giriş) backlog'a eklendi (kullanıcı talebi). Ön koşulu
 özel alan adı: canlı `code.run` adresiyle Google girişi kurulamıyor (gerekçe ve adımlar
 [ACC-05](#acc-05--google-ile-giriş)'te). Sırası [ROADMAP](ROADMAP.md)'te henüz belirlenmedi.
+
+**Güncelleme (19 Kasım 2026, Faz 16b — [#82](https://github.com/mtgezgin/BookHub/issues/82)):** DISC-01'in arama yarısı
+canlıda (PR [#89](https://github.com/mtgezgin/BookHub/pull/89), 18 Kasım): Türkçe duyarlı, index'li arama ("ince memed"
+"İnce Memed"i bulur) ve yazarken arama (en az 3 harf, 300 ms). Madde "kısmen" kalıyor: dil ve sayfa
+aralığı süzgeci, başlığa göre sıralama ve aktif süzgeç etiketleri yok.
 
 ## 1. Ürün yönü ve temel ihtiyaç
 

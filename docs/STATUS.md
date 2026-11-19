@@ -3,37 +3,55 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-11-16):** **16 fazın tamamı ✅** · repo public (MIT) · canlı izleme başladı · MCP sunucusu · **Şimdi: Faz 17 — okuma takibi ve inceleme** ([Sıradaki](#sıradaki)) — MVP (Faz 1–7, brief §15;
-`backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React frontend, CI/CD, NGINX,
-Kubernetes) + **Faz 13 oturum sertleştirme** (httpOnly refresh çerezi, token aileleri + reuse
-tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
+**Son güncelleme (2026-11-19):** Faz 1–16c canlıda · repo public (MIT) · **Şimdi: Faz 16d — arayüz
+veri katmanı (TanStack Query)**, ardından Faz 17 ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
+`backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React, CI/CD, NGINX, Kubernetes) + oturum
+sertleştirme (Faz 13) + ürün fazları 14–16c.
 
-- **Canlıda (2026-10-04):** Northflank (`web` public, `api` private) + Supabase + Upstash —
-  https://p01--web--4x2qb6s8vg5j.code.run · [DEPLOYMENT.md](DEPLOYMENT.md).
-- **Süreç (2026-10-05, canlıda 2026-10-12):** issue/PR şablonları, testlere bağlı yayın (`release`
-  dalı + Deploy iş akışı; main'e her merge = yayın), [CLAUDE.md](../CLAUDE.md) kuralları,
-  makinenin denetlediği kurallar (`scripts/checks.sh`: git kancaları + CI'da Kurallar) ·
-  [PROCESS.md](PROCESS.md).
-- **Yol haritası (2026-10-17):** hedef "üretim kalitesinde demo"; sıra ve gerekçe
-  [ROADMAP.md](ROADMAP.md)'de. Faz 15 kişisel kitaplık ✅ → Faz 16 eser ve baskı ✅ →
-  **Şimdi: Faz 17 — okuma takibi ve inceleme** ([#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md)) → Faz 18 katkı döngüsü ve hesap.
-- **Public repo (2026-11-09):** geçmiş (commit'ler, PR/issue metinleri, Actions logları) sır
-  taramasından geçti; MIT lisansı; `main` korumalı (PR ve zorunlu **Kurallar** kontrolü), `release`
-  force push ve silmeye karşı korumalı; secret scanning ve push protection açık. Site **demo**
-  kalıyor (kullanıcı kararı, 2026-11-09): kayıt ekranında ve README'de uyarı var
-  ([#64](https://github.com/mtgezgin/BookHub/issues/64)).
-- **Canlı izleme (2026-11-10):** haftalık imaj taraması (`scan.yml`,
-  [#48](https://github.com/mtgezgin/BookHub/issues/48)) ve günlük erişilebilirlik kontrolü
-  (`uptime.yml`, [#63](https://github.com/mtgezgin/BookHub/issues/63); Supabase'in duraklamadığı
-  2026-11-24 civarı panelden kontrol edilecek) · [PROCESS §7](PROCESS.md). Hata izleme henüz yok.
-- **MCP sunucusu (2026-11-11):** `backend/cmd/mcp`, kataloğu Claude gibi bir modele altı salt okunur
-  araçla açar; API'nin istemcisidir, imaja girmez ([#52](https://github.com/mtgezgin/BookHub/issues/52),
-  PR #53) · [PROJECT_MAP](PROJECT_MAP.md).
-- **Kubernetes öğrenimi ertelendi (kullanıcı kararı, 2026-11-09):** önce özellikler (Faz 16).
-  `make k8s-up`'ın Windows düzeltmesi hazır ([#67](https://github.com/mtgezgin/BookHub/issues/67)).
-- **Node 26 LTS (2026-11-11, [#71](https://github.com/mtgezgin/BookHub/issues/71)):** derleme imajı, CI ve `@types/node` birlikte geçti.
-- **Teknik hat:** hata izleme, [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki
-  kapanmamış bulgular (ilgili fazın içinde kapanır).
+- **Canlıda (2026-10-04'ten beri):** Northflank (`web` public, `api` private) + Supabase (Frankfurt) +
+  Upstash — https://p01--web--4x2qb6s8vg5j.code.run · [DEPLOYMENT.md](DEPLOYMENT.md).
+- **Süreç:** issue/PR şablonları, testlere bağlı yayın (`release` dalı + Deploy iş akışı; `main`'e her
+  merge = yayın), [CLAUDE.md](../CLAUDE.md) kuralları, makinenin denetlediği kurallar (`scripts/checks.sh`:
+  git kancaları + CI'da Kurallar) · [PROCESS.md](PROCESS.md).
+- **`main` koruması (2026-11-19):** değişiklik yalnız PR'la; **8 zorunlu kontrol**: Kurallar, Backend,
+  Frontend, E2E, Yükseltme, İmaj taraması (Trivy), Bağımlılık incelemesi, SonarCloud. Birleşen dal
+  kendiliğinden silinir. Secret scanning, push protection ve Dependabot güvenlik uyarıları açık.
+- **Yol haritası:** hedef "üretim kalitesinde demo"; sıra ve gerekçe [ROADMAP.md](ROADMAP.md)'de. Site
+  **demo** kalıyor: kayıt ekranında ve README'de uyarı var ([#64](https://github.com/mtgezgin/BookHub/issues/64)).
+- **İkinci inceleme (2026-11-17):** [REVIEW_FEEDBACK](REVIEW_FEEDBACK.md) F20–F40. Düzeltmeler Faz 17'den
+  önce partiler hâlinde (kullanıcı kararı): A, B, index'ler, arayüz sağlamlığı, yayın güveni canlıda
+  (PR #90–#95, 2026-11-18); katalog sorguları Faz 16c olarak canlıda (PR #102, 2026-11-19); kapak
+  önerisi (PR #104) ve CI iyileştirmeleri (PR #109) canlıda.
+- **Canlı izleme:** günlük erişilebilirlik (`uptime.yml`, #63), haftalık imaj taraması (`scan.yml`, #48),
+  her PR'da bağımlılık incelemesi. Web imajında **süreli Trivy istisnası** var (nginx 1.30.6, 2026-12-19'a
+  kadar; [#106](https://github.com/mtgezgin/BookHub/issues/106)). Northflank sağlık kontrolleri ve hata
+  izleme henüz yok · [PROCESS §7](PROCESS.md).
+- **Gözlemlenebilirlik (2026-11-18):** API OpenTelemetry ile iz ve metrik üretiyor; yerelde
+  `make obs-up` (Grafana :3002, Prometheus :9090). Canlıda kapalı: Grafana Cloud'a açmak
+  [#96](https://github.com/mtgezgin/BookHub/issues/96) (hazırlık PR #97; kullanıcının hesabı bekleniyor).
+- **Bekleyen operasyon işleri:** şifreli yedek ([#100](https://github.com/mtgezgin/BookHub/issues/100),
+  taslak PR #101: kullanıcının `age` açık anahtarı ve `backup` ortamının sırrı); canlı ayar doğrulaması
+  ([#84](https://github.com/mtgezgin/BookHub/issues/84): `statement_timeout`, `plan_cache_mode`); kapak
+  önerisinin canlıda 400 dönmesi ([#103](https://github.com/mtgezgin/BookHub/issues/103)); geri dönüş
+  provası (F39, önce F22).
+- **MCP sunucusu (2026-11-11):** `backend/cmd/mcp`, kataloğu bir modele altı salt okunur araçla açar; API'nin
+  istemcisidir, imaja girmez ([#52](https://github.com/mtgezgin/BookHub/issues/52)) · [PROJECT_MAP](PROJECT_MAP.md).
+- **Kubernetes öğrenimi ertelendi (kullanıcı kararı, 2026-11-09):** önce özellikler. `make k8s-up`'ın
+  Windows düzeltmesi hazır ([#67](https://github.com/mtgezgin/BookHub/issues/67)).
+
+> **Faz 16d — arayüz veri katmanı (sürüyor, 2026-11-19):** sunucu verisi sayfaların `useEffect`'lerinden
+> TanStack Query'ye taşınıyor (REVIEW_FEEDBACK F33). Kullanıcı her adımı commit'ten önce editörde okuyor.
+> Adım 1–4 (kurulum; türler, katalog, şerit) dal `feat/105-tanstack-query`'de; sırada kitap sayfası ve ilk
+> değişiklik (puan) · [#105](https://github.com/mtgezgin/BookHub/issues/105).
+
+> **Faz 16c — katalog sorguları (canlıda 2026-11-19):** tür süzgeci kimlikle ayrı sorguda, "önce kimlik sonra
+> görünüm", tür başına sayım ve genel ortalama süreç içinde 60 sn, bağlantılarda `plan_cache_mode =
+> force_custom_plan`, arayüzde 10.000 sınırı. 500 bin kitapta liste 0,1–1,1 ms; bilinen sınır: nadir türde
+> 36 ms. Saklanan puan skoru ertelendi · [phase-16c](phases/phase-16c-catalog-queries.md).
+
+> **Faz 16b — arama (canlıda 2026-11-18):** Türkçe duyarlı katlama (`search_fold`), kitap başına arama
+> belgesi ve GIN index (migration `0014`), yazarken arama (en az 3 harf, 300 ms), katalog için ziyaretçi
+> başına NGINX sınırı · [phase-16b](phases/phase-16b-search.md).
 
 > **Faz 16 — eser ve baskı (canlıda 2026-11-15):** `books` eser olarak kaldı, yeni `editions` tablosu
 > (kitap başına bir varsayılan baskı), `book_view`, admin baskı uçları, kitap sayfasında "Diğer baskılar"
@@ -86,6 +104,9 @@ tespiti, CSRF koruması, parola değişimi, gerçek tarayıcıda Playwright).
 | 14 | Arayüz yeniden tasarımı (tasarım token'ları, shadcn/ui bileşenleri, erişilebilirlik, katalog sıralaması) | ✅ (canlı, gerçek kapaklar dahil) |
 | 15 | Kişisel kitaplık (durum, Kitaplığım sayfası, kart rozetleri; migration 0010) | ✅ (canlı 2026-10-25) |
 | 16 | Eser ve baskı (`editions`, "Diğer baskılar" şeridi; migration 0011–0013, genişlet → daralt) | ✅ (canlı 2026-11-15) |
+| 16b | Türkçe duyarlı arama ve yazarken arama (migration 0014) | ✅ (canlı 2026-11-18) |
+| 16c | Katalog sorguları: tür süzgeci, sayım, derin sayfa (500 bin kitapta ölçüldü) | ✅ (canlı 2026-11-19) |
+| 16d | Arayüz veri katmanı: TanStack Query | 🚧 adım 1–4 / 8 |
 
 ## Faz 2'de ne oldu (özet)
 
@@ -181,29 +202,25 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 
 ## Sıradaki
 
-Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
+Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 
-1. **Şimdi — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02).
-   [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md)
-   onaylandı (2026-11-16). Üç PR: 17A-1 okuma takibi, 17A-2 kısıtlar, 17B inceleme. Aktif okuma
-   kitaplık satırında durur, kapanmış okumalar `reading_log`'da; yazımlar tek durum makinesinden geçer.
-   İnceleme geniş kullanıma açılmadan MOD-04 gerekir ([ROADMAP](ROADMAP.md)).
-2. **Sonra:**
-   - Faz 18, katkı döngüsü ve hesap (gerçek kullanıcı kararıyla öne alınır); kullanıcının baskı
-     önermesi ([#79](https://github.com/mtgezgin/BookHub/issues/79)) bununla birlikte.
-3. **Teknik hat (araya, küçük):**
-   - Hata izleme ve gerçek zamanlı alarm ([PROCESS.md](PROCESS.md) §7; imaj taraması ve uptime var).
-   - `PROD_DATABASE_URL`'i bir GitHub Environment'a taşımak: repo public olduğu için artık ücretsiz
-     ([DEPLOYMENT.md](DEPLOYMENT.md) §2).
-   - [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) bulguları: açık olanlar F03, F04, F06–F09, F11–F15, F17
-     ve F10/F16'nın kalan yarıları; F05 risk kabul edildi.
-   - Bilinen borçlar: [PROJECT_MAP.md](PROJECT_MAP.md) §7.
-4. **Kural:** yeni fikir önce [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)'e yazılır. Issue yalnız
-   "Şimdi" fazı için açılır ([ROADMAP § Kurallar](ROADMAP.md#kurallar)).
+1. **Şimdi — Faz 16d** ([#105](https://github.com/mtgezgin/BookHub/issues/105)): adım 5 kitap sayfası ve
+   puan (ilk `useMutation`), adım 6 yorumlar ve moderasyon (`usePaged`'in yerine), adım 7 kitaplık, adım 8
+   çıkışta önbellek temizliği ve son ölçüm.
+2. **Sonra — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02;
+   [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylı).
+   Migration'ları `0016`–`0018`.
+3. **Kullanıcı adımları:** yedek anahtarı ve sırrı (#100), Northflank sağlık kontrolleri (panel),
+   Grafana Cloud hesabı (#96).
+4. **Teknik hat (araya, küçük):** CodeQL ve SonarCloud'da test kapsamı (CI öğrenme adımları), F22
+   (canlıda hangi sürüm çalışıyor) ve geri dönüş provası, `PROD_DATABASE_URL`'i bir GitHub ortamına taşımak,
+   [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki açık bulgular (özet tablo güncel).
+5. **Kural:** yeni fikir önce [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)'e yazılır. Issue yalnız
+   "Şimdi" fazı ve teknik hat için açılır ([ROADMAP § Kurallar](ROADMAP.md#kurallar)).
 
 ## Ortam / gerçekler
 
-- **Go toolchain:** macOS 1.27.1 (Homebrew), Windows 1.27.0 (winget); `go.mod` daha yenisini isteyince Go o sürümü kendisi indirir · `go.mod`: `go 1.27.4` (Docker derleme imajıyla aynı yama, #75; 1.27.2 CVE-2026-111943 yüzünden bırakıldı, #47) · module `github.com/mtgezgin/bookhub/backend`.
+- **Go toolchain:** macOS 1.27.1 (Homebrew), Windows 1.27.0 (winget; 2026-11-19'da bakıldı); `go.mod` daha yenisini isteyince Go o sürümü kendisi indirir · `go.mod`: `go 1.27.4` (Docker derleme imajıyla aynı yama, #75; 1.27.2 CVE-2026-111943 yüzünden bırakıldı, #47) · module `github.com/mtgezgin/bookhub/backend`.
 - CLI'lar `~/go/bin`: goose v3.27.2, sqlc v1.31.1. golangci-lint v2.14.0 Homebrew'dan (CI'da da v2.14.0
   pinli); `~/go/bin`'deki eski v1.64.8 PATH'te arkada kalıyor.
 - Docker Desktop + `docker compose up -d` → Postgres 16 (`127.0.0.1:5432`) + Redis 7 (`127.0.0.1:6380` — 6379 başka projenin). Veri named volume'da.
@@ -214,9 +231,14 @@ Sıra artık tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 - Commit kimliği: repo-yerel `user.email`, GitHub'ın noreply adresi
   (`…@users.noreply.github.com`). Repo public; yeni commit'lere kişisel e-posta yazılmaz. Eski
   commit'lerdeki adres, public yapılırken bilerek bırakıldı (2026-11-09).
-- **Git kapıları:** pre-commit hook yalnız gofmt+vet (golangci-lint'i ELLE çalıştır). Push'ta plugin
-  kapıları: güvenlik incelemesi + çok ajanlı review paneli + test coverage (SHA'ya bağlı; her yeni
-  commit onları sıfırlar → push'u faz sonunda topla).
+- **Git kancaları** (`.githooks/`): pre-commit `scripts/checks.sh staged` + gofmt/vet; commit-msg atlama
+  bayrağı; pre-push golangci-lint + `go test -race` + (frontend değiştiyse) vitest. Mac'teki Claude Code
+  kurulumunda ayrıca güvenlik incelemesi, review paneli ve kapsam eklenti kancaları vardı; bu Windows
+  makinesinde kurulu değil (2026-11-19'da bakıldı).
+- **Windows'ta eksik araçlar:** `actionlint` ve `shellcheck` kurulu değil; kancalar bu kontrolleri atlar
+  ve CI'daki Kurallar denetler. Yerelde Docker'la koşulur: `rhysd/actionlint:1.7.12`,
+  `koalaman/shellcheck:stable`. `checks_test.sh`'ı CI'daki gibi koşmak için actionlint'i Docker'da çağıran
+  küçük bir sarmalayıcı PATH'e konur.
 
 ## Kilit kararlar (yeniden tartışma — [PROJECT_BRIEF.md](PROJECT_BRIEF.md) §7 & §18)
 

@@ -1,6 +1,6 @@
 # Faz 16b — Arama: Türkçe duyarlı, index'li; yazarken arama
 
-> Durum: 📝 kod yazıldı, yerelde doğrulandı (2026-11-17); yayın kullanıcı onayını bekliyor · Issue: [#82](https://github.com/mtgezgin/BookHub/issues/82) —
+> Durum: ✅ canlıda (PR [#89](https://github.com/mtgezgin/BookHub/pull/89), 2026-11-18) · Issue: [#82](https://github.com/mtgezgin/BookHub/issues/82) —
 > [ROADMAP](../ROADMAP.md) · Backlog: [DISC-01](../FEATURE_REQUESTS.md)'in arama yarısı ·
 > İlgili: [0014_book_search.sql](../../backend/migrations/0014_book_search.sql),
 > [books.sql](../../backend/sql/queries/books.sql) (`SearchBooks`), [Home.tsx](../../frontend/src/pages/Home.tsx),

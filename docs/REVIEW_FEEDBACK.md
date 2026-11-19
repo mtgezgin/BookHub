@@ -23,18 +23,18 @@ Backend'in temeli iyi kurulmuş. Design pattern'lara dikkat edilmiş; temel soru
 
 ## Takip listesi
 
-Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaretleyin. İlgili bulgunun altına çözüm özeti, commit/PR ve doğrulama sonucu ekleyin. Bilinçli olarak ertelenen veya kabul edilen risklerde gerekçe ve yeniden değerlendirme koşulu yazın.
+Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaretleyin. Kısmen çözülen bulguların durumu Bulgu sütununda *eğik* yazılır; ayrıntısı bulgunun altındadır. İlgili bulgunun altına çözüm özeti, commit/PR ve doğrulama sonucu ekleyin. Bilinçli olarak ertelenen veya kabul edilen risklerde gerekçe ve yeniden değerlendirme koşulu yazın.
 
 | Tamamlandı | ID | Öncelik | Bulgu |
 |---|---|---|---|
 | [x] | F01 | Yüksek | Başarısız logout sonrasında sunucu oturumu canlı kalabiliyor |
 | [x] | F02 | Yüksek | Refresh commit'i sonrası hata yeniden denemede oturumu düşürüyor |
 | [ ] | F03 | Orta | Çıkış, devam eden refresh ve kilidi bekliyor |
-| [ ] | F04 | Yüksek | Rate limit kapsamı kötüye kullanımı yeterince sınırlamıyor |
+| [ ] | F04 | Yüksek | Rate limit kapsamı kötüye kullanımı yeterince sınırlamıyor — *parola özeti kuyruğu canlıda (#90)* |
 | [ ] | F05 | Yüksek — üretim | API ile migration veritabanı yetkileri ayrılmamış — **risk kabul edildi** |
 | [ ] | F06 | Orta | Admin yetkisinin kaldırılması mevcut token'ı hemen etkilemiyor |
 | [ ] | F07 | Orta | Readiness gerçek hizmet verebilirliği ölçmüyor |
-| [ ] | F08 | Orta | İşlem, sorgu ve kilit bekleme süre bütçeleri eksik |
+| [ ] | F08 | Orta | İşlem, sorgu ve kilit bekleme süre bütçeleri eksik — *canlıda; canlı ayar doğrulaması bekliyor (#84)* |
 | [ ] | F09 | Orta | Cache ve güvenlik sayaçları aynı eviction politikasını paylaşıyor |
 | [x] | F10 | Yüksek | Eski frontend yanıtları yeni ekran verisinin üzerine yazabiliyor |
 | [ ] | F11 | Orta | Formlarda tekrar gönderim ve eşzamanlı puan yazımı korunmuyor |
@@ -46,26 +46,26 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [ ] | F17 | İyileştirme | Frontend oturum sorumlulukları sadeleştirilmeli |
 | [x] | F18 | Düşük | Dokümanlar mevcut uygulamayla eşitlenmeli |
 | [ ] | F19 | Düşük | `manage migrate` hangi migration'ları uyguladığını yazmıyor |
-| [ ] | F20 | Yüksek | Uygulama ile veri ayrı bölgede; istekler sıralı ve çok sorgulu |
+| [ ] | F20 | Yüksek | Uygulama ile veri ayrı bölgede; istekler sıralı ve çok sorgulu — *bölge taşıması ertelendi (2026-11-18)* |
 | [x] | F21 | Orta | Yarıda kesilen istek veritabanı bağlantısını kapatıyor ve hata olarak loglanıyor |
 | [ ] | F22 | Orta | Yayın akışı canlıda hangi sürümün çalıştığını doğrulamıyor |
-| [ ] | F23 | Orta | Yedek ve geri yükleme tanımlı değil |
-| [ ] | F24 | Orta — ölçekle | Tür süzgeci kalıbı planlayıcının iyi planı kurmasını engelliyor |
-| [ ] | F25 | Orta — ölçekle | Her listede tam sayım, derin sayfa maliyeti ve 10.000 sınırı |
-| [ ] | F26 | Orta — ölçekle | Puana göre sıralama ve "en sevilenler" önbelleği |
+| [ ] | F23 | Orta | Yedek ve geri yükleme tanımlı değil — *karar verildi, PR #101 anahtar bekliyor* |
+| [ ] | F24 | Orta — ölçekle | Tür süzgeci kalıbı planlayıcının iyi planı kurmasını engelliyor — *canlıda; nadir türde 36 ms (bilinen sınır)* |
+| [ ] | F25 | Orta — ölçekle | Her listede tam sayım, derin sayfa maliyeti ve 10.000 sınırı — *canlıda; sayım önbelleği dakikada bir ıskalar* |
+| [ ] | F26 | Orta — ölçekle | Puana göre sıralama ve "en sevilenler" önbelleği — *önbellek yarısı canlıda; saklanan skor ertelendi* |
 | [x] | F27 | Düşük | Kitap satırı kilidi gereğinden güçlü; puan istatistiği iki yerde hesaplanıyor |
 | [x] | F28 | Düşük | Index'siz yabancı anahtarlar ve küçük index düzeltmeleri |
-| [ ] | F29 | Orta | Aynı başlıklı ikinci öneri reddediliyor; yazar düz metin |
+| [ ] | F29 | Orta | Aynı başlıklı ikinci öneri reddediliyor; yazar düz metin — *öneri yarısı canlıda* |
 | [x] | F30 | Orta | Geçersiz bayt içeren metin 500 üretiyor |
 | [x] | F31 | Orta | `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor |
 | [x] | F32 | Orta | Bir isteğin süresinin nereye gittiği görünmüyor |
-| [ ] | F33 | Orta | Sunucu verisi her sayfada elle çekiliyor |
+| [ ] | F33 | Orta | Sunucu verisi her sayfada elle çekiliyor — *Faz 16d sürüyor (#105)* |
 | [x] | F34 | Orta | Hata sınırı yok; NGINX'in ürettiği hatalar boş mesajla görünüyor |
 | [x] | F35 | Orta | Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir |
 | [x] | F36 | Orta | Açılıştaki geçici hata "çıkış yapılmış" gibi görünüyor |
-| [ ] | F37 | Orta | Kapak görselleri denetlenmeyen adreslerden yükleniyor |
+| [ ] | F37 | Orta | Kapak görselleri denetlenmeyen adreslerden yükleniyor — *öneri yarısı canlıda (#104)* |
 | [x] | F38 | Orta | CI taze kurulumu sınıyor, canlı yükseltme yapıyor; migration'da süre sınırı yok |
-| [ ] | F39 | Düşük | Sınanan imaj çalışan imaj değil; geri dönüş denenmedi; CI zorunlu kontrol değil |
+| [ ] | F39 | Düşük | Sınanan imaj çalışan imaj değil; geri dönüş denenmedi; CI zorunlu kontrol değil — *zorunlu kontroller kuruldu (2026-11-19); geri dönüş provası ve imaj açık* |
 | [ ] | F40 | Düşük | Küçük bulgular |
 
 ## F01 — Başarısız logout sonrasında sunucu oturumu canlı kalabiliyor
@@ -144,7 +144,7 @@ Uygulama rate limit'i login/register uçlarında var. Yorum, öneri, puan yazım
 
 **Ek kanıt (17 Kasım 2026):** Yerel API 0,1 işlemciyle sınırlanarak ölçüldü (bu makinede tek özet 2,2 sn; canlıda belgelenen değer 3,3 sn). Tek giriş denemesi 2,2 sn sürdü; dört eşzamanlı denemenin her biri 8,4–9,0 sn; beş eşzamanlı denemenin beşi de 502 döndü (Go'nun 10 sn'lik yazma süresi doldu, NGINX "upstream prematurely closed connection" yazdı). Üç deneme sürerken katalog isteği 0,1 sn yerine 1,3 sn sürdü. Canlıda eşik 3–4 eşzamanlı giriş: bu kadarı girişi herkes için düşürür ve o sırada bütün API yavaşlar. İki ek gözlem: kayıt iki özet hesaplatıyor (`register`, ardından `login`; [Auth.tsx](../frontend/src/pages/Auth.tsx)) ve kayıtta özet, e-postanın kayıtlı olup olmadığına bakılmadan önce hesaplanıyor ([service.go](../backend/internal/auth/service.go)). **Önerinin somut hâli:** parola özeti çevresinde tek yuvalı bir kuyruk; kuyruk doluysa 503 ve `Retry-After`. `register` oturumu da döndürsün (tek özet).
 
-**İlerleme (17 Kasım 2026, #83, yayın bekliyor):** Parola özeti kuyruğu eklendi (`auth.Service.slow`): aynı anda tek özet çalışıyor, sırası 5 sn'de gelmeyen istek 503 `busy` + `Retry-After` alıyor (kayıt, giriş, parola değişimi). Var olmayan hesap da aynı cevabı alıyor. 0,1 işlemcide ölçüm yayından sonra yapılacak; bulgunun rate limit kapsamıyla ilgili diğer maddeleri açık.
+**İlerleme (17 Kasım 2026, #83, PR #90, canlıda 2026-11-18):** Parola özeti kuyruğu eklendi (`auth.Service.slow`): aynı anda tek özet çalışıyor, sırası 5 sn'de gelmeyen istek 503 `busy` + `Retry-After` alıyor (kayıt, giriş, parola değişimi). Var olmayan hesap da aynı cevabı alıyor. 0,1 işlemcide ölçüm yayından sonra yapılacak; bulgunun rate limit kapsamıyla ilgili diğer maddeleri açık.
 
 ## F05 — API ile migration veritabanı yetkileri ayrılmamış
 
@@ -212,7 +212,7 @@ HTTP ReadTimeout/WriteTimeout var; normal handler işlemleri için genel context
 
 **Ek kanıt (17 Kasım 2026):** Bağlantı havuzu bütünüyle varsayılan ayarlarla kuruluyor (`pgxpool.New`). En çok bağlantı sayısı `max(4, çekirdek sayısı)`: 0,1 vCPU kotasını değil düğümün çekirdek sayısını izler; Supabase'in oturum havuzu ise varsayılan 15 bağlantı ve fazlası bir dakikaya kadar sıraya girer. En az bağlantı 0 ve boşta kalma süresi 30 dakika olduğu için seyrek trafikte ilk istekler yeni bir TLS bağlantısı kurar. Düzeltirken dikkat: `pool_max_conns`'ı `DATABASE_URL`'e yazmak `manage migrate`'i bozar, çünkü aynı adres `database/sql` üzerinden de açılıyor ve pgx bilinmeyen anahtarı sunucuya iletir (pgx kaynağı okunarak); değer koddan verilmeli. Canlıdaki çekirdek sayısı ve havuz ayarı doğrulanmadı. Migration oturumunun süre sınırları için F38.
 
-**İlerleme (17 Kasım 2026, #84, yayın bekliyor):** Süre bütçeleri: okuma 5 sn, yazma 9 sn (ikisi de WriteTimeout'tan kısa); bütçesi dolan istek 503 `timeout` + `Retry-After` döner. Her veritabanı bağlantısı `statement_timeout` 10 sn, `lock_timeout` 3 sn, `idle_in_transaction_session_timeout` 15 sn ile açılır (`AfterConnect`; migration bağlantısı etkilenmez). Havuz koddan kurulur: en çok bağlantı `DB_MAX_CONNS` (varsayılan 6), en az 1, boşta kalma 5 dk. Açık kalanlar: canlıdaki çekirdek sayısı ve Supabase havuz sınırı panelden doğrulanmadı; `SET` komutlarının Supabase oturum havuzlayıcısında kalıcı olduğu yayından sonra `SHOW statement_timeout` ile doğrulanacak.
+**İlerleme (17 Kasım 2026, #84, PR #91, canlıda 2026-11-18; canlı ayar doğrulaması #84'te bekliyor):** Süre bütçeleri: okuma 5 sn, yazma 9 sn (ikisi de WriteTimeout'tan kısa); bütçesi dolan istek 503 `timeout` + `Retry-After` döner. Her veritabanı bağlantısı `statement_timeout` 10 sn, `lock_timeout` 3 sn, `idle_in_transaction_session_timeout` 15 sn ile açılır (`AfterConnect`; migration bağlantısı etkilenmez). Havuz koddan kurulur: en çok bağlantı `DB_MAX_CONNS` (varsayılan 6), en az 1, boşta kalma 5 dk. Açık kalanlar: canlıdaki çekirdek sayısı ve Supabase havuz sınırı panelden doğrulanmadı; `SET` komutlarının Supabase oturum havuzlayıcısında kalıcı olduğu yayından sonra `SHOW statement_timeout` ile doğrulanacak.
 
 ## F09 — Cache ve güvenlik sayaçları aynı eviction politikasını paylaşıyor
 
@@ -465,9 +465,9 @@ Her sorguya isteğin context'i veriliyor; bu doğru alışkanlık. pgx'in varsay
 
 **Kabul kriteri:** Yarıda kesilen 20 istekten sonra havuzun açtığı bağlantı sayısı artmaz ve logda ERROR satırı oluşmaz.
 
-**İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), yayın bekliyor):** katalog listesi ve araması (`GET /api/books`) sorgularını istemci iptalinden ayırıyor (`detached`, 5 sn sınır) ve giden istemciyi 499 olarak logluyor. Yerel yığında 500 bin kitapla yarıda kesilen 40 istek: 4 yeni bağlantı (eşzamanlılık için havuz büyümesi), 0 ERROR. Diğer uçlar ve havuz düzeyindeki çözüm açık.
+**İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), PR #89, canlıda 2026-11-18):** katalog listesi ve araması (`GET /api/books`) sorgularını istemci iptalinden ayırıyor (`detached`, 5 sn sınır) ve giden istemciyi 499 olarak logluyor. Yerel yığında 500 bin kitapla yarıda kesilen 40 istek: 4 yeni bağlantı (eşzamanlılık için havuz büyümesi), 0 ERROR. Diğer uçlar ve havuz düzeyindeki çözüm açık.
 
-**Durum (17 Kasım 2026, #84, yayın bekliyor):** Bütün okuma istekleri (GET/HEAD) istemci iptalinden ayrıldı ve 5 sn'lik bütçe aldı (`requestBudget` ara katmanı); katalogdaki özel kod kaldırıldı. Giden istemcinin isteği erişim logunda 499 ve INFO; iptalin bir yazma sorgusuna ulaştığı durum `writeInternalError`'da ERROR yerine INFO ve 499. Yazma istekleri bilerek ayrılmadı (istemcinin vazgeçtiği yazma tamamlanmaz). Yerel ölçüm: yarıda kesilen 40 istekten API'ye ulaşanlar 499/INFO olarak loglandı, yeni veritabanı bağlantısı 0, ERROR 0. Ölçümün sınırı: sorgular 1-4 ms sürdüğü için isteklerin çoğu NGINX'te, API'ye ulaşmadan kesildi; davranış birim testleriyle sabit (`budget_test.go`). Havuz düzeyindeki çözüm (`CancelRequestContextWatcherHandler`) yapılmadı: Supabase havuzlayıcısı üzerinden denenmedi.
+**Durum (17 Kasım 2026, #84, PR #91, canlıda 2026-11-18; canlı ayar doğrulaması #84'te bekliyor):** Bütün okuma istekleri (GET/HEAD) istemci iptalinden ayrıldı ve 5 sn'lik bütçe aldı (`requestBudget` ara katmanı); katalogdaki özel kod kaldırıldı. Giden istemcinin isteği erişim logunda 499 ve INFO; iptalin bir yazma sorgusuna ulaştığı durum `writeInternalError`'da ERROR yerine INFO ve 499. Yazma istekleri bilerek ayrılmadı (istemcinin vazgeçtiği yazma tamamlanmaz). Yerel ölçüm: yarıda kesilen 40 istekten API'ye ulaşanlar 499/INFO olarak loglandı, yeni veritabanı bağlantısı 0, ERROR 0. Ölçümün sınırı: sorgular 1-4 ms sürdüğü için isteklerin çoğu NGINX'te, API'ye ulaşmadan kesildi; davranış birim testleriyle sabit (`budget_test.go`). Havuz düzeyindeki çözüm (`CancelRequestContextWatcherHandler`) yapılmadı: Supabase havuzlayıcısı üzerinden denenmedi.
 
 ## F22 — Yayın akışı canlıda hangi sürümün çalıştığını doğrulamıyor
 
@@ -518,7 +518,7 @@ Filtresiz liste 0,75 ms. Denenen ve yetmeyen bir yol: EXISTS'i üst düzeye alı
 
 **Kabul kriteri:** 500 bin kitaplık veride her tür için liste 5 ms'nin altında; `EXPLAIN ANALYZE` çıktısı PR'da.
 
-**Durum (19 Kasım 2026, #98, yayın bekliyor):** tür süzgeci ayrı sorgu ve kimlikle (`ListBooksInGenre`); slug → kimlik süreç içinde 60 sn. 500 bin kitapta liste: yaygın 120 → 0,14 ms, çok nadir 391 → 0,12 ms. **Karşılanmayan:** 501 kitaplık nadir türde 36 ms (paralel planın yanlış seçimi; paralel taramayı kapatmak büyük taramaları üçe katladığı için yapılmadı; ayrıntı Faz 16c spec'i).
+**Durum (19 Kasım 2026, #98, PR #102, canlıda 2026-11-19):** tür süzgeci ayrı sorgu ve kimlikle (`ListBooksInGenre`); slug → kimlik süreç içinde 60 sn. 500 bin kitapta liste: yaygın 120 → 0,14 ms, çok nadir 391 → 0,12 ms. **Karşılanmayan:** 501 kitaplık nadir türde 36 ms (paralel planın yanlış seçimi; paralel taramayı kapatmak büyük taramaları üçe katladığı için yapılmadı; ayrıntı Faz 16c spec'i).
 
 ## F25 — Her listede tam sayım, derin sayfa maliyeti ve 10.000 sınırı
 
@@ -534,7 +534,7 @@ Filtresiz liste 0,75 ms. Denenen ve yetmeyen bir yol: EXISTS'i üst düzeye alı
 
 **Kabul kriteri:** 500 bin kitapta katalog isteğinin veritabanı süresi 5 ms'nin altında; 10.000 sınırındaki davranış bir testle sabit.
 
-**Durum (19 Kasım 2026, #98, yayın bekliyor):** önce kimlik sonra görünüm (offset 10.000: 58 → 1,1 ms); toplam sayı tür başına 60 sn süreç içinde; arayüz 10.000 sınırında "Sonraki"yi kapatıp nedenini yazıyor (`usePaged.test.tsx`). Bağlantılar `plan_cache_mode = force_custom_plan` ile açılıyor: genel planda liste 42–165 ms'ydi. Anahtarla sayfalama yapılmadı.
+**Durum (19 Kasım 2026, #98, PR #102, canlıda 2026-11-19):** önce kimlik sonra görünüm (offset 10.000: 58 → 1,1 ms); toplam sayı tür başına 60 sn süreç içinde; arayüz 10.000 sınırında "Sonraki"yi kapatıp nedenini yazıyor (`usePaged.test.tsx`). Bağlantılar `plan_cache_mode = force_custom_plan` ile açılıyor: genel planda liste 42–165 ms'ydi. Anahtarla sayfalama yapılmadı.
 
 ## F26 — Puana göre sıralama ve "en sevilenler" önbelleği
 
@@ -570,7 +570,7 @@ Ağırlıklı skor sorgu anında hesaplanıyor. Karar bilinçli ve "yavaşladı�
 
 **Kabul kriteri:** Puan transaction'ı açıkken aynı kitaba kitaplık kaydı ve yorum eklenebilir; puan silme istatistiği bir kez günceller.
 
-**Durum (17 Kasım 2026, #83, yayın bekliyor):** Üç kilit sorgusu `FOR NO KEY UPDATE` oldu (`LockApprovedBook`, `LockBookForModeration`, `LockBook`). Puan silmede istatistiği yalnız tetikleyici hesaplıyor; servis sonucu okuyor (`GetBookRatingStats`). Test: kitap kilitliyken aynı kitaba kitaplık kaydı eklenebiliyor, ikinci yazım kilidi bekliyor (`TestBookLockDoesNotBlockReferencingInsertsRealDB`).
+**Durum (17 Kasım 2026, #83, PR #90, canlıda 2026-11-18):** Üç kilit sorgusu `FOR NO KEY UPDATE` oldu (`LockApprovedBook`, `LockBookForModeration`, `LockBook`). Puan silmede istatistiği yalnız tetikleyici hesaplıyor; servis sonucu okuyor (`GetBookRatingStats`). Test: kitap kilitliyken aynı kitaba kitaplık kaydı eklenebiliyor, ikinci yazım kilidi bekliyor (`TestBookLockDoesNotBlockReferencingInsertsRealDB`).
 
 ## F28 — Index'siz yabancı anahtarlar ve küçük index düzeltmeleri
 
@@ -585,7 +585,7 @@ Ağırlıklı skor sorgu anında hesaplanıyor. Karar bilinçli ve "yavaşladı�
 
 **Kabul kriteri:** Yabancı anahtar kolonu hiçbir index'in ilk kolonu olmayan kısıt kalmaz (katalog sorgusu bir testte).
 
-**Durum (17 Kasım 2026, #85, yayın bekliyor):** Migration `0015`: `comments.deleted_by` (kısmi), `comments (book_id, created_at, id)` (tam; eski kısmi index'in yerine), `library_entries.book_id`, `ratings (book_id, score)` ve `books (status, created_at, id)` (iki kısmi index'in yerine). Son karar ölçüldü (500 bin kitap): tek index dört durumun listesine 0,1–0,5 ms'de hizmet ediyor, herkese açık liste yavaşlamıyor, boyut 24 MB (eski ikisi 30 MB). Kural artık testte: `TestEveryForeignKeyHasIndex` 0014'te üç kolonu yakalıyor, 0015'te temiz. Yapılmayan: kullanıcı silmede deyim düzeyinde puan tetikleyicisi (DATA-02 ile birlikte).
+**Durum (17 Kasım 2026, #85, PR #92, canlıda 2026-11-18):** Migration `0015`: `comments.deleted_by` (kısmi), `comments (book_id, created_at, id)` (tam; eski kısmi index'in yerine), `library_entries.book_id`, `ratings (book_id, score)` ve `books (status, created_at, id)` (iki kısmi index'in yerine). Son karar ölçüldü (500 bin kitap): tek index dört durumun listesine 0,1–0,5 ms'de hizmet ediyor, herkese açık liste yavaşlamıyor, boyut 24 MB (eski ikisi 30 MB). Kural artık testte: `TestEveryForeignKeyHasIndex` 0014'te üç kolonu yakalıyor, 0015'te temiz. Yapılmayan: kullanıcı silmede deyim düzeyinde puan tetikleyicisi (DATA-02 ile birlikte).
 
 ## F29 — Aynı başlıklı ikinci öneri reddediliyor; yazar düz metin
 
@@ -600,7 +600,7 @@ Ağırlıklı skor sorgu anında hesaplanıyor. Karar bilinçli ve "yavaşladı�
 
 **Kabul kriteri:** Aynı başlıklı iki öneri de kaydedilir; aynı başlık ve yazarla ikinci öneri anlaşılır bir mesaj alır.
 
-**Durum (17 Kasım 2026, #83, yayın bekliyor):** Öneri yarısı yapıldı: öneride slug çakışırsa sayısal ekle yeniden deneniyor (`-2`, `-3`; en çok 20 deneme), admin'in doğrudan eklemesi çakışmayı bildirmeye devam ediyor (`TestSuggestSameTitleTwiceRealDB`). Yazarın düz metin olması açık; ayrı bir tasarım işi.
+**Durum (17 Kasım 2026, #83, PR #90, canlıda 2026-11-18):** Öneri yarısı yapıldı: öneride slug çakışırsa sayısal ekle yeniden deneniyor (`-2`, `-3`; en çok 20 deneme), admin'in doğrudan eklemesi çakışmayı bildirmeye devam ediyor (`TestSuggestSameTitleTwiceRealDB`). Yazarın düz metin olması açık; ayrı bir tasarım işi.
 
 ## F30 — Geçersiz bayt içeren metin 500 üretiyor
 
@@ -616,9 +616,9 @@ Yerel yığında `/api/books?q=%FF`, `q=%00` ve `q=a%C3` 500 döndü; logda SQLS
 
 **Kabul kriteri:** Üç örnek istek 400 döner ve ERROR satırı oluşmaz.
 
-**İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), yayın bekliyor):** `q` parametresi katalogda ve Kitaplığım'da denetleniyor (`validator.text`); üç örnek istek yerel yığında 400 döndü. Gövde alanları (giriş, kayıt, yorum, öneri) açık.
+**İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), PR #89, canlıda 2026-11-18):** `q` parametresi katalogda ve Kitaplığım'da denetleniyor (`validator.text`); üç örnek istek yerel yığında 400 döndü. Gövde alanları (giriş, kayıt, yorum, öneri) açık.
 
-**Durum (17 Kasım 2026, #83, yayın bekliyor):** Gövdeler de kapandı. `readJSON` çözülen gövdenin bütün metinlerinde NUL arıyor ve 400 dönüyor (kayıtta parola özeti hesaplanmadan önce). Geçersiz UTF-8 gövdede sorun değil: `encoding/json` onu U+FFFD'ye çeviriyor (testle sabit). Yedek: SQLSTATE 22 sınıfı `writeInternalError`'da 400 ve WARN oluyor. Fuzz testi eklenmedi; tablo testi var (`nul_test.go`).
+**Durum (17 Kasım 2026, #83, PR #90, canlıda 2026-11-18):** Gövdeler de kapandı. `readJSON` çözülen gövdenin bütün metinlerinde NUL arıyor ve 400 dönüyor (kayıtta parola özeti hesaplanmadan önce). Geçersiz UTF-8 gövdede sorun değil: `encoding/json` onu U+FFFD'ye çeviriyor (testle sabit). Yedek: SQLSTATE 22 sınıfı `writeInternalError`'da 400 ve WARN oluyor. Fuzz testi eklenmedi; tablo testi var (`nul_test.go`).
 
 ## F31 — `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor
 
@@ -632,7 +632,7 @@ E-posta doğrulaması yok ve repo public. Yöneticinin kullanacağı adresle ön
 
 **Kabul kriteri:** Var olan adresle `create-admin` hata verir; `-promote` ile eski parola ve eski oturumlar geçersiz olur.
 
-**Durum (17 Kasım 2026, #83, yayın bekliyor):** `create-admin` var olan hesapta hata veriyor. `-promote` ile hesap devralınıyor: parola değişiyor, bütün oturum aileleri iptal ediliyor, rol yükseliyor (tek transaction). `scripts/e2e.sh` `-promote` kullanıyor; DEPLOYMENT güncellendi.
+**Durum (17 Kasım 2026, #83, PR #90, canlıda 2026-11-18):** `create-admin` var olan hesapta hata veriyor. `-promote` ile hesap devralınıyor: parola değişiyor, bütün oturum aileleri iptal ediliyor, rol yükseliyor (tek transaction). `scripts/e2e.sh` `-promote` kullanıyor; DEPLOYMENT güncellendi.
 
 ## F32 — Bir isteğin süresinin nereye gittiği görünmüyor
 
@@ -646,7 +646,7 @@ Erişim satırı toplam süreyi yazıyor. Veritabanı ve Redis süresi, sorgu sa
 
 **Kabul kriteri:** Her erişim satırında sorgu sayısı ve veritabanı süresi var; panik eden bir handler hata zarfı döner.
 
-**Durum (17 Kasım 2026, #84, yayın bekliyor):** Erişim satırında `db_queries`, `db_ms`, `redis_ms` var (`internal/reqstats`; pgx `QueryTracer` ve go-redis hook'u). BEGIN ve COMMIT ayrı gidiş-dönüş sayılır. Sorgu metni ve argümanı kaydedilmez. Panik eden handler hata zarfı ve `X-Request-Id` ile 500 döner (`recoverer`). Havuzdan bağlantı bekleme süresi ve kullanıcı kimliği eklenmedi. Ölçümün ilk faydası aynı gün görüldü: Redis durdurulmuşken `redis_ms` 600 ms gösterdi ve aşağıdaki Redis notuna yol açtı.
+**Durum (17 Kasım 2026, #84, PR #91, canlıda 2026-11-18; canlı ayar doğrulaması #84'te bekliyor):** Erişim satırında `db_queries`, `db_ms`, `redis_ms` var (`internal/reqstats`; pgx `QueryTracer` ve go-redis hook'u). BEGIN ve COMMIT ayrı gidiş-dönüş sayılır. Sorgu metni ve argümanı kaydedilmez. Panik eden handler hata zarfı ve `X-Request-Id` ile 500 döner (`recoverer`). Havuzdan bağlantı bekleme süresi ve kullanıcı kimliği eklenmedi. Ölçümün ilk faydası aynı gün görüldü: Redis durdurulmuşken `redis_ms` 600 ms gösterdi ve aşağıdaki Redis notuna yol açtı.
 
 **Ek (17 Kasım 2026, #84): Redis kesintisi.** Redis açılışta ulaşılamazsa API artık açılıyor (uyarı loglar; bağlantı sonradan kurulur). Ölçüm sırasında bir sorun bulundu: Redis durdurulmuşken önbellek kullanan tek istek 10 sn'yi aştı, çünkü her komut bağlantı kurmayı baştan deniyordu. Düzeltme: komut başına 600 ms sınır, tek yeniden deneme ve bir devre kesici (başarısız komuttan sonra 5 sn Redis denenmez). Yerel ölçüm: kesinti boyunca 5 sn'de bir tek istek 0,6 sn bekledi, diğerleri 2-4 ms; Redis dönünce önbellek kendiliğinden çalıştı. Kesinti sırasında rate limit açık kalır (uyarı loglanır); NGINX'in sınırı yerinde durur.
 
@@ -675,9 +675,9 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 
 **Kabul kriteri:** Render hatasında başlık ve "yeniden yükle" seçeneği görünür; 429 ve 502'de kullanıcı anlamlı bir mesaj okur.
 
-**İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), yayın bekliyor):** NGINX'in kendi 429'u artık API'nin hata zarfıyla ve `Retry-After` ile dönüyor (giriş, kayıt, parola ve katalog sınırlarında). 502 ve 504 ile hata sınırı açık.
+**İlerleme (17 Kasım 2026, [Faz 16b](phases/phase-16b-search.md), PR #89, canlıda 2026-11-18):** NGINX'in kendi 429'u artık API'nin hata zarfıyla ve `Retry-After` ile dönüyor (giriş, kayıt, parola ve katalog sınırlarında). 502 ve 504 ile hata sınırı açık.
 
-**Durum (17 Kasım 2026, #86, yayın bekliyor):** Rota içeriği bir hata sınırıyla sarıldı (`ErrorBoundary`; rota yolu `key`, başka sayfaya geçince sıfırlanır). Zarfsız ya da boş mesajlı hata cevabında mesaj durum kodundan üretiliyor (`messageForStatus`: 429, 413, 502/503/504, diğer 5xx). Uçtan uca test: katalog 502 HTML alınca kullanıcı "Sunucuya şu an ulaşılamıyor" mesajını okuyor (`resilience.spec.ts`). HTTP/2'deki boş durum metni yerelde üretilemedi; testte taklit edildi.
+**Durum (17 Kasım 2026, #86, PR #93, canlıda 2026-11-18):** Rota içeriği bir hata sınırıyla sarıldı (`ErrorBoundary`; rota yolu `key`, başka sayfaya geçince sıfırlanır). Zarfsız ya da boş mesajlı hata cevabında mesaj durum kodundan üretiliyor (`messageForStatus`: 429, 413, 502/503/504, diğer 5xx). Uçtan uca test: katalog 502 HTML alınca kullanıcı "Sunucuya şu an ulaşılamıyor" mesajını okuyor (`resilience.spec.ts`). HTTP/2'deki boş durum metni yerelde üretilemedi; testte taklit edildi.
 
 ## F35 — Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir
 
@@ -693,7 +693,7 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 
 **Kabul kriteri:** Bulunamayan `/assets/` dosyasının cevabında `Cache-Control: … immutable` yok.
 
-**Durum (17 Kasım 2026, #83, yayın bekliyor):** `/assets/` konumundaki `always` kaldırıldı. Üç önbellek sözleşmesi uçtan uca testte (`frontend/e2e/cache-headers.spec.ts`): index.html `no-cache`, özetli dosya `immutable`, bulunamayan dosya önbelleklenmez.
+**Durum (17 Kasım 2026, #83, PR #90, canlıda 2026-11-18):** `/assets/` konumundaki `always` kaldırıldı. Üç önbellek sözleşmesi uçtan uca testte (`frontend/e2e/cache-headers.spec.ts`): index.html `no-cache`, özetli dosya `immutable`, bulunamayan dosya önbelleklenmez.
 
 ## F36 — Açılıştaki geçici hata "çıkış yapılmış" gibi görünüyor
 
@@ -708,7 +708,7 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 
 **Kabul kriteri:** Açılışta yenileme 502 dönerse kullanıcı giriş sayfasına atılmaz; ağ düzelince oturum kendiliğinden görünür.
 
-**Durum (17 Kasım 2026, #86, yayın bekliyor):** Üçüncü durum eklendi: oturum belirsizken (`api.sessionUncertain()`: HINT var, yenileme geçici hatayla döndü) `ready` false kalıyor, korumalı sayfa "Oturumun doğrulanamadı… Yeniden deneniyor" gösteriyor ve yönlendirmiyor. Yeniden deneme 1, 3, 10, 30 sn sonra ve `online` olayında; sunucu 401 dönerse anonim olarak kesinleşiyor. `restore()` kullanıcıyı yenileme cevabından alıyor; açılıştaki `/api/auth/me` isteği kalktı. Uçtan uca test: yenileme 502 iken `/library`'de kalınıyor, sunucu 401 verince `/login`'e gidiliyor. Bilinen sınır: belirsizken menüde "Giriş" bağlantısı görünmeye devam ediyor.
+**Durum (17 Kasım 2026, #86, PR #93, canlıda 2026-11-18):** Üçüncü durum eklendi: oturum belirsizken (`api.sessionUncertain()`: HINT var, yenileme geçici hatayla döndü) `ready` false kalıyor, korumalı sayfa "Oturumun doğrulanamadı… Yeniden deneniyor" gösteriyor ve yönlendirmiyor. Yeniden deneme 1, 3, 10, 30 sn sonra ve `online` olayında; sunucu 401 dönerse anonim olarak kesinleşiyor. `restore()` kullanıcıyı yenileme cevabından alıyor; açılıştaki `/api/auth/me` isteği kalktı. Uçtan uca test: yenileme 502 iken `/library`'de kalınıyor, sunucu 401 verince `/login`'e gidiliyor. Bilinen sınır: belirsizken menüde "Giriş" bağlantısı görünmeye devam ediyor.
 
 ## F37 — Kapak görselleri denetlenmeyen adreslerden yükleniyor
 
@@ -724,6 +724,8 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 
 **Ek gözlem (18 Kasım 2026, canlıda tarayıcı testi):** kapaklar `covers.openlibrary.org`'dan istenip `archive.org`'a **yönlendirilerek** yükleniyor (en yavaş üç ağ isteği kapaklardı: 470–878 ms; açılıştan ~3 sn sonra şeritteki kapak kutuları hâlâ boştu). CSP'nin `img-src` kuralı yönlendirmenin HEDEFİNE de uygulanır: izin listesi yalnız `covers.openlibrary.org` olursa kapaklar kırılır; liste yönlendirme hedeflerini de içermeli (hangi alan adları olduğu ağ kayıtlarından çıkarılacak; doğrulanmadı). Gecikme, önerideki "kapakları kendi origin'inizden sunun" maddesinin gerekçesini güçlendiriyor.
 
+**Karar ve ilerleme (19 Kasım 2026):** kullanıcı A'yı seçti: önerilerde kapak adresi kabul edilmez (#103). Öneri `cover_url` taşırsa 400 alır; boş ya da hiç gönderilmemişse bugünkü gibi 201. Admin uçları değişmedi; kapak adresini yalnız admin girer (bugün arayüzde bunun bir alanı yok, kitap ya da baskı PATCH'iyle API'den yapılır; canlıdaki kapaklar demo migration'larından gelir: 0009, 0012). İzin listesi, CSP daraltması ve kapakları kendi origin'imizden sunmak açık kalıyor; madde bu yüzden kapanmadı.
+
 ## F38 — CI taze kurulumu sınıyor, canlı yükseltme yapıyor; migration'da süre sınırı yok
 
 **Öncelik:** Orta · CI/CD
@@ -738,7 +740,7 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 
 **Kabul kriteri:** Dolu veride düşen bir migration PR'da kırmızı olur; sıra dışı numara Kurallar'da yakalanır.
 
-**Durum (17 Kasım 2026, #88, yayın bekliyor):** CI'a "Yükseltme" işi eklendi (`scripts/upgrade-check.sh`): `release`'in şeması ve demo verisi üzerine bu commit'in migration'ları uygulanır; şema sürümü ve kitap sayısı denetlenir. Yerelde çalıştırıldı: şema 13 → 15, 54 kitap yerinde (0014 ve 0015 dolu veride geçiyor). `checks.sh`: yeni migration numarası `main` ve `release`'teki en büyük numaradan büyük olmalı (`check_migration_order`). Migration oturumunda `lock_timeout` 5 sn (`migrate.go`); Deploy işlerinde `timeout-minutes` (15 ve 5). Doğrulanmadı: iş akışları GitHub'da henüz koşmadı; `SET lock_timeout` Supabase havuzlayıcısında denenmedi.
+**Durum (17 Kasım 2026, #88, PR #95, canlıda 2026-11-18):** CI'a "Yükseltme" işi eklendi (`scripts/upgrade-check.sh`): `release`'in şeması ve demo verisi üzerine bu commit'in migration'ları uygulanır; şema sürümü ve kitap sayısı denetlenir. Yerelde çalıştırıldı: şema 13 → 15, 54 kitap yerinde (0014 ve 0015 dolu veride geçiyor). `checks.sh`: yeni migration numarası `main` ve `release`'teki en büyük numaradan büyük olmalı (`check_migration_order`). Migration oturumunda `lock_timeout` 5 sn (`migrate.go`); Deploy işlerinde `timeout-minutes` (15 ve 5). Doğrulanmadı: iş akışları GitHub'da henüz koşmadı; `SET lock_timeout` Supabase havuzlayıcısında denenmedi.
 
 ## F39 — Sınanan imaj çalışan imaj değil; geri dönüş denenmedi; CI zorunlu kontrol değil
 
@@ -756,7 +758,7 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 
 **Kabul kriteri:** Geri dönüş adımları PROCESS.md'de ve bir kez uygulandı; entegrasyon testlerinin atlandığı bir CI koşusu kırmızı biter.
 
-**İlerleme (17 Kasım 2026, #88, yayın bekliyor):** CI'da `REQUIRE_INTEGRATION=1`: entegrasyon ortamı eksikse `internal/testdb` testi kırmızı biter. `deploy.yml`'deki action'lar commit ile sabitlendi. Açık kalanlar: geri dönüş provası (canlıda, adım listesiyle), zorunlu kontrol ayarı (GitHub paneli), sınanan imajın yayınlanan imaj olması.
+**İlerleme (17 Kasım 2026, #88, PR #95, canlıda 2026-11-18):** CI'da `REQUIRE_INTEGRATION=1`: entegrasyon ortamı eksikse `internal/testdb` testi kırmızı biter. `deploy.yml`'deki action'lar commit ile sabitlendi. Açık kalanlar: geri dönüş provası (canlıda, adım listesiyle), zorunlu kontrol ayarı (GitHub paneli), sınanan imajın yayınlanan imaj olması.
 
 ## F40 — Küçük bulgular
 

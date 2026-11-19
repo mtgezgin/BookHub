@@ -127,6 +127,18 @@ func handleSuggestBook(svc moderationService) http.HandlerFunc {
 		if !ok {
 			return
 		}
+		// Öneride kapak adresi KABUL EDİLMEZ (F37, karar A, 2026-11-19). Form bu alanı hiç göstermiyor;
+		// gönderen biri formu atlamış demektir. Onaylanan kitabın kapağını her ziyaretçinin tarayıcısı
+		// yükler: adres önerenin sunucusuysa ziyaretçilerin IP'si ona gider ve görsel onaydan sonra
+		// değiştirilebilir. Moderasyon ekranı kapağı göstermediği için admin bunu göremez (F12).
+		// Kapağı onaydan sonra admin ekler (kitap PATCH'i). Sessizce yok saymak yerine 400: istemci
+		// gönderdiği alanın işlenmediğini bilsin.
+		if req.CoverURL != "" {
+			var v validator
+			v.add("cover_url önerilerde gönderilemez; kapağı onaydan sonra admin ekler")
+			writeRequestError(w, v.err())
+			return
+		}
 		book, err := svc.Suggest(r.Context(), user, req.toParams())
 		if err != nil {
 			writeBookWriteError(w, "SuggestBook", err)

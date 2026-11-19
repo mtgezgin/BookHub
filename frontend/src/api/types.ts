@@ -130,7 +130,7 @@ export interface NewBook {
   author: string;
   slug?: string;
   description?: string;
-  cover_url?: string;
+  // cover_url YOK: API öneride kapak adresini reddeder (F37); kapağı onaydan sonra admin ekler.
   publication_year?: number;
   page_count?: number;
   language?: string;
