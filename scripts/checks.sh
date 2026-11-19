@@ -280,6 +280,22 @@ check_telemetry_privacy() {
 	fi
 }
 
+# Kural: iş akışlarındaki action'lar commit SHA'sıyla sabitlenir (#108). Etiket (v7) taşınabilir: action'ın
+# deposu ele geçirilirse etiket zararlı bir commit'e çevrilebilir ve CI'da sırlarla çalışır; SHA
+# değiştirilemez. Dependabot (github-actions) SHA'ları ve yanlarındaki sürüm yorumunu günceller.
+# Yerel action (./) ve docker:// kuralın dışında.
+check_action_pinning() {
+	local hits
+	case "$MODE" in
+	staged) hits="$(git grep --cached -nE '^[[:space:]-]*uses:' -- '.github/workflows/*.yml' '.github/workflows/*.yaml' 2>/dev/null || true)" ;;
+	range) hits="$(git grep -nE '^[[:space:]-]*uses:' "$HEAD" -- '.github/workflows/*.yml' '.github/workflows/*.yaml' 2>/dev/null || true)" ;;
+	esac
+	hits="$(grep -vE "uses:[[:space:]]*[\"']?(\./|docker://)" <<<"$hits" | grep -vE "@[0-9a-f]{40}([[:space:]\"']|$)" || true)"
+	if [[ -n "$hits" ]]; then
+		fail "action commit SHA'sıyla sabitlenmeli (etiket taşınabilir): $(head -n 3 <<<"$hits" | tr '\n' ' ')"
+	fi
+}
+
 # Kural: sır commit'lenmez.
 check_secrets() {
 	if ! command -v gitleaks >/dev/null 2>&1; then
@@ -337,6 +353,7 @@ staged)
 	check_go_version
 	check_nginx_log
 	check_telemetry_privacy
+	check_action_pinning
 	check_secrets
 	check_generated
 	check_lint
@@ -368,6 +385,7 @@ range)
 	check_go_version
 	check_nginx_log
 	check_telemetry_privacy
+	check_action_pinning
 	check_secrets
 	check_generated
 	check_lint

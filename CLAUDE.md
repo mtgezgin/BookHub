@@ -68,7 +68,8 @@ yazılır — kuralın "neden"i silinmesin.
   bir iş akışına ya da işe eklenmez. deploy.yml'in `if:` koşulu (başarılı + push + main + ci.yml +
   aynı depo) ve `permissions`'ı gevşetilmez; `pull_request_target` eklenmez; olay verisi `run:` içine
   `${{ }}` ile yazılmaz. CI işlerini atlatan bir değişiklik (`if: false`, `continue-on-error`)
-  engelleyicidir.
+  engelleyicidir. Action'lar commit SHA'sıyla sabitlenir, etiketle (`@v7`) çağrılmaz
+  (`scripts/checks.sh` `check_action_pinning`; Dependabot SHA'yı ve sürüm yorumunu günceller).
 
 ## Veritabanı ve migration
 
