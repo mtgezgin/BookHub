@@ -2,7 +2,7 @@ import { Star } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { Book, BookDetail as BookDetailData, RatingSummary } from "../api/types";
+import { useBook, useBooks, useMyRating, useRateBook, useRatingSummary } from "../api/queries";
 import { useAuth } from "../auth/AuthContext";
 import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
@@ -28,7 +28,7 @@ const MAX_COMMENT = 2000;
  * 10 yıldızlık puan seçici. Üstüne gelince/odaklanınca önizleme; seçili olan aria-pressed.
  * Her düğmenin adı puanın kendisi (ekran okuyucuya özel metin): "7, düğme, basılı".
  */
-function StarPicker({ value, onPick }: { value: number | null; onPick: (score: number) => void }) {
+function StarPicker({ value, onPick, disabled }: { value: number | null; onPick: (score: number) => void; disabled: boolean }) {
   const [preview, setPreview] = useState<number | null>(null);
   const shown = preview ?? value ?? 0;
   return (
@@ -38,8 +38,9 @@ function StarPicker({ value, onPick }: { value: number | null; onPick: (score: n
           key={s}
           type="button"
           aria-pressed={value === s}
+          disabled={disabled}
           title={`${s} puan`}
-          className="rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          className="rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-60"
           onMouseEnter={() => setPreview(s)}
           onFocus={() => setPreview(s)}
           onBlur={() => setPreview(null)}
@@ -82,12 +83,9 @@ function BookDetailView() {
   const { user } = useAuth();
   const location = useLocation();
   const toast = useToast();
-  const [book, setBook] = useState<BookDetailData | null>(null);
-  const [summary, setSummary] = useState<RatingSummary | null>(null);
-  const [mine, setMine] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [posting, setPosting] = useState(false);
-  const [similar, setSimilar] = useState<Book[] | null>(null);
+  // Yorum işlemlerinin hatası (adım 6'da yorumlar da sorguya dönünce bu durum kalkar).
   const [error, setError] = useState<unknown>(null);
 
   // Süslü parantez şart: yeni Chromium'da scrollTo bir Promise döndürüyor; etki onu döndürseydi
@@ -96,64 +94,35 @@ function BookDetailView() {
     window.scrollTo(0, 0);
   }, []);
 
-  // Kitap + puan özeti ve yorumlar AYRI yüklenir: yorum sayfası değişince kitabı yeniden
-  // çekmeye gerek yok. Hatalar yutulmaz; yeni bir yükleme eski hata mesajını temizler.
-  const loadBook = useCallback(() => {
-    setError(null);
-    api.book(id).then(setBook).catch(setError);
-    api.ratingSummary(id).then(setSummary).catch(setError);
-  }, [id]);
-  useEffect(loadBook, [loadBook]);
+  // Sunucu verisi (Faz 16d adım 5; kancalar api/queries.ts'te). Eskiden burada dört useState, iki useEffect,
+  // elle bir "current" bayrağı ve her puandan sonra kitabı yeniden yükleyen loadBook vardı. Kitap, özet ve
+  // yorumlar yine AYRI sorgular: yorum sayfası değişince kitap yeniden çekilmez.
+  const bookQuery = useBook(id);
+  const summaryQuery = useRatingSummary(id);
+  const myRating = useMyRating(user?.id, id);
+  const rating = useRateBook(id, user?.id);
+  const book = bookQuery.data;
+  const summary = summaryQuery.data;
+  const mine = user ? (myRating.data ?? null) : null;
 
-  // Aynı türden kitaplar: yardımcı içerik. Başarısız olursa hata GÖSTERİLMEZ, bölüm çizilmez.
-  // Bağımlılık id + tür (nesne değil): puan verince kitap yeniden çekilir ama bu liste değişmez.
-  const bookId = book?.id;
+  // Aynı türden kitaplar: yardımcı içerik. Başarısız olursa hata GÖSTERİLMEZ, bölüm çizilmez. Tür
+  // bilinmeden sorgu çalışmaz (enabled); anahtar tür + limit olduğu için aynı türdeki başka bir kitaba
+  // geçince liste önbellekten gelir.
   const firstGenre = book?.genres[0]?.slug;
-  useEffect(() => {
-    setSimilar(null);
-    if (bookId === undefined || !firstGenre) return;
-    let current = true;
-    api.books({ genre: firstGenre, limit: 7 })
-      .then((p) => current && setSimilar(p.items.filter((b) => b.id !== bookId).slice(0, 6)))
-      .catch(() => current && setSimilar(null));
-    return () => {
-      current = false;
-    };
-  }, [bookId, firstGenre]);
+  const similarQuery = useBooks({ genre: firstGenre, limit: 7 }, firstGenre !== undefined);
+  const similar = similarQuery.data?.items.filter((b) => b.id !== id).slice(0, 6);
   const similarStatuses = useLibraryStatuses((similar ?? []).map((b) => b.id));
 
   const fetchComments = useCallback((offset: number) => api.comments(id, offset), [id]);
   const comments = usePaged(fetchComments, String(id), setError);
 
-  useEffect(() => {
-    if (!user) return setMine(null);
-    api.myRating(id)
-      .then((r) => setMine(r.score))
-      .catch((e) => (e instanceof ApiError && e.code === "not_rated" ? setMine(null) : setError(e)));
-  }, [id, user]);
-
-  const rate = async (score: number) => {
+  // Puan ver (score) ya da kaldır (null). Hata rating.error'da durur ve aşağıdaki kutuda görünür; yeni bir
+  // deneme onu kendiliğinden temizler. Bildirim sayfaya ait (kanca bildirimin metnini bilmemeli).
+  const rate = (score: number | null) => {
     setError(null);
-    try {
-      await api.rate(id, score);
-      setMine(score);
-      toast(`Puanın kaydedildi: ${score}/10`);
-      loadBook();
-    } catch (e) {
-      setError(e);
-    }
-  };
-
-  const unrate = async () => {
-    setError(null);
-    try {
-      await api.removeRating(id);
-      setMine(null);
-      toast("Puanın kaldırıldı");
-      loadBook();
-    } catch (e) {
-      setError(e);
-    }
+    rating.mutate(score, {
+      onSuccess: () => toast(score === null ? "Puanın kaldırıldı" : `Puanın kaydedildi: ${score}/10`),
+    });
   };
 
   const post = async (e: React.FormEvent) => {
@@ -185,11 +154,14 @@ function BookDetailView() {
   };
 
   if (!book) {
-    if (error instanceof ApiError && error.status === 404) {
+    const loadError = bookQuery.error;
+    if (loadError instanceof ApiError && loadError.status === 404) {
       return <NotFound title="Kitap bulunamadı">Bu kitap katalogda yok ya da yayından kaldırılmış.</NotFound>;
     }
-    return error ? <><PageTitle title="Kitap yüklenemedi" /><ErrorBox error={error} /></> : <DetailSkeleton />;
+    return loadError ? <><PageTitle title="Kitap yüklenemedi" /><ErrorBox error={loadError} /></> : <DetailSkeleton />;
   }
+  // Sayfadaki tek hata kutusu: önce son işlemin hatası, sonra okumalarınki.
+  const shownError = error ?? rating.error ?? summaryQuery.error ?? myRating.error;
   const max = Math.max(1, ...(summary?.distribution.map((d) => d.votes) ?? [1]));
   const meta = [
     book.author,
@@ -252,8 +224,9 @@ function BookDetailView() {
                   <span id="my-score-label" className="text-sm text-muted-foreground">Senin puanın</span>
                   {mine !== null && <span className="text-sm font-semibold tabular-nums">{mine}/10</span>}
                 </div>
-                <StarPicker value={mine} onPick={rate} />
-                {mine !== null && <Button variant="link" size="sm" className="self-start" onClick={unrate}>kaldır</Button>}
+                {/* Kayıt sürerken kilitli: hızlı iki tık iki istek göndermez, sıraları karışmaz (F11). */}
+                <StarPicker value={mine} onPick={rate} disabled={rating.isPending} />
+                {mine !== null && <Button variant="link" size="sm" className="self-start" disabled={rating.isPending} onClick={() => rate(null)}>kaldır</Button>}
               </div>
             ) : (
               <p className="mt-4 border-t pt-4 text-sm text-muted-foreground">
@@ -267,7 +240,7 @@ function BookDetailView() {
           {/* İçerik React'te METİN olarak basılır → yorumdaki "<script>" çalışmaz, görünür. */}
           {book.description && <p className="text-lg leading-relaxed whitespace-pre-wrap">{book.description}</p>}
           <EditionStrip editions={book.editions} author={book.author} />
-          <ErrorBox error={error} className="mt-6" />
+          <ErrorBox error={shownError} className="mt-6" />
 
           <section aria-labelledby="comments-heading" className="mt-10">
             <h2 id="comments-heading" className="text-2xl font-semibold">Yorumlar {comments.page ? `(${comments.page.total})` : ""}</h2>

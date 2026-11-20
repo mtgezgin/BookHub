@@ -1,6 +1,6 @@
 # Faz 16d — Sunucu verisi TanStack Query ile
 
-> Durum: 🚧 adım 1–4 tamam (kullanıcı okudu, 2026-11-19); sıradaki adım 5 · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
+> Durum: 🚧 adım 1–5 tamam (kullanıcı okudu, 2026-11-21); sıradaki adım 6 · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
 > [ROADMAP](../ROADMAP.md) · Bulgu: [REVIEW_FEEDBACK](../REVIEW_FEEDBACK.md) F33 ·
 > İlgili: [client.ts](../../frontend/src/api/client.ts), [usePaged.tsx](../../frontend/src/components/usePaged.tsx),
 > [Home.tsx](../../frontend/src/pages/Home.tsx), [BookDetail.tsx](../../frontend/src/pages/BookDetail.tsx)
@@ -181,6 +181,42 @@ Her adım: **amaç**, **neden**, **sonuç** (yazıldıkça doldurulur), **bakıl
 - **Neden:** yazma işleminden sonra "neyin yenileneceği" bugün elle yazılıyor. Geçersiz kılmayla bu, verinin
   anahtarına bağlanır. Faz 17'nin inceleme yazma işi bu kalıbı kullanacak.
 - **Kendin dene:** puan verince özetin güncellendiğini, DevTools'ta ilgili kaydın "fetching" olup döndüğünü görmek.
+- **Ne yapıldı (2026-11-19):**
+  - `api/queries.ts`'e dört okuma: `useBook`, `useRatingSummary`, `useMyRating` ve benzer kitaplar için
+    mevcut `useBooks` (yeni `enabled` parametresiyle: tür bilinmeden çalışmaz).
+  - İlk **değişiklik**: `useRateBook`. `mutate(7)` puan verir, `mutate(null)` kaldırır.
+  - `BookDetail.tsx`: dört `useState`, iki `useEffect`, `loadBook` ve iki ayrı `rate`/`unrate` fonksiyonu
+    gitti; yerine dört sorgu ve tek `rate(score | null)`.
+- **Yeni kavram 1 — puan yoksa hata değil, cevap:** sunucu "bu kitaba puan vermedin"i 404 `not_rated` ile
+  söylüyor. `useMyRating`'in `queryFn`'i bunu `null`'a çeviriyor: ekranda hata kutusu çıkmıyor, önbellekte
+  "puanı yok" bilgisi de saklanıyor. Eskiden aynı ayrımı sayfa `catch` içinde yapıyordu.
+- **Yeni kavram 2 — kullanıcıya özel anahtar:** "benim puanım" `["me", kullanıcıKimliği, "rating", kitapKimliği]`.
+  Aynı tarayıcıda başka biri giriş yaparsa anahtar farklı olduğu için öncekinin puanı görünmez. `"me"` öneki
+  adım 8'de işe yarayacak: çıkışta bu önekle başlayan her şey tek satırla silinecek.
+- **Yeni kavram 3 — değişiklikten sonra ne olur (`onSuccess`):**
+  1. "Benim puanım" **doğrudan yazılır** (`setQueryData`): yeni değeri zaten biliyoruz.
+  2. Puan özeti **geçersiz kılınır** (`invalidateQueries`): ekranda olduğu için hemen yeniden çekilir.
+  3. Bütün kitap listeleri **bayat işaretlenir ama şimdi çekilmez** (`refetchType: "none"`): kartlardaki
+     ortalama değişti, ama o listeler şu an ekranda değil. Kataloğa dönünce tazelenir. Bu satır önbelleğin
+     getirdiği bir sorumluluk: eski kod kataloğu her açılışta yeniden çektiği için kart hiç eskimiyordu; önbellekle
+     bu satır olmasaydı puan verip 30 sn içinde kataloğa dönen kişi kartta eski ortalamayı görürdü.
+- **Neden kurallar kancada, sayfada değil:** "puan değişince neyin tazeleneceği" bilgisi verinin yanında durunca,
+  puanın verildiği her yer aynı kuralı kendiliğinden uygular. Faz 17'de kitaplık satırından da puan verilecek.
+- **Bilerek eklenen bir davranış (F11'in puan yarısı):** kayıt sürerken yıldızlar ve "kaldır" kilitli
+  (`rating.isPending`). Eskiden hızlı iki tık iki istek gönderiyordu ve sunucuya hangisinin önce varacağı belli
+  değildi. Yeni test: "puan kaydedilirken yıldızlar ve 'kaldır' kilitli…".
+- **Sonuç:** vitest 389/389 (mevcut 38 kitap sayfası testi değişmeden geçiyor; özetin yeniden çekildiğini sayan
+  iki test dahil), ana paket 121,3 KB gzip (başlangıçtan +10,6 KB; `useMutation` +0,6 KB getirdi).
+  Playwright 20/20 (yerel; puan ve yorum senaryosu dahil).
+- **Bakılacak yerler (bu sırayla):**
+  1. `frontend/src/api/queries.ts`: dosyanın sonundaki dört yeni kanca; özellikle `useRateBook`'un yorumu.
+  2. `frontend/src/pages/BookDetail.tsx`: 97–127. satırlar (sorgular ve tek `rate`), hata kutusu (`shownError`),
+     yıldızlardaki `disabled`.
+  3. `frontend/src/pages/BookDetail.test.tsx`: yeni kilit testi ("puan kaydedilirken…"); geri kalanı yalnız
+     `withQuery` sarmalı.
+- **Kendin dene:** `make dev`, giriş yap, bir kitap aç. Bir yıldıza tıkla: DevTools panelinde `["ratings","summary",…]`
+  bir an "fetching" olur; `["me",…,"rating",…]` hiç istek atmadan yeni değeri alır. Sonra kataloğa dön: liste
+  kayıtları "stale" (bayat) işaretli görünür ve ekrana gelenler tazelenir.
 
 ### Adım 6 — Yorumlar ve `usePaged`'in yerini almak
 

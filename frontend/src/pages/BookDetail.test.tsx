@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withQuery } from "../test/render";
 import type { BookDetail as BookDetailData, Comment, RatingSummary, User } from "../api/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -83,14 +84,16 @@ async function render(path = "/books/1") {
   const root = createRoot(el);
   act(() =>
     root.render(
-      <ToastProvider>
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/books/:id" element={<><BookDetail /><Nav /></>} />
-            <Route path="/login" element={<FromProbe />} />
-          </Routes>
-        </MemoryRouter>
-      </ToastProvider>,
+      withQuery(
+        <ToastProvider>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/books/:id" element={<><BookDetail /><Nav /></>} />
+              <Route path="/login" element={<FromProbe />} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>,
+      ),
     ),
   );
   cleanup.push(() => {
@@ -238,6 +241,25 @@ describe("BookDetail — puan verme/kaldırma", () => {
     await flush();
     expect(button(el, "kaldır")).toBeUndefined();
     expect(calls.ratingSummary.length).toBe(before + 1);
+  });
+
+  it("puan kaydedilirken yıldızlar ve 'kaldır' kilitli: hızlı ikinci tık ikinci istek göndermez (F11)", async () => {
+    let release!: () => void;
+    stub({
+      myRating: async () => ({ score: 8, created_at: "", updated_at: "" }),
+      rate: (_id: number, score: number) => new Promise((res) => { release = () => res({ score }); }),
+    });
+    const { el } = await render();
+    await act(async () => button(el, "7")!.click());
+    await flush();
+    expect(button(el, "3")!.disabled).toBe(true);
+    expect(button(el, "kaldır")!.disabled).toBe(true);
+    await act(async () => button(el, "3")!.click());
+    expect(calls.rate).toEqual([[1, 7]]);
+    await act(async () => release());
+    await flush();
+    expect(button(el, "3")!.disabled).toBe(false);
+    expect(button(el, "7")!.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("başarısız unrate gösterilir", async () => {
