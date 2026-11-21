@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
+import type { BookStatus } from "./types";
 
 /**
  * Sunucu verisinin OKUMA kancaları (Faz 16d). Sayfalar api.* fonksiyonlarını useEffect içinde çağırmak
@@ -23,6 +24,10 @@ export const queryKeys = {
   // Kullanıcıya özel veri "me" altında ve KULLANICI KİMLİĞİYLE: aynı tarayıcıda başka biri giriş yaparsa
   // anahtar farklıdır, öncekinin puanı önbellekten görünmez. Çıkışta "me" kayıtları ayrıca silinecek (adım 8).
   myRating: (userId: number, bookId: number) => ["me", userId, "rating", bookId] as const,
+  // Yorumlar kitabın ALTINDA değil ayrı bir kökte: ["books"] her puandan sonra bayat işaretleniyor;
+  // yorumlar onun altında olsaydı puan vermek yorumları da gereksiz yere yeniden çekerdi.
+  comments: (bookId: number, offset: number) => ["comments", bookId, offset] as const,
+  adminBooks: (status: BookStatus, offset: number) => ["admin", "books", status, offset] as const,
 };
 
 /**
@@ -31,7 +36,7 @@ export const queryKeys = {
  *
  * NEDEN 5 dk: türleri yalnız admin değiştirir ve nadiren. Genel 30 sn'lik süre (lib/queryClient.ts) bu
  * veri için gereksiz istek demek. Admin bir tür eklediğinde moderasyon ekranı bu anahtarı geçersiz
- * kılacak (adım 6); o zamana kadar admin'in kendisi en çok 5 dk eski listeyi görür.
+ * kılar (useCreateGenre); yeni tür, admin'in kendi ekranında beklemeden görünür.
  */
 export function useGenres() {
   return useQuery({
@@ -132,5 +137,43 @@ export function useRateBook(bookId: number, userId: number | undefined) {
       void queryClient.invalidateQueries({ queryKey: ["books"], refetchType: "none" });
       return queryClient.invalidateQueries({ queryKey: queryKeys.ratingSummary(bookId) });
     },
+  });
+}
+
+/**
+ * Bir kitabın yorumları, sayfa sayfa (offset). Her sayfa kendi anahtarında: "Eskiler →" sonra "← Yeniler"
+ * deyince ilk sayfa önbellekten gelir. keepPreviousData: yeni sayfa gelene kadar eskisi ekranda kalır.
+ */
+export function useComments(bookId: number, offset: number) {
+  return useQuery({
+    queryKey: queryKeys.comments(bookId, offset),
+    queryFn: () => api.comments(bookId, offset),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Yorum yazma. Başarıda bu kitabın BÜTÜN yorum sayfaları geçersiz olur (["comments", kitap] öneki):
+ * ekrandaki sayfa hemen yeniden çekilir, ötekiler açılınca. Hata olursa hiçbir şey geçersiz kılınmaz;
+ * yorum yazılmadıysa liste değişmemiştir.
+ */
+export function useAddComment(bookId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (content: string) => api.addComment(bookId, content),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["comments", bookId] }),
+  });
+}
+
+/**
+ * Yorum silme (admin). Geçersiz kılma onSettled'da, yani HATADA DA: silme "bulunamadı" ile dönerse yorum
+ * büyük olasılıkla zaten silinmiştir (başka bir admin); liste yine de tazelenir ki ekrandaki hayalet satır
+ * gitsin. Eski kod da hatadan sonra listeyi yeniden yüklüyordu.
+ */
+export function useDeleteComment(bookId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (commentId: number) => api.deleteComment(commentId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["comments", bookId] }),
   });
 }

@@ -1,6 +1,6 @@
 import { Inbox } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../../api/client";
+import { useRef, useState } from "react";
+import { type ModerationAction, useAdminBooks, useCreateGenre, useModerateBook } from "../../api/adminQueries";
 import type { AdminBook, BookStatus } from "../../api/types";
 import { ErrorBox, formatDate, PageTitle } from "../../components/common";
 import { EmptyState } from "../../components/EmptyState";
@@ -10,7 +10,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { Input, Textarea } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { useToast } from "../../components/toast";
-import { Pager, usePaged } from "../../components/usePaged";
+import { Pager, usePageView } from "../../components/usePaged";
 
 const TABS: { status: BookStatus; label: string }[] = [
   { status: "PENDING", label: "Bekleyen" },
@@ -29,46 +29,53 @@ export function Moderation() {
   const [rejecting, setRejecting] = useState<AdminBook | null>(null);
   const [reason, setReason] = useState("");
 
-  const fetchPage = useCallback((offset: number) => api.adminBooks(status, offset), [status]);
-  const { page, offset, setOffset, reload, showPager } = usePaged(fetchPage, status, setError);
-  // İşlem bitince EN GÜNCEL listeyi yükle: tıklandığı andaki reload, o arada sekme değiştiyse eski
-  // sekmeyi çeker ve yeni sekmenin üstüne yazardı.
-  const reloadRef = useRef(reload);
-  useEffect(() => {
-    reloadRef.current = reload;
-  });
+  // Kuyruk bir sorgu (Faz 16d adım 6): sekme ve sayfa anahtarın parçası. Eskiden burada usePaged, tıklama
+  // anındaki reload'u tutan bir ref ve onu güncelleyen bir etki vardı; işlemden sonra hangi listenin
+  // yeniden çekileceğine artık useModerateBook karar veriyor (anahtara göre: ekrandaki sekme).
+  const [offset, setOffset] = useState(0);
+  const queue = useAdminBooks(status, offset);
+  const { page, showPager } = usePageView(queue, offset, setOffset);
+  const moderate = useModerateBook();
+  const createGenre = useCreateGenre();
+
   // Başarıyla işlenmiş satırlar, işlemin BAŞLADIĞI sekmede pasif kalır: kitabın durumu değiştiği için
   // o sekmede bir daha işlem göremez. Anahtar "sekme:kitap": işlem sürerken sekme değişirse geç gelen
   // işaret yeni sekmeyi etkilemez. Sekme değişince temizlenir: arşivlenip geri yayınlanan kitap
   // Yayında'da yeniden işlem görebilir.
   const [settled, setSettled] = useState<ReadonlySet<string>>(new Set());
-  useEffect(() => setSettled(new Set()), [status]);
   const settledKey = (id: number) => `${status}:${id}`;
+  // Sekme değişimi tek yerde: eskiden offset'i usePaged'in resetKey etkisi, işaretleri ayrı bir etki
+  // sıfırlıyordu. Değişikliğe yol açan tıklamanın kendisinde yapmak iki etkiyi ve bir ara çizimi kaldırır.
+  const switchTab = (next: BookStatus) => {
+    setError(null);
+    setStatus(next);
+    setOffset(0);
+    setSettled(new Set());
+  };
 
   const toast = useToast();
-  // Uçuştaki istek koruması: çift tıklama ikinci isteği göndermesin. Ref ikinci tıklamayı yeniden
-  // çizimden ÖNCE durdurur; state düğmeleri pasif gösterir. Koruma liste yeniden yüklenene kadar
-  // sürer (yoksa satır eski düğmeleriyle dururken ikinci onay 409 alırdı); hata da başarı da ikisini
-  // birlikte bırakır.
+  // Düğmeler işlem sürerken pasif (isPending; değişiklik ekrandaki liste yenilenene kadar sürer). Satır
+  // düğmeleri ayrıca sekme değişiminde önceki sekmenin satırları yer tutucu olarak dururken de pasif.
+  const busy = moderate.isPending || createGenre.isPending;
+  const rowsLocked = busy || queue.isPlaceholderData;
+  // isPending bir SONRAKİ çizimde görünür: aynı anda gelen iki tıklamanın ikincisi, düğme henüz pasif
+  // değilken çalışabilir. Ref ikinci tıklamayı çizimden ÖNCE durdurur.
   const inFlight = useRef(false);
-  const [busy, setBusy] = useState(false);
-  const act = async (fn: () => Promise<unknown>, done: string, key?: string) => {
+  const act = async (run: () => Promise<unknown>, done: string, key?: string) => {
     if (inFlight.current) return;
     inFlight.current = true;
-    setBusy(true);
     setError(null);
     try {
-      await fn();
+      await run();
       if (key !== undefined) setSettled((s) => new Set(s).add(key));
       toast(done);
-      await reloadRef.current();
     } catch (e) {
       setError(e); // ör. 409 invalid_transition: başka bir admin önce davrandı
     } finally {
       inFlight.current = false;
-      setBusy(false);
     }
   };
+  const moderateBook = (a: ModerationAction, done: string) => act(() => moderate.mutateAsync(a), done, settledKey(a.id));
 
   return (
     <div className="flex flex-col gap-10">
@@ -85,13 +92,13 @@ export function Moderation() {
               size="sm"
               variant={t.status === status ? "default" : "ghost"}
               aria-pressed={t.status === status}
-              onClick={() => { setError(null); setStatus(t.status); }}
+              onClick={() => switchTab(t.status)}
             >
               {t.label}
             </Button>
           ))}
         </div>
-        <ErrorBox error={error} className="mt-4" />
+        <ErrorBox error={error ?? queue.error} className="mt-4" />
         {page && page.items.length === 0 && <EmptyState icon={Inbox} title="Bu listede kitap yok." className="mt-4" />}
         <ul aria-label="Moderasyon kuyruğu" className="mt-4 flex flex-col gap-3">
           {page?.items.map((b) => (
@@ -105,12 +112,12 @@ export function Moderation() {
                 <div className="flex shrink-0 gap-2">
                   {b.status === "PENDING" && (
                     <>
-                      <Button size="sm" disabled={busy || settled.has(settledKey(b.id))} onClick={() => void act(() => api.approve(b.id), `“${b.title}” yayına alındı`, settledKey(b.id))}>Onayla</Button>
-                      <Button size="sm" variant="destructive" disabled={busy || settled.has(settledKey(b.id))} onClick={() => { setReason(""); setRejecting(b); }}>Reddet</Button>
+                      <Button size="sm" disabled={rowsLocked || settled.has(settledKey(b.id))} onClick={() => void moderateBook({ kind: "approve", id: b.id }, `“${b.title}” yayına alındı`)}>Onayla</Button>
+                      <Button size="sm" variant="destructive" disabled={rowsLocked || settled.has(settledKey(b.id))} onClick={() => { setReason(""); setRejecting(b); }}>Reddet</Button>
                     </>
                   )}
-                  {b.status === "APPROVED" && <Button size="sm" variant="outline" disabled={busy || settled.has(settledKey(b.id))} onClick={() => void act(() => api.archive(b.id), `“${b.title}” arşivlendi`, settledKey(b.id))}>Arşivle</Button>}
-                  {b.status === "ARCHIVED" && <Button size="sm" variant="outline" disabled={busy || settled.has(settledKey(b.id))} onClick={() => void act(() => api.restoreBook(b.id), `“${b.title}” yeniden yayında`, settledKey(b.id))}>Geri yayınla</Button>}
+                  {b.status === "APPROVED" && <Button size="sm" variant="outline" disabled={rowsLocked || settled.has(settledKey(b.id))} onClick={() => void moderateBook({ kind: "archive", id: b.id }, `“${b.title}” arşivlendi`)}>Arşivle</Button>}
+                  {b.status === "ARCHIVED" && <Button size="sm" variant="outline" disabled={rowsLocked || settled.has(settledKey(b.id))} onClick={() => void moderateBook({ kind: "restore", id: b.id }, `“${b.title}” yeniden yayında`)}>Geri yayınla</Button>}
                 </div>
               </Card>
             </li>
@@ -129,7 +136,7 @@ export function Moderation() {
               if (!rejecting) return;
               const target = rejecting;
               setRejecting(null);
-              void act(() => api.reject(target.id, reason), `“${target.title}” reddedildi`, settledKey(target.id));
+              void moderateBook({ kind: "reject", id: target.id, reason }, `“${target.title}” reddedildi`);
             }}
           >
             <DialogTitle>“{rejecting?.title}” reddedilsin mi?</DialogTitle>
@@ -147,7 +154,7 @@ export function Moderation() {
 
       <section aria-labelledby="genre-heading">
         <h2 id="genre-heading" className="text-xl font-semibold">Yeni tür</h2>
-        <form aria-label="Yeni tür" className="mt-3 flex max-w-md gap-2" onSubmit={(e) => { e.preventDefault(); void act(async () => { await api.createGenre(genre); setGenre(""); }, `“${genre.trim()}” türü eklendi`); }}>
+        <form aria-label="Yeni tür" className="mt-3 flex max-w-md gap-2" onSubmit={(e) => { e.preventDefault(); void act(async () => { await createGenre.mutateAsync(genre); setGenre(""); }, `“${genre.trim()}” türü eklendi`); }}>
           <Input aria-label="Tür adı" value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="ör. Bilim Kurgu" required maxLength={100} />
           <Button type="submit" disabled={busy}>Ekle</Button>
         </form>

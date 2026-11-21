@@ -1,62 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import type { Page } from "../api/types";
 import { MAX_OFFSET } from "./filters";
 import { Button } from "./ui/button";
 
 /**
- * usePaged: offset'li bir listeyi yükler. İki sayfada (admin kuyruğu, yorumlar) AYNI hatayı
- * iki kez yaptıktan sonra (review bulguları) mantık tek yerde:
- *  - Boş sayfa + offset > 0 → bir sayfa geri (son sayfadaki son öğe silinince/onaylanınca
- *    kullanıcı "liste boş" ekranında mahsur kalmasın).
- *  - Eski cevap koruması: hızlı sekme/sayfa değişiminde geç gelen ESKİ cevap yenisinin
- *    üzerine yazmasın (her istek bir sıra numarası alır; yalnız sonuncusu uygulanır).
- *  - showPager: offset > 0 iken de pager görünür (geri dönüş yolu hep açık).
- * `fetch` useCallback ile sabitlenmiş olmalı; `resetKey` değişince (sekme, kitap) ilk sayfaya dönülür.
- * `reload` bu istek sonuçlanınca biten bir promise döner (hatası onError'a gider, fırlatılmaz). Liste
- * o anda güncellenmiş OLMAYABİLİR: daha yeni bir istek onu geçersiz kıldıysa ya da boş sayfadan geri
- * adım atılıyorsa yeni sayfa sonra gelir (geri adımda eski satırlar hemen kaldırılır).
+ * usePageView: sayfalı bir SORGUNUN sonucunu ekrana hazırlar (Faz 16d adım 6). Veriyi kendisi çekmez;
+ * offset sayfanın durumu, veri sorgunun (useComments, useAdminBooks). Eski usePaged'in üç kuralı:
+ *  1. Boş sayfa + offset > 0 → bir sayfa geri (son sayfadaki son öğe silinince/onaylanınca kullanıcı
+ *     "liste boş" ekranında mahsur kalmasın). HÂLÂ gerekli: sunucu boş sayfa döndürür, sorgu bunu bilemez.
+ *     Geri adım atılırken boş sayfa (ve onun yerine geçici olarak gösterilen boş sayfa) ÇİZİLMEZ: eski
+ *     satırlar işlem yapılabilir görünmesin, "liste boş" ekranı yanıp sönmesin.
+ *  2. Eski cevap koruması: artık SORGUDAN geliyor. Her offset kendi anahtarına yazılır, ekran yalnız
+ *     güncel anahtarı gösterir; eskiden bunun için bir sıra numarası (ref) tutuluyordu.
+ *  3. showPager: offset > 0 iken de pager görünür (geri dönüş yolu hep açık). Aynı hesap.
+ * Eskiden bir de onError ref'i ve resetKey etkisi vardı: hata artık sorgunun `error`'ında duruyor, sekme
+ * değişince offset'i sıfırlamak da sekmeyi değiştiren tıklamanın işi.
  */
-export function usePaged<T>(
-  fetch: (offset: number) => Promise<Page<T>>,
-  resetKey: string,
-  onError: (e: unknown) => void,
+export function usePageView<T>(
+  query: { data?: Page<T>; isPlaceholderData: boolean },
+  offset: number,
+  setOffset: (offset: number) => void,
 ) {
-  const [offset, setOffset] = useState(0);
-  const [page, setPage] = useState<Page<T> | null>(null);
-  const seq = useRef(0);
-  // onError REF'te: çağıran her render'da yeni bir fonksiyon verirse (ör. satır içi ok
-  // fonksiyonu) reload yeniden oluşur, effect yeniden çalışır → SONSUZ istek döngüsü.
-  // Testte tam olarak bu oldu; en güncel fonksiyonu ref'ten okuyup bağımlılıktan çıkarıyoruz.
-  const onErrorRef = useRef(onError);
+  const data = query.data;
+  const empty = data !== undefined && data.items.length === 0;
+  // Yer tutucu (önceki anahtarın verisi) boşsa geri adım atılmaz: gerçek cevabı beklemek gerek.
+  const stepBackTo = empty && offset > 0 && !query.isPlaceholderData ? Math.max(0, offset - data.limit) : null;
   useEffect(() => {
-    onErrorRef.current = onError;
-  });
-
-  useEffect(() => setOffset(0), [resetKey]);
-
-  const reload = useCallback((): Promise<void> => {
-    const mine = ++seq.current;
-    return fetch(offset)
-      .then((p) => {
-        if (mine !== seq.current) return; // daha yeni bir istek var: bu cevap bayat
-        if (p.items.length === 0 && offset > 0) {
-          setPage(null); // eski satırlar, yeni sayfa gelene kadar işlem yapılabilir görünmesin
-          setOffset(Math.max(0, offset - p.limit));
-          return;
-        }
-        setPage(p);
-      })
-      .catch((e) => {
-        if (mine === seq.current) onErrorRef.current(e);
-      });
-  }, [fetch, offset]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  const showPager = page !== null && (offset > 0 || page.total > page.limit);
-  return { page, offset, setOffset, reload, showPager };
+    if (stepBackTo !== null) setOffset(stepBackTo);
+  }, [stepBackTo, setOffset]);
+  const page = empty && (offset > 0 || query.isPlaceholderData) ? undefined : data;
+  const showPager = page !== undefined && (offset > 0 || page.total > page.limit);
+  return { page, showPager };
 }
 
 /** Pager: önceki/sonraki düğmeleri ve "a–b / toplam" etiketi. */

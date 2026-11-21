@@ -1,8 +1,10 @@
 import { Star } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { api, ApiError } from "../api/client";
-import { useBook, useBooks, useMyRating, useRateBook, useRatingSummary } from "../api/queries";
+import { ApiError } from "../api/client";
+import {
+  useAddComment, useBook, useBooks, useComments, useDeleteComment, useMyRating, useRateBook, useRatingSummary,
+} from "../api/queries";
 import { useAuth } from "../auth/AuthContext";
 import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
@@ -17,7 +19,7 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Textarea } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
-import { Pager, usePaged } from "../components/usePaged";
+import { Pager, usePageView } from "../components/usePaged";
 import { formatDate, initialOf, languageName, timeAgo } from "../lib/format";
 import { cn } from "../lib/utils";
 
@@ -84,9 +86,9 @@ function BookDetailView() {
   const location = useLocation();
   const toast = useToast();
   const [text, setText] = useState("");
-  const [posting, setPosting] = useState(false);
-  // Yorum işlemlerinin hatası (adım 6'da yorumlar da sorguya dönünce bu durum kalkar).
-  const [error, setError] = useState<unknown>(null);
+  // Yorum sayfası (offset) sayfanın durumu; o sayfanın VERİSİ sorgunun. Kitap değişince bileşen yeniden
+  // kurulduğu için (BookDetail'deki key) offset kendiliğinden 0'dan başlar.
+  const [offset, setOffset] = useState(0);
 
   // Süslü parantez şart: yeni Chromium'da scrollTo bir Promise döndürüyor; etki onu döndürseydi
   // React ayrılırken Promise'i temizlik fonksiyonu sanıp çağırır, uygulama boş ekranla çökerdi.
@@ -113,44 +115,43 @@ function BookDetailView() {
   const similar = similarQuery.data?.items.filter((b) => b.id !== id).slice(0, 6);
   const similarStatuses = useLibraryStatuses((similar ?? []).map((b) => b.id));
 
-  const fetchComments = useCallback((offset: number) => api.comments(id, offset), [id]);
-  const comments = usePaged(fetchComments, String(id), setError);
+  const commentsQuery = useComments(id, offset);
+  const comments = usePageView(commentsQuery, offset, setOffset);
+  const addComment = useAddComment(id);
+  const deleteComment = useDeleteComment(id);
 
-  // Puan ver (score) ya da kaldır (null). Hata rating.error'da durur ve aşağıdaki kutuda görünür; yeni bir
-  // deneme onu kendiliğinden temizler. Bildirim sayfaya ait (kanca bildirimin metnini bilmemeli).
+  // Her değişikliğin hatası kendi kancasında durur (rating.error, addComment.error…). Eskiden tek bir
+  // `error` durumu vardı ve yeni bir işlem onu temizliyordu; aynı davranış: yeni bir işleme başlarken
+  // ÖTEKİ işlemlerin eski hatası silinir (reset). Yalnız hatalı olanlar: süren bir işlemi sıfırlamak onun
+  // kilidini (isPending) de kaldırırdı.
+  const clearActionErrors = () => {
+    for (const m of [rating, addComment, deleteComment]) if (m.isError) m.reset();
+  };
+
+  // Puan ver (score) ya da kaldır (null). Bildirim sayfaya ait (kanca bildirimin metnini bilmemeli).
   const rate = (score: number | null) => {
-    setError(null);
+    clearActionErrors();
     rating.mutate(score, {
       onSuccess: () => toast(score === null ? "Puanın kaldırıldı" : `Puanın kaydedildi: ${score}/10`),
     });
   };
 
-  const post = async (e: React.FormEvent) => {
+  const post = (e: React.FormEvent) => {
     e.preventDefault();
-    if (posting) return; // çift tıklama iki yorum yazmasın
-    setError(null);
-    setPosting(true);
-    try {
-      await api.addComment(id, text);
-      setText("");
-      toast("Yorumun eklendi");
-      if (comments.offset === 0) void comments.reload();
-      else comments.setOffset(0); // en yeni yorum ilk sayfada
-    } catch (err) {
-      setError(err);
-    } finally {
-      setPosting(false);
-    }
+    if (addComment.isPending) return; // çift gönderim iki yorum yazmasın (düğme de kilitli)
+    clearActionErrors();
+    addComment.mutate(text, {
+      onSuccess: () => {
+        setText("");
+        toast("Yorumun eklendi");
+        setOffset(0); // en yeni yorum ilk sayfada; o sayfa geçersiz kılındığı için yeniden çekilir
+      },
+    });
   };
 
-  const remove = async (commentId: number) => {
-    try {
-      await api.deleteComment(commentId);
-      toast("Yorum silindi");
-    } catch (e) {
-      setError(e);
-    }
-    void comments.reload();
+  const remove = (commentId: number) => {
+    clearActionErrors();
+    deleteComment.mutate(commentId, { onSuccess: () => toast("Yorum silindi") });
   };
 
   if (!book) {
@@ -160,8 +161,9 @@ function BookDetailView() {
     }
     return loadError ? <><PageTitle title="Kitap yüklenemedi" /><ErrorBox error={loadError} /></> : <DetailSkeleton />;
   }
-  // Sayfadaki tek hata kutusu: önce son işlemin hatası, sonra okumalarınki.
-  const shownError = error ?? rating.error ?? summaryQuery.error ?? myRating.error;
+  // Sayfadaki tek hata kutusu: önce işlemlerin hatası, sonra okumalarınki.
+  const shownError = addComment.error ?? deleteComment.error ?? rating.error
+    ?? commentsQuery.error ?? summaryQuery.error ?? myRating.error;
   const max = Math.max(1, ...(summary?.distribution.map((d) => d.votes) ?? [1]));
   const meta = [
     book.author,
@@ -249,7 +251,7 @@ function BookDetailView() {
                 <Textarea aria-label="Yorumun" value={text} onChange={(e) => setText(e.target.value)} maxLength={MAX_COMMENT} placeholder="Düşüncelerini yaz…" required />
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-xs text-muted-foreground tabular-nums">{text.length}/{MAX_COMMENT}</span>
-                  <Button type="submit" disabled={posting}>{posting ? "Gönderiliyor…" : "Gönder"}</Button>
+                  <Button type="submit" disabled={addComment.isPending}>{addComment.isPending ? "Gönderiliyor…" : "Gönder"}</Button>
                 </div>
               </form>
             )}
@@ -282,7 +284,7 @@ function BookDetailView() {
               ))}
             </ul>
             {comments.showPager && comments.page && (
-              <Pager page={comments.page} offset={comments.offset} onChange={comments.setOffset} prev="← Yeniler" next="Eskiler →" />
+              <Pager page={comments.page} offset={offset} onChange={setOffset} prev="← Yeniler" next="Eskiler →" />
             )}
           </section>
         </div>

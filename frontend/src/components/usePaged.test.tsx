@@ -1,20 +1,27 @@
-import { act } from "react";
+import { keepPreviousData, QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Page } from "../api/types";
-import { Pager, usePaged } from "./usePaged";
+import "../test/render"; // notifyManager.setScheduler(queueMicrotask): bildirimler act içinde gelsin
+import { Pager, usePageView } from "./usePaged";
 
 // React'e "test ortamındayız" de: act() dışı güncelleme uyarısı basmasın.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-type Hook = ReturnType<typeof usePaged<number>>;
 const page = (items: number[], total: number): Page<number> => ({ items, total, limit: 2, offset: 0 });
+const cleanup: (() => void)[] = [];
+afterEach(() => cleanup.splice(0).forEach((f) => f()));
+const flush = () => act(async () => {});
 
-// Hook'u gerçek bir bileşende çalıştırıp son değerini dışarı verir (ek kütüphane gerekmez).
-function mount(fetch: (offset: number) => Promise<Page<number>>) {
-  const box: { current?: Hook } = {};
+type View = ReturnType<typeof usePageView<number>>;
+
+// usePageView'ı sahte bir sorgu sonucuyla çalıştırır: kancanın KENDİ kuralları (geri adım, gizleme,
+// pager) ağdan ve TanStack'ten bağımsız sınanır.
+function mountView(data: Page<number> | undefined, isPlaceholderData: boolean, offset: number) {
+  const box: { current?: View; setTo: number[] } = { setTo: [] };
   function Harness() {
-    box.current = usePaged(fetch, "k", () => {});
+    box.current = usePageView({ data, isPlaceholderData }, offset, (o) => box.setTo.push(o));
     return null;
   }
   const el = document.createElement("div");
@@ -23,92 +30,65 @@ function mount(fetch: (offset: number) => Promise<Page<number>>) {
   cleanup.push(() => act(() => root.unmount()));
   return box;
 }
-const cleanup: (() => void)[] = [];
-afterEach(() => cleanup.splice(0).forEach((f) => f()));
-const flush = () => act(async () => {});
 
-describe("usePaged", () => {
+describe("usePageView", () => {
   // Review bulgusu: son sayfadaki son öğe kaybolunca boş sayfada mahsur kalınmamalı.
-  it("boş sayfada bir sayfa geri gider", async () => {
-    let total = 3;
-    const fetch = async (offset: number) => (offset === 0 ? page([1, 2], total) : page(total > 2 ? [3] : [], total));
-    const h = mount(fetch);
-    await flush();
-    await act(async () => h.current!.setOffset(2));
-    expect(h.current!.page!.items).toEqual([3]);
-
-    total = 2; // 3. öğe silindi/onaylandı
-    await act(async () => h.current!.reload());
-    await flush();
-    expect(h.current!.offset).toBe(0);
-    expect(h.current!.page!.items).toEqual([1, 2]);
+  it("boş sayfada bir sayfa geri gider ve boş sayfayı çizmez", () => {
+    const v = mountView(page([], 2), false, 2);
+    expect(v.setTo).toEqual([0]);
+    expect(v.current!.page).toBeUndefined(); // eski satırlar ya da "liste boş" yanıp sönmesin
   });
 
-  it("geç gelen ESKİ cevap yenisinin üzerine yazmaz", async () => {
-    const resolvers: Record<number, (p: Page<number>) => void> = {};
-    const fetch = (offset: number) => new Promise<Page<number>>((r) => (resolvers[offset] = r));
-    const h = mount(fetch);
-    await act(async () => h.current!.setOffset(2)); // offset 0 isteği hâlâ uçuşta
-    await act(async () => resolvers[2](page([3], 3)));
-    await act(async () => resolvers[0](page([1, 2], 3))); // bayat cevap geç geldi
-    expect(h.current!.page!.items).toEqual([3]);
+  it("boş YER TUTUCUDA geri adım atılmaz (gerçek cevap beklenir) ve o da çizilmez", () => {
+    const v = mountView(page([], 2), true, 2);
+    expect(v.setTo).toEqual([]);
+    expect(v.current!.page).toBeUndefined();
   });
 
-  it("offset > 0 iken toplam limitten küçük olsa da pager görünür", async () => {
-    const h = mount(async (offset) => (offset === 0 ? page([1, 2], 2) : page([9], 2)));
-    await flush();
-    expect(h.current!.showPager).toBe(false); // tek sayfa, ilk sayfadayız
-    await act(async () => h.current!.setOffset(2));
-    expect(h.current!.showPager).toBe(true); // geri dönüş yolu açık kalmalı
+  it("geri adımdan sonra ilk sayfada boş yer tutucu \"liste boş\" diye gösterilmez", () => {
+    const v = mountView(page([], 2), true, 0);
+    expect(v.current!.page).toBeUndefined();
+  });
+
+  it("ilk sayfada gerçekten boş liste gösterilir (boş ekran için)", () => {
+    const v = mountView(page([], 0), false, 0);
+    expect(v.setTo).toEqual([]);
+    expect(v.current!.page!.total).toBe(0);
+  });
+
+  it("offset > 0 iken toplam limitten küçük olsa da pager görünür", () => {
+    expect(mountView(page([1, 2], 2), false, 0).current!.showPager).toBe(false); // tek sayfa, ilk sayfadayız
+    expect(mountView(page([9], 2), false, 2).current!.showPager).toBe(true); // geri dönüş yolu açık kalmalı
   });
 });
 
-describe("usePaged — hata ve sıfırlama", () => {
-  function mountWith(fetch: (offset: number) => Promise<Page<number>>, onError: (e: unknown) => void, resetKey = "k") {
-    const box: { current?: Hook; key: string } = { key: resetKey };
-    function Harness({ k }: { k: string }) {
-      box.current = usePaged(fetch, k, onError);
+// Eski usePaged'in sıra numarasıyla yaptığı iş artık sorgu anahtarından geliyor. Bu test kuralın hâlâ
+// geçerli olduğunu GERÇEK bir sorguyla gösterir (sayfalar useComments/useAdminBooks ile aynı biçimde).
+describe("usePageView + useQuery", () => {
+  it("geç gelen ESKİ sayfa cevabı yenisinin üzerine yazmaz", async () => {
+    const resolvers: Record<number, (p: Page<number>) => void> = {};
+    const box: { view?: View; setOffset?: (o: number) => void } = {};
+    function Harness() {
+      const [offset, setOffset] = useState(0);
+      const q = useQuery({
+        queryKey: ["test", offset],
+        queryFn: () => new Promise<Page<number>>((r) => (resolvers[offset] = r)),
+        placeholderData: keepPreviousData,
+      });
+      box.view = usePageView(q, offset, setOffset);
+      box.setOffset = setOffset;
       return null;
     }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const el = document.createElement("div");
     const root = createRoot(el);
-    act(() => root.render(<Harness k={resetKey} />));
+    act(() => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
     cleanup.push(() => act(() => root.unmount()));
-    return { box, rerender: (k: string) => act(() => root.render(<Harness k={k} />)) };
-  }
-
-  it("reddedilen istek onError'u çağırır", async () => {
-    const errors: unknown[] = [];
-    const boom = new Error("ağ hatası");
-    mountWith(() => Promise.reject(boom), (e) => errors.push(e));
     await flush();
-    expect(errors).toEqual([boom]);
-  });
-
-  it("yerini yenisine bırakmış (bayat) isteğin reddi onError'u ÇAĞIRMAZ", async () => {
-    const errors: unknown[] = [];
-    const rejecters: Record<number, (e: unknown) => void> = {};
-    const resolvers: Record<number, (p: Page<number>) => void> = {};
-    const fetch = (offset: number) =>
-      new Promise<Page<number>>((res, rej) => {
-        resolvers[offset] = res;
-        rejecters[offset] = rej;
-      });
-    const { box } = mountWith(fetch, (e) => errors.push(e));
-    await act(async () => box.current!.setOffset(2)); // offset 0 isteği bayatladı
+    await act(async () => box.setOffset!(2)); // offset 0 isteği hâlâ uçuşta
     await act(async () => resolvers[2](page([3], 3)));
-    await act(async () => rejecters[0](new Error("bayat")));
-    expect(errors).toEqual([]);
-  });
-
-  it("resetKey değişince offset 0'a döner", async () => {
-    const { box, rerender } = mountWith(async () => page([1, 2], 10), () => {}, "PENDING");
-    await flush();
-    await act(async () => box.current!.setOffset(4));
-    expect(box.current!.offset).toBe(4);
-    rerender("APPROVED");
-    await flush();
-    expect(box.current!.offset).toBe(0);
+    await act(async () => resolvers[0](page([1, 2], 3))); // bayat cevap geç geldi
+    expect(box.view!.page!.items).toEqual([3]);
   });
 });
 
@@ -157,24 +137,5 @@ describe("Pager", () => {
     act(() => prev.click());
     act(() => next.click());
     expect(calls).toEqual([0, 4]);
-  });
-
-  it("boş sayfadan geri adım atarken eski satırlar ekranda kalmaz", async () => {
-    let total = 3;
-    let back!: () => void;
-    const fetch = (offset: number) =>
-      offset === 0 && total === 2
-        ? new Promise<Page<number>>((res) => { back = () => res(page([1, 2], total)); })
-        : Promise.resolve(offset === 0 ? page([1, 2], total) : page(total > 2 ? [3] : [], total));
-    const h = mount(fetch);
-    await flush();
-    await act(async () => h.current!.setOffset(2));
-    expect(h.current!.page!.items).toEqual([3]);
-    total = 2;
-    await act(async () => h.current!.reload());
-    await flush();
-    expect(h.current!.page).toBeNull();
-    await act(async () => back());
-    expect(h.current!.page!.items).toEqual([1, 2]);
   });
 });

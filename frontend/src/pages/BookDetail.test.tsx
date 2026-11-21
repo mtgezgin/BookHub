@@ -180,6 +180,50 @@ describe("BookDetail — başarısız yorum", () => {
   });
 });
 
+describe("BookDetail — hata kutusu", () => {
+  it("yeni bir işlem önceki işlemin hatasını temizler: başarısız puandan sonra gönderilen yorum kutuyu boşaltır", async () => {
+    stub({
+      rate: () => Promise.reject(new ApiError(429, "rate_limited", "çok fazla istek")),
+      addComment: async () => comment(99, null),
+    });
+    const { el } = await render();
+    await act(async () => button(el, "7")!.click());
+    await flush();
+    expect(alertText(el)).toBe("çok fazla istek");
+    await postComment(el, "yine de yazayım");
+    expect(alertText(el)).toBeNull();
+  });
+
+  it("yorumlar yüklenemezse hata gösterilir, kitap yine çizilir", async () => {
+    stub({ comments: () => Promise.reject(new ApiError(500, "internal", "yorumlar gelmedi")) });
+    const { el } = await render();
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap 1");
+    expect(alertText(el)).toBe("yorumlar gelmedi");
+  });
+
+  it("son sayfadaki tek yorum silinince bir önceki sayfaya dönülür", async () => {
+    h.user = ADMIN;
+    let total = 11;
+    stub({
+      comments: async (_id: number, offset: number) => ({
+        items: offset === 0 ? [comment(1, null)] : total > 10 ? [comment(11, null)] : [],
+        total, limit: 10, offset,
+      }),
+      deleteComment: async () => { total = 10; },
+    });
+    const { el } = await render();
+    await act(async () => button(el, "Eskiler →")!.click());
+    await flush();
+    expect(el.textContent).toContain("yorum 11");
+    await act(async () => button(el, "sil")!.click());
+    await flush();
+    expect(calls.comments.at(-1)).toEqual([1, 0]);
+    expect(el.textContent).toContain("yorum 1");
+    expect(el.textContent).not.toContain("yorum 11");
+    expect(el.textContent).not.toContain("Henüz yorum yok");
+  });
+});
+
 describe("BookDetail — admin yorum silme", () => {
   it("\"sil\" düğmesi yalnız ADMIN'e görünür", async () => {
     const asUser = await render();

@@ -1,6 +1,6 @@
 # Faz 16d — Sunucu verisi TanStack Query ile
 
-> Durum: 🚧 adım 1–5 tamam (kullanıcı okudu, 2026-11-21); sıradaki adım 6 · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
+> Durum: 🚧 adım 1–6 tamam (kullanıcı okudu, 2026-11-21); sıradaki adım 7 · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
 > [ROADMAP](../ROADMAP.md) · Bulgu: [REVIEW_FEEDBACK](../REVIEW_FEEDBACK.md) F33 ·
 > İlgili: [client.ts](../../frontend/src/api/client.ts), [usePaged.tsx](../../frontend/src/components/usePaged.tsx),
 > [Home.tsx](../../frontend/src/pages/Home.tsx), [BookDetail.tsx](../../frontend/src/pages/BookDetail.tsx)
@@ -224,6 +224,80 @@ Her adım: **amaç**, **neden**, **sonuç** (yazıldıkça doldurulur), **bakıl
   değişiklik olur. `usePaged`'in sayaç ve ref mantığı kalkar; `Pager` bileşeni kalır.
 - **Neden:** `usePaged`'in yorumundaki üç kural (boş sayfada geri adım, eski cevap koruması, sayfalayıcının
   görünmesi) sorguyla nasıl karşılanıyor, tek tek gösterilir.
+- **Ne yapıldı (2026-11-21):**
+  - `api/queries.ts`: `useComments`, `useAddComment`, `useDeleteComment`.
+  - Yeni `api/adminQueries.ts`: `useAdminBooks`, `useModerateBook` (onay, red, arşiv, geri yayın tek kancada),
+    `useCreateGenre`.
+  - `components/usePaged.tsx`: `usePaged` gitti, yerine veri çekmeyen küçük bir `usePageView` geldi; `Pager` aynı.
+  - `BookDetail.tsx`: yorumların `useCallback`'i, `posting` durumu ve yerel `error` durumu gitti.
+  - `Moderation.tsx`: `reloadRef`, onu güncelleyen etki, `busy` durumu ve sekme sıfırlama etkisi gitti.
+- **`usePaged`'in üç kuralı ne oldu:**
+  1. **Boş sayfada geri adım — kaldı.** Sunucu "bu sayfa boş" diyebilir; sorgu bunu bilemez. Artık tek bir
+     etki: veri boş, offset > 0 ve veri gerçek (yer tutucu değil) ise bir sayfa geri. Boş sayfa bu arada
+     çizilmez; "liste boş" ekranı yanıp sönmez.
+  2. **Eski cevap koruması — sorguya geçti.** Her sayfa kendi anahtarında (`["comments", kitap, offset]`),
+     ekran yalnız güncel anahtarı gösterir. Sıra numarası (`seq` ref'i) gitti. Bunu gösteren test gerçek
+     bir `useQuery` ile yazıldı: "geç gelen ESKİ sayfa cevabı yenisinin üzerine yazmaz".
+  3. **Sayfalayıcı offset > 0 iken görünür — aynı hesap,** `usePageView`'da.
+  - `usePaged`'in ayrıca bir `onError` ref'i (sonsuz istek döngüsüne karşı) ve `resetKey` etkisi vardı. Hata
+    artık sorgunun `error`'ında; sekme değişince offset'i sıfırlamak sekmeyi değiştiren tıklamanın işi.
+- **Yeni kavram 1 — geçersiz kılma anahtara göre, closure'a göre değil:** eski Moderasyon "tıklandığı
+  andaki `reload`" fonksiyonunu tutuyordu; işlem sürerken sekme değişirse ESKİ sekmeyi çekip yenisinin üstüne
+  yazıyordu. Bunu bir ref önlüyordu. `invalidateQueries({ queryKey: ["admin", "books"] })` ise "bu önekle
+  başlayan hangi kayıt o an ekrandaysa onu yeniden çek" der: sorun kendiliğinden yok.
+- **Yeni kavram 2 — `onSuccess` mı `onSettled` mı:**
+  - Yorum yazma `onSuccess`'te geçersiz kılar: yazılamadıysa liste değişmemiştir.
+  - Yorum silme `onSettled`'da, yani hatada da: "bulunamadı" büyük olasılıkla başka bir admin'in onu zaten
+    sildiği anlamına gelir; ekrandaki hayalet satır gitsin. Eski kod da böyleydi.
+- **Yeni kavram 3 — bir değişiklik başka sayfaların verisini de eskitir:**
+  - Moderasyon işlemi bütün moderasyon sekmelerini VE bütün katalog kayıtlarını (`["books"]`) geçersiz kılar:
+    onaylanan kitap kataloğa girer, arşivlenen çıkar.
+  - Yeni tür `["genres"]`'i geçersiz kılar. Adım 2'de türlere 5 dk'lık `staleTime` vermiştik; bu satır
+    olmasaydı yeni tür katalog filtresinde 5 dk görünmezdi.
+  - Bu kurallar ekranda görünmediği için ayrı test dosyasında sınanıyor (`adminQueries.test.tsx`).
+- **Neden admin kancaları ayrı dosyada:** Moderasyon tembel yüklenen bir parça. `queries.ts`'i katalog da
+  içe aktardığı için oradaki her şey ana pakete girer, yani her ziyaretçiye gider. Ayrı dosyayı yalnız
+  Moderasyon içe aktarıyor.
+- **Bilerek korunan iki şey:**
+  - Moderasyondaki `inFlight` ref'i KALDI. `isPending` bir sonraki çizimde görünür; aynı anda gelen iki
+    tıklamanın ikincisi düğme henüz pasif değilken çalışabilir. İki mevcut test (çift onay, çift tür gönderimi)
+    ref geçici olarak silinince kırıldı: ikinci istek de gitti.
+  - "İşlenmiş satır" işaretleri (`settled`) kaldı: sunucu verisi değil, ekranın durumu.
+- **Üç küçük davranış değişikliği:**
+  - Moderasyonda sekme değişirken yeni liste gelene kadar önceki sekmenin satırları görünür ama düğmeleri
+    kilitli. Eskiden de görünüyordu, ama tıklanabiliyordu.
+  - Kitap sayfasında yeni bir işlem başlarken öteki işlemlerin eski hatası silinir. Bu eski davranışın
+    aynısı: tek bir `error` durumu yerine her işlemin kendi hatası var, `clearActionErrors` hatalı olanları
+    `reset()` eder. Süren bir işlemi sıfırlamaz; yoksa onun kilidi de kalkardı.
+  - Bildirim ("“…” yayına alındı") artık liste yenilendikten sonra çıkar; eskiden yenilemeden hemen önce
+    çıkıyordu. Gecikme, listenin yeniden çekilme süresi kadar.
+- **Sonuç:**
+  - vitest 389 → 397. Eski kancanın 7 testi gitti, yerine `usePageView`'ın 6 testi geldi. 9 yeni test:
+    4 geçersiz kılma kuralı, Moderasyonda 2 (yer tutucu satırlar kilitli; son kitap onaylanınca geri adım),
+    kitap sayfasında 3 (yeni işlem eski hatayı temizler, yorum yükleme hatası, son yorum silinince geri
+    adım). Mevcut Moderasyon ve kitap sayfası testleri yalnız `withQuery` sarmalıyla, değişmeden geçiyor.
+  - Her yeni testin bir şey yakaladığı denendi: koruduğu satır geçici olarak silinince test kırıldı.
+  - Playwright 20/20 (yerelde; moderasyon ve yorum akışları dahil).
+  - Ana paket: bkz. aşağıdaki ölçüm notu.
+- **Ölçüm notu — sınıra yaklaştık:** ilk açılışta indirilen JS, Vite'ın gzip rakamıyla 121,3 → 122,6 KB
+  (başlangıç 110,7; artış **+11,9 KB**, sınır 12). Bunun ~0,4 KB'ı içerikten değil: Vite (8.3.8) bu adımda
+  ana paketten React'i ve ortak parçaları içeren ikinci bir dosya (`toast-….js`) ayırdı; iki dosya ayrı
+  sıkıştırılınca toplam biraz büyüyor. İki dosya aynı anda indiriliyor (`modulepreload`), yükleme süresine
+  etkisi yok. Adım 7'den sonra yeniden ölçülecek; sınır aşılırsa adım 8'de bölünmenin nedenine bakılacak
+  ya da sınırın kendisi kullanıcıyla yeniden konuşulacak.
+- **Bakılacak yerler (bu sırayla):**
+  1. `frontend/src/components/usePaged.tsx`: yeni `usePageView` ve yorumundaki "üç kural ne oldu".
+  2. `frontend/src/api/queries.ts`: dosyanın sonundaki üç yorum kancası; `onSuccess` ile `onSettled` farkı.
+  3. `frontend/src/api/adminQueries.ts`: `useModerateBook`'un yorumu (neden iki şey geçersiz oluyor).
+  4. `frontend/src/pages/admin/Moderation.tsx`: `switchTab`, `rowsLocked`, kalan `inFlight` ref'i.
+  5. `frontend/src/pages/BookDetail.tsx`: `clearActionErrors`, `post`, `remove`, `shownError`.
+  6. Testler: `api/adminQueries.test.tsx` (yeni), `components/usePaged.test.tsx`, iki sayfa testindeki yeni
+     testler.
+- **Kendin dene:** `make dev`, admin olarak giriş yap.
+  - Moderasyonda bir kitabı onayla: DevTools'ta `["admin","books","PENDING",0]` "fetching" olur; öteki
+    sekmeler ve `["books",…]` kayıtları bayat (sarı) görünür.
+  - Bir kitap sayfasında yorum yaz: `["comments",…,0]` yeniden çekilir.
+  - "Eskiler →" sonra "← Yeniler": ilk sayfa istek atmadan önbellekten gelir.
 
 ### Adım 7 — Kitaplık ve raf durumları
 
