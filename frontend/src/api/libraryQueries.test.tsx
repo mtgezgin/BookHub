@@ -1,8 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { act } from "react";
-import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { testQueryClient } from "../test/render"; // ayrıca notifyManager.setScheduler(queueMicrotask)
+import { describe, expect, it, vi } from "vitest";
+import { mountHook, testQueryClient } from "../test/render"; // ayrıca notifyManager.setScheduler(queueMicrotask)
 
 vi.mock("./client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./client")>()),
@@ -19,21 +18,6 @@ import { queryKeys, useRateBook } from "./queries";
  * bakıyoruz; kayıt geçersizse bir sonraki açılışta yeniden çekilir. Ekrandaki kaydın yeniden çekildiği
  * LibraryButton.test ve Library.test'te.
  */
-
-const cleanup: (() => void)[] = [];
-afterEach(() => cleanup.splice(0).forEach((f) => f()));
-
-function mountHook<T>(useHook: () => T, client: QueryClient) {
-  const box: { current?: T } = {};
-  function Harness() {
-    box.current = useHook();
-    return null;
-  }
-  const root = createRoot(document.createElement("div"));
-  act(() => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
-  cleanup.push(() => act(() => root.unmount()));
-  return box;
-}
 
 const EMPTY_PAGE = { items: [], total: 0, limit: 12, offset: 0 };
 const LIST = queryKeys.library(7, { limit: 12, offset: 0 });

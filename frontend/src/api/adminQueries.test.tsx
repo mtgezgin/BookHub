@@ -1,8 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { act } from "react";
-import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import "../test/render"; // notifyManager.setScheduler(queueMicrotask): bildirimler act içinde gelsin
+import { describe, expect, it, vi } from "vitest";
+import { mountHook, testQueryClient } from "../test/render"; // ayrıca notifyManager.setScheduler(queueMicrotask)
 
 vi.mock("./client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./client")>()),
@@ -19,24 +18,9 @@ import { queryKeys } from "./queries";
  * listesi) ne olduğuna bakıyoruz. Kayıt geçersizse bir sonraki açılışta yeniden çekilir.
  */
 
-const cleanup: (() => void)[] = [];
-afterEach(() => cleanup.splice(0).forEach((f) => f()));
-
-function mountHook<T>(useHook: () => T, client: QueryClient) {
-  const box: { current?: T } = {};
-  function Harness() {
-    box.current = useHook();
-    return null;
-  }
-  const root = createRoot(document.createElement("div"));
-  act(() => root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>));
-  cleanup.push(() => act(() => root.unmount()));
-  return box;
-}
-
 // Önbelleğe ekranda olmayan (gözlemcisiz) birkaç kayıt koyar.
 function seeded() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const client = testQueryClient();
   client.setQueryData(queryKeys.genres, []);
   client.setQueryData(queryKeys.books({ limit: 20 }), { items: [], total: 0, limit: 20, offset: 0 });
   client.setQueryData(queryKeys.adminBooks("APPROVED", 0), { items: [], total: 0, limit: 20, offset: 0 });
