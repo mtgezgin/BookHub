@@ -1,9 +1,11 @@
 import { BookMarked, Search, SearchX } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, ApiError } from "../api/client";
+import { ApiError } from "../api/client";
+import { useLibrary, useRemoveFromLibrary } from "../api/libraryQueries";
 import { useGenres } from "../api/queries";
-import type { LibraryItem, LibraryStatus, Page } from "../api/types";
+import type { LibraryItem, LibraryStatus } from "../api/types";
+import { useAuth } from "../auth/AuthContext";
 import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
@@ -14,7 +16,7 @@ import { Button, buttonVariants } from "../components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
-import { Pager } from "../components/usePaged";
+import { Pager, usePageView } from "../components/usePaged";
 import { LIBRARY_STATUSES, libraryStatusLabel } from "../lib/format";
 import { cn } from "../lib/utils";
 
@@ -42,13 +44,9 @@ export function Library() {
   const offset = asOffset(params.get("offset"));
 
   const toast = useToast();
-  const [page, setPage] = useState<Page<LibraryItem> | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
   const [search, setSearch] = useState(q);
   const [removing, setRemoving] = useState<LibraryItem | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [reload, setReload] = useState(0);
 
   const update = useParamUpdater(setParams);
 
@@ -60,32 +58,19 @@ export function Library() {
     setSearch(q);
   }, [q]);
 
-  // Eski cevap koruması (Home ile aynı): filtre değişince geç gelen önceki cevap yok sayılır.
-  useEffect(() => {
-    let current = true;
-    setError(null);
-    setLoading(true);
-    api.library({
-      ...(status && { status }), ...(q && { q }), ...(genre && { genre }), ...(rated && { rated }), ...(sort && { sort }),
-      limit: PAGE, offset,
-    })
-      .then((p) => {
-        if (!current) return;
-        // Sayfa boşaldıysa (ör. son kitap kendi sayfasından çıkarıldı, sonra "geri"): boş bir sayfada
-        // durmak yerine son GERÇEK sayfaya git; replace: geri tuşu yine bu boş adrese düşmesin.
-        if (p.items.length === 0 && p.total > 0 && offset > 0) {
-          const last = Math.floor((p.total - 1) / PAGE) * PAGE;
-          update({ offset: last > 0 ? String(last) : "" }, true);
-          return;
-        }
-        setPage(p);
-      })
-      .catch((e) => current && setError(e))
-      .finally(() => current && setLoading(false));
-    return () => {
-      current = false;
-    };
-  }, [status, q, genre, rated, sort, offset, reload, update]);
+  // Liste bir sorgu (Faz 16d adım 7): filtreler ve sayfa anahtarın parçası, eski cevap koruması oradan
+  // gelir. Eskiden burada bir etki, geç gelen cevap bayrağı, page/error/loading durumları ve çıkarmadan
+  // sonra listeyi yeniden yükletmek için bir sayaç (reload) vardı.
+  const library = useLibrary(user?.id, {
+    ...(status && { status }), ...(q && { q }), ...(genre && { genre }), ...(rated && { rated }), ...(sort && { sort }),
+    limit: PAGE, offset,
+  });
+  // Sayfa boşaldıysa (ör. son kitap kendi sayfasından çıkarıldı, sonra "geri"; ya da burada çıkarıldı):
+  // usePageView son GERÇEK sayfaya götürür. replace: geri tuşu yine bu boş adrese düşmesin.
+  const toOffset = useCallback((o: number) => update({ offset: o > 0 ? String(o) : "" }, true), [update]);
+  const { page, showPager } = usePageView(library, offset, toOffset);
+  const loading = library.isPlaceholderData;
+  const removal = useRemoveFromLibrary(user?.id);
   // Zaten seçili değer yeniden seçilince bir şey olmaz (sayfa başa dönmez, geçmişe kayıt eklenmez).
   const select = (key: string, value: string) => {
     if ((params.get(key) ?? "") === value) return;
@@ -94,23 +79,17 @@ export function Library() {
 
   const filtered = status !== "" || q !== "" || genre !== "" || rated !== "";
 
-  async function remove(item: LibraryItem) {
-    setBusy(true);
-    try {
-      await api.removeFromLibrary(item.book.id);
-      setRemoving(null);
-      toast(`“${item.book.title}” kitaplığından çıkarıldı`);
-      // Son sayfadaki son kitap çıktıysa boş bir sayfada kalınmaz: bir önceki sayfaya dönülür.
-      if (page && page.items.length === 1 && offset > 0) {
-        update({ offset: offset - PAGE > 0 ? String(offset - PAGE) : "" });
-      } else {
-        setReload((n) => n + 1);
-      }
-    } catch (e) {
-      toast(e instanceof ApiError ? e.message : "Kitaplık güncellenemedi", "error");
-    } finally {
-      setBusy(false);
-    }
+  // Çıkarınca liste kendiliğinden yeniden çekilir (değişiklik kitaplık kayıtlarını geçersiz kılar). Son
+  // sayfadaki son kitap çıktıysa yeni cevap boş gelir ve usePageView önceki sayfaya döner; eskiden bu
+  // durum burada ayrıca ele alınıyordu.
+  function remove(item: LibraryItem) {
+    removal.mutate(item.book.id, {
+      onSuccess: () => {
+        setRemoving(null);
+        toast(`“${item.book.title}” kitaplığından çıkarıldı`);
+      },
+      onError: (e) => toast(e instanceof ApiError ? e.message : "Kitaplık güncellenemedi", "error"),
+    });
   }
 
   return (
@@ -166,9 +145,9 @@ export function Library() {
         </div>
       </section>
 
-      <ErrorBox error={error} className="mb-6" />
+      <ErrorBox error={library.error} className="mb-6" />
 
-      {!page && !error && (
+      {!page && !library.error && (
         <div role="status" aria-label="Kitaplık yükleniyor" className={GRID}>
           {Array.from({ length: PAGE }, (_, i) => (
             <div key={i} className="flex flex-col gap-3">
@@ -221,7 +200,7 @@ export function Library() {
         </ul>
       )}
 
-      {page && (offset > 0 || page.total > PAGE) && (
+      {page && showPager && (
         <Pager page={page} offset={offset} onChange={(o) => update({ offset: o > 0 ? String(o) : "" })} />
       )}
 
@@ -233,7 +212,7 @@ export function Library() {
             <DialogClose asChild>
               <Button type="button" variant="outline">Vazgeç</Button>
             </DialogClose>
-            <Button type="button" variant="destructive" disabled={busy} onClick={() => removing && void remove(removing)}>Çıkar</Button>
+            <Button type="button" variant="destructive" disabled={removal.isPending} onClick={() => removing && remove(removing)}>Çıkar</Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -30,7 +30,11 @@ notifyManager.setScheduler(queueMicrotask);
  * testin çektiği veri ötekinde "önbellekten" görünür ve testler sıraya bağımlı olurdu. Testte yeniden
  * deneme kapalı: hata senaryosu beklemeden hata ekranını göstersin.
  */
-export function withQuery(node: React.ReactNode): React.ReactNode {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+export function withQuery(node: React.ReactNode, client = testQueryClient()): React.ReactNode {
   return <QueryClientProvider client={client}>{node}</QueryClientProvider>;
+}
+
+/** Testin kendi önbelleği. Aynı ağacı yeniden çizen testler (rerender) bunu bir kez kurup withQuery'ye verir. */
+export function testQueryClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
 }

@@ -6,8 +6,10 @@ import { Button } from "./ui/button";
 /**
  * usePageView: sayfalı bir SORGUNUN sonucunu ekrana hazırlar (Faz 16d adım 6). Veriyi kendisi çekmez;
  * offset sayfanın durumu, veri sorgunun (useComments, useAdminBooks). Eski usePaged'in üç kuralı:
- *  1. Boş sayfa + offset > 0 → bir sayfa geri (son sayfadaki son öğe silinince/onaylanınca kullanıcı
- *     "liste boş" ekranında mahsur kalmasın). HÂLÂ gerekli: sunucu boş sayfa döndürür, sorgu bunu bilemez.
+ *  1. Boş sayfa + offset > 0 → son GERÇEK sayfaya dön (son sayfadaki son öğe silinince/onaylanınca
+ *     kullanıcı "liste boş" ekranında mahsur kalmasın). HÂLÂ gerekli: sunucu boş sayfa döndürür, sorgu bunu
+ *     bilemez. Hedef toplamdan hesaplanır, "bir sayfa geri" değil (adım 7, Kitaplığım'ın eski kuralı):
+ *     adresteki offset elle büyütülmüşse (?offset=600, 20 kitap) tek adımda dönülür, sayfa sayfa değil.
  *     Geri adım atılırken boş sayfa (ve onun yerine geçici olarak gösterilen boş sayfa) ÇİZİLMEZ: eski
  *     satırlar işlem yapılabilir görünmesin, "liste boş" ekranı yanıp sönmesin.
  *  2. Eski cevap koruması: artık SORGUDAN geliyor. Her offset kendi anahtarına yazılır, ekran yalnız
@@ -24,13 +26,18 @@ export function usePageView<T>(
   const data = query.data;
   const empty = data !== undefined && data.items.length === 0;
   // Yer tutucu (önceki anahtarın verisi) boşsa geri adım atılmaz: gerçek cevabı beklemek gerek.
-  const stepBackTo = empty && offset > 0 && !query.isPlaceholderData ? Math.max(0, offset - data.limit) : null;
+  const stepBackTo = empty && offset > 0 && !query.isPlaceholderData ? lastPageOffset(data.total, data.limit) : null;
   useEffect(() => {
     if (stepBackTo !== null) setOffset(stepBackTo);
   }, [stepBackTo, setOffset]);
   const page = empty && (offset > 0 || query.isPlaceholderData) ? undefined : data;
   const showPager = page !== undefined && (offset > 0 || page.total > page.limit);
   return { page, showPager };
+}
+
+/** Son dolu sayfanın offset'i; liste tamamen boşsa 0. Boş bir sayfanın offset'i hep bundan büyüktür. */
+function lastPageOffset(total: number, limit: number): number {
+  return total > 0 ? Math.floor((total - 1) / limit) * limit : 0;
 }
 
 /** Pager: önceki/sonraki düğmeleri ve "a–b / toplam" etiketi. */

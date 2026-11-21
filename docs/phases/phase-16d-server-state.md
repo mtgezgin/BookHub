@@ -1,6 +1,6 @@
 # Faz 16d — Sunucu verisi TanStack Query ile
 
-> Durum: 🚧 adım 1–6 tamam (kullanıcı okudu, 2026-11-21); sıradaki adım 7 · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
+> Durum: 🚧 adım 1–7 tamam (kullanıcı okudu, 2026-11-21); sıradaki adım 8 · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
 > [ROADMAP](../ROADMAP.md) · Bulgu: [REVIEW_FEEDBACK](../REVIEW_FEEDBACK.md) F33 ·
 > İlgili: [client.ts](../../frontend/src/api/client.ts), [usePaged.tsx](../../frontend/src/components/usePaged.tsx),
 > [Home.tsx](../../frontend/src/pages/Home.tsx), [BookDetail.tsx](../../frontend/src/pages/BookDetail.tsx)
@@ -283,8 +283,13 @@ Her adım: **amaç**, **neden**, **sonuç** (yazıldıkça doldurulur), **bakıl
   (başlangıç 110,7; artış **+11,9 KB**, sınır 12). Bunun ~0,4 KB'ı içerikten değil: Vite (8.3.8) bu adımda
   ana paketten React'i ve ortak parçaları içeren ikinci bir dosya (`toast-….js`) ayırdı; iki dosya ayrı
   sıkıştırılınca toplam biraz büyüyor. İki dosya aynı anda indiriliyor (`modulepreload`), yükleme süresine
-  etkisi yok. Adım 7'den sonra yeniden ölçülecek; sınır aşılırsa adım 8'de bölünmenin nedenine bakılacak
-  ya da sınırın kendisi kullanıcıyla yeniden konuşulacak.
+  etkisi yok. Adım 7'den sonra yeniden ölçülecek.
+- **Sonradan (2026-11-21): 12 KB'lık sınır kaldırıldı.** Kullanıcı sınırın nereden geldiğini sordu. Cevap:
+  asistan spec'i yazarken (commit `74b6a57`) uydurmuştu, yani kütüphanenin tamamının o gün ölçülen boyutu
+  (~10,5 KB) ve gerekçesi yazılmamış ~1,5 KB'lık bir pay. Bir performans hedefine bağlı değildi; varsayımı
+  da adım 1'de yanlış çıktı (Vite kütüphanenin tamamını değil, kullanılan parçaları alıyor). Kabul
+  kriteri asıl amacına göre yeniden yazıldı (aşağıda). Sayfaları tembel yüklemek (ölçüldü: −2,0 KB) bu
+  fazın işi değil; istenirse ayrı bir iş.
 - **Bakılacak yerler (bu sırayla):**
   1. `frontend/src/components/usePaged.tsx`: yeni `usePageView` ve yorumundaki "üç kural ne oldu".
   2. `frontend/src/api/queries.ts`: dosyanın sonundaki üç yorum kancası; `onSuccess` ile `onSettled` farkı.
@@ -304,6 +309,81 @@ Her adım: **amaç**, **neden**, **sonuç** (yazıldıkça doldurulur), **bakıl
 - **Amaç:** `Library`, `LibraryMenu` ve `useLibraryStatuses` sorgu ve değişikliklere çevrilir.
 - **Neden:** bir bileşendeki değişikliğin (rafa ekle) **başka** bileşenlerdeki veriyi (kitaplık listesi, kart
   üstündeki rozet) güncellemesi: geçersiz kılmanın asıl faydası burada görülür.
+- **Ne yapıldı (2026-11-21):**
+  - `api/queries.ts`: iki yeni anahtar (`library`, `libraryStatuses`), `keepPreviousOwnData` yardımcısı;
+    `useRateBook` artık Kitaplığım listelerini de bayat işaretliyor.
+  - Yeni `api/libraryQueries.ts`: `useLibrary`, `useLibraryStatus`, `useSetLibraryStatus`,
+    `useRemoveFromLibrary`. Ayrı dosya, çünkü yalnız tembel yüklenen iki parça kullanıyor (Kitaplığım ve
+    menü); ana pakete girmedi (derlemede ayrı, 0,34 KB'lık ortak bir parça).
+  - `useLibraryStatuses.tsx`: etki, geç cevap bayrağı ve "kime ait" kaydı gitti; tek bir `useQuery`.
+  - `LibraryMenu.tsx`: dört durum (`status`, `loaded`, `busy`, `failed`), "tekrar dene" sayacı ve etki gitti.
+  - `Library.tsx`: etki, `page`/`error`/`loading`/`busy` durumları ve `reload` sayacı gitti; boş sayfadan
+    geri adım artık `usePageView`'da.
+  - `usePaged.tsx`: `usePageView` boş sayfada "bir sayfa geri" değil, son DOLU sayfaya dönüyor (aşağıda).
+- **Yeni kavram 1 — ortak nokta yalnız anahtar:** menü, katalog rozetleri ve Kitaplığım listesi birbirini
+  tanımıyor. Hepsi `["me", kullanıcı, "library", …]` altında; rafa ekleme bu öneki geçersiz kılıyor:
+  - ekrandakiler hemen yeniden çekilir (kitap sayfasındaki düğme, açıksa Kitaplığım listesi);
+  - ötekiler açılınca (katalog rozetleri, öteki filtrelerin listeleri).
+  Bunu gösteren test: `LibraryButton.test.tsx`, "menüden eklenen kitabın rozeti aynı sayfadaki başka bir
+  bileşende de güncellenir".
+- **Yeni kavram 2 — neden cevabı önbelleğe yazmıyoruz:** puanda yeni değeri `setQueryData` ile yazmıştık
+  (adım 5), çünkü "benim puanım" tek bir kayıttı. Bir kitabın kitaplık durumu ise ekranda görünen her kimlik
+  listesinin kaydında var ("3,4,9", "12", …). Hepsini bulup düzeltmek yerine sunucuya yeniden soruyoruz:
+  bir küçük istek, karşılığında tek bir kural. Bedeli: menüdeki yeni durum yazma + okuma kadar sonra görünür.
+- **Yeni kavram 3 — kullanıcıya özel yer tutucu:** düz `keepPreviousData` anahtar değişince önceki kaydı
+  gösterir, kimin olduğuna bakmaz. Kullanıcı değişirse öncekinin rozetleri bir an görünürdü. Eski kancada
+  bunu bir "kime ait" alanı önlüyordu; şimdi `keepPreviousOwnData` önceki kaydın anahtarındaki kullanıcıya
+  bakıyor. Kaynakta bulunan bir ayrıntı: TanStack yer tutucu fonksiyonu öncekiyle AYNI nesneyse onu yeniden
+  çağırmaz (`queryObserver.js`); bu yüzden fonksiyon her çizimde yeniden kuruluyor.
+- **Yeni kavram 4 — bir veri başka bir verinin içinde de görünür:** Kitaplığım her kartta "Puanım"ı
+  gösteriyor ve puana göre süzüp sıralıyor. Liste artık önbellekte durduğu için puan vermek onu da bayat
+  işaretlemeli; yoksa puan verip 30 sn içinde Kitaplığım'a geçen okur eski puanı görürdü. Eskiden sayfa her
+  açılışta yeniden çektiği için bu sorun yoktu: önbellek, eskiden kendiliğinden doğru olan şeyi açıkça
+  söylemeyi gerektiriyor.
+- **Bilerek korunan:** durum okunamazsa menü "Okumak istiyorum" göstermiyor, "tekrar dene" gösteriyor
+  (PUT kayıtlı bir "Okudum"un üstüne yazardı). Artık değişiklikten SONRAKİ yeniden okuma başarısız olursa da
+  aynısı: ekrandaki durum doğru olmayabilir.
+- **Davranış değişiklikleri:**
+  - Menüde yeni durum ve bildirim, durum sunucudan yeniden okununca görünür (eskiden PUT cevabıyla hemen).
+  - Kitaplığım'da çıkarma onayı, liste yenilenene kadar açık kalır (düğme pasif); eskiden önce kapanıp
+    sonra liste soluk hâlde yenileniyordu.
+  - Son sayfadaki son kitap çıkınca önceki sayfaya geçiş geçmişe kayıt eklemiyor (`replace`); geri tuşu
+    boş sayfaya düşmüyor. Arada kısa bir iskelet görünebilir (adım 6'daki "boş sayfa çizilmez" kuralı).
+  - Boş sayfadan geri adım yorumlarda ve moderasyonda da artık son dolu sayfaya; normal durumda (son
+    sayfadaki son öğe gitti) sonuç aynı, yalnız elle büyütülmüş bir adreste fark var.
+  - Rozet okuması 5xx'te bir kez yeniden deneniyor (genel kural); eskiden denenmiyordu.
+- **Sonuç:**
+  - vitest 397 → 404. Yeni: `api/libraryQueries.test.tsx` (4: ekleme ve çıkarma neyi eskitir, başarısız
+    değişiklik hiçbir şeyi, puan Kitaplığım'ı), `LibraryButton.test.tsx`'te 2 (rozet başka bileşende
+    güncellenir; yeniden okuma başarısızsa tekrar dene), `usePaged.test.tsx`'te 1 (tek adımda son dolu sayfa).
+  - Mevcut testler: `LibraryButton` ve `useLibraryStatuses` testleri önbellek sarmalıyla, `Library` testleri
+    oturum taklidiyle çalışıyor. Eski testlerin beklentileri değişmedi; değişen sahte uçların kurulumu:
+    menü durumu artık sunucudan yeniden okuduğu için sahte uçlar sabit cevap yerine yazılanı hatırlıyor
+    (`shelf`), "son kitap çıkınca önceki sayfa" testinde de sahte sunucu çıkarılan kitabı listeden düşürüyor.
+    Eklenen beklentiler: "istek sürerken menü pasif" sonunda düğmenin "Kitaplığında" olduğu, "son kitap
+    çıkınca" sonunda ilk sayfanın çizildiği. Bir rozet testine sorgunun bildirimi için bir `act` daha eklendi.
+  - Her yeni korumanın bir testi kırdığı denendi (koruduğu satır geçici olarak bozuldu): yer tutucu
+    kullanıcı kontrolü, ekleme ve çıkarma sonrası geçersiz kılma, yeniden okuma hatasında tekrar dene,
+    puan → Kitaplığım, son dolu sayfaya tek adım. Altısı da en az bir testi kırdı.
+  - Playwright 20/20 (yerelde; kitaplık akışını uçtan uca sınayan test dahil). `tsc -b` temiz.
+  - Sayfalarda veri çeken `useEffect` kalmadı (kabul kriteri 1); kalan tek yer `AuthContext`, kapsam dışı.
+  - Ana paket: Vite'ın gzip rakamıyla **122,6 → 121,5 KB** (başlangıçtan +10,8 KB). Adım 6'daki ikinci
+    dosya (`toast-….js`) bu derlemede yok, ana paket yine tek dosya; nedenini incelemedim, ölçülen bu.
+- **Bakılacak yerler (bu sırayla):**
+  1. `frontend/src/api/libraryQueries.ts`: değişikliklerin üstündeki yorum (neden önek, neden yazmıyoruz).
+  2. `frontend/src/api/queries.ts`: iki yeni anahtar, `keepPreviousOwnData`, `useRateBook`'taki 4. madde.
+  3. `frontend/src/components/useLibraryStatuses.tsx`: eski üç işin nereye gittiği.
+  4. `frontend/src/components/LibraryMenu.tsx`: `change`, `remove`, `disabled`, tekrar dene düğmesi.
+  5. `frontend/src/pages/Library.tsx`: `useLibrary`, `toOffset`, `remove`.
+  6. `frontend/src/components/usePaged.tsx`: `lastPageOffset`.
+  7. Testler: `api/libraryQueries.test.tsx` (yeni), `LibraryButton.test.tsx`'in son iki testi ve sahte
+     sunucusu.
+- **Kendin dene:** `make dev`, giriş yap.
+  - Kataloğu aç, bir kitaba gir, "Okumak istiyorum"a bas. DevTools'ta `["me",…,"library","statuses","…"]`
+    kayıtları bayat olur, kitabınki yeniden çekilir. Kataloğa dön: rozet yeni durumla, bir istekle gelir.
+  - Kitaplığım'ı aç, bir kitaba puan ver, geri dön: liste yeniden çekilir ve yeni puanı gösterir.
+  - Kitaplığım'da filtreler arasında gidip gel: 30 sn içinde yeniden açılan filtre istek atmadan önbellekten
+    gelir.
 
 ### Adım 8 — Çıkışta temizlik ve son ölçüm
 
@@ -315,7 +395,12 @@ Her adım: **amaç**, **neden**, **sonuç** (yazıldıkça doldurulur), **bakıl
 - Sayfalarda veri çeken `useEffect` kalmaz (`AuthContext` ve tema hariç).
 - Mevcut vitest ve Playwright testleri geçer; eski cevap yarışı için bir test vardır.
 - Çıkış yapınca kullanıcıya özel veri önbellekte kalmaz (test).
-- Ana paket artışı ölçülür ve 12 KB gzip'i geçmez.
+- Ana paket artışı ölçülür ve PR'da adım adım yazılır. Kabul koşulu: artışın kaynağı açıklanabilir olmalı
+  (kütüphanenin kendisi ve bizim kancalarımız); beklenmedik bir büyüme (ör. geliştirici aracının üretim
+  paketine girmesi, admin kodunun ana pakete kayması) varsa düzeltilir.
+  - Bu kriter önce "12 KB gzip'i geçmez" idi. O sayı gerekçesizdi (bkz. adım 6'daki "Sonradan" notu);
+    kullanıcıyla konuşulup 2026-11-21'de bu hâle getirildi. Gerçek bir boyut bütçesi (ör. ilk yüklenen
+    toplam JS için bir üst sınır ve CI denetimi) istenirse kendi gerekçesiyle ayrı bir iş olarak açılır.
 
 ## 🚫 Kapsam dışı
 

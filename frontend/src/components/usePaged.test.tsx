@@ -39,6 +39,11 @@ describe("usePageView", () => {
     expect(v.current!.page).toBeUndefined(); // eski satırlar ya da "liste boş" yanıp sönmesin
   });
 
+  it("elle büyütülmüş offset'te tek adımda son dolu sayfaya döner, sayfa sayfa değil", () => {
+    // 5 öğe, sayfa başına 2: son dolu sayfa offset 4. Adreste ?offset=600 olsa bile tek adım.
+    expect(mountView(page([], 5), false, 600).setTo).toEqual([4]);
+  });
+
   it("boş YER TUTUCUDA geri adım atılmaz (gerçek cevap beklenir) ve o da çizilmez", () => {
     const v = mountView(page([], 2), true, 2);
     expect(v.setTo).toEqual([]);

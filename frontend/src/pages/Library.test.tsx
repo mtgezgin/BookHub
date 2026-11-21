@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withQuery } from "../test/render";
-import type { Book, LibraryItem, LibraryStatus, Page } from "../api/types";
+import type { Book, LibraryItem, LibraryStatus, Page, User } from "../api/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -11,6 +11,8 @@ vi.mock("../api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/client")>()),
   api: {},
 }));
+const h = vi.hoisted(() => ({ user: null as unknown }));
+vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ user: h.user, ready: true }) }));
 
 import { api, ApiError } from "../api/client";
 import { ToastProvider } from "../components/toast";
@@ -35,11 +37,13 @@ const itemOf = (id: number, extra: Partial<LibraryItem> = {}): LibraryItem => ({
 });
 const pageOf = (items: LibraryItem[], total = items.length, offset = 0): Page<LibraryItem> => ({ items, total, limit: 12, offset });
 
+const USER: User = { id: 7, email: "ali@example.com", display_name: "Ali", role: "USER", created_at: "" };
 let reply: (p: { offset?: number }) => Page<LibraryItem>;
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach((f) => f()));
 beforeEach(() => {
   for (const k of Object.keys(calls)) delete calls[k];
+  h.user = USER;
   reply = () => pageOf([itemOf(1)]);
   stub({
     genres: async () => [{ id: 1, name: "Roman", slug: "roman" }],
@@ -174,7 +178,12 @@ describe("Library", () => {
   });
 
   it("son sayfadaki son kitap çıkınca önceki sayfa", async () => {
-    reply = (p) => (p.offset === 12 ? pageOf([itemOf(13, { in_catalog: false })], 13, 12) : pageOf([itemOf(1)], 12, 0));
+    let removed = false;
+    stub({ removeFromLibrary: async () => { removed = true; } });
+    reply = (p) =>
+      p.offset === 12
+        ? (removed ? pageOf([], 12, 12) : pageOf([itemOf(13, { in_catalog: false })], 13, 12))
+        : pageOf([itemOf(1)], removed ? 12 : 13, 0);
     const { el, params } = await render("/library?offset=12");
     await click(buttonIn(el.querySelector('[aria-label="Kitaplığım"] li')!, "Çıkar"));
     const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
@@ -183,6 +192,8 @@ describe("Library", () => {
     expect(calls.removeFromLibrary).toEqual([[13]]);
     expect(params().has("offset")).toBe(false);
     expect(calls.library!.at(-1)).toEqual([{ limit: 12, offset: 0 }]);
+    expect(el.querySelector('[aria-label="Kitaplığım"]')!.textContent).toContain("Kitap 1");
+    expect(el.textContent).not.toContain("Kitaplığın boş");
   });
 
   it("liste yüklenemezse hata kutusu, liste yok", async () => {

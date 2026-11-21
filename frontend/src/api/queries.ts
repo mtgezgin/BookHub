@@ -12,6 +12,7 @@ import type { BookStatus } from "./types";
  * invalidateQueries({ queryKey: ["books"] }) liste ve şerit dahil hepsini tazeler.
  */
 export type BookListParams = Parameters<typeof api.books>[0];
+export type LibraryParams = Parameters<typeof api.library>[0];
 
 export const queryKeys = {
   genres: ["genres"] as const,
@@ -28,7 +29,27 @@ export const queryKeys = {
   // yorumlar onun altında olsaydı puan vermek yorumları da gereksiz yere yeniden çekerdi.
   comments: (bookId: number, offset: number) => ["comments", bookId, offset] as const,
   adminBooks: (status: BookStatus, offset: number) => ["admin", "books", status, offset] as const,
+  // Kitaplık (adım 7): liste ve durum rozetleri AYNI önekte, ["me", kullanıcı, "library"]. Rafa ekleme ya
+  // da çıkarma bu öneki geçersiz kılar; Kitaplığım listesi, katalogdaki rozetler ve kitap sayfasındaki
+  // düğme tek satırla tazelenir (api/libraryQueries.ts).
+  library: (userId: number, params: LibraryParams) => ["me", userId, "library", "list", params] as const,
+  // ids: sıralı ve tekrarsız kimlikler ("3,4,9"); aynı kitaplar başka sırayla gelince aynı kayıt kullanılır.
+  libraryStatuses: (userId: number, ids: string) => ["me", userId, "library", "statuses", ids] as const,
 };
+
+/**
+ * Kullanıcıya özel veride `keepPreviousData`'nın güvenli hâli: anahtar değişirken önceki kaydı yer tutucu
+ * olarak gösterir, ama yalnız o kayıt AYNI kullanıcınınsa (anahtarın ikinci öğesi, ["me", kullanıcı, …]).
+ * Düz keepPreviousData kullanıcı değişince öncekinin rozetlerini ya da kitaplığını bir an gösterirdi.
+ *
+ * NEDEN her çizimde yeni bir fonksiyon: TanStack, yer tutucu fonksiyonu öncekiyle AYNI nesneyse önceki yer
+ * tutucuyu yeniden kullanır, fonksiyonu çağırmaz (query-core queryObserver.js). userId'yi kapsayan yeni
+ * bir fonksiyon, kullanıcı değişince kontrolün yeniden yapılmasını garanti eder.
+ */
+export function keepPreviousOwnData(userId: number | undefined) {
+  return <T>(previous: T | undefined, previousQuery: { queryKey: readonly unknown[] } | undefined) =>
+    previousQuery?.queryKey[1] === userId ? previous : undefined;
+}
 
 /**
  * Türler: Home'da ve Kitaplığım'da aynı liste. Anahtar aynı olduğu için iki sayfa TEK kaydı paylaşır;
@@ -116,6 +137,9 @@ export function useMyRating(userId: number | undefined, bookId: number) {
  *  3. Bütün kitap listeleri ("books" ile başlayan her anahtar) bayat İŞARETLENİR ama şimdi yeniden
  *     çekilmez (refetchType: "none"): kartlardaki ortalama değişti, fakat o listeler şu an ekranda değil
  *     ya da (benzer kitaplar) bir oyla anlamlı değişmez. Kullanıcı kataloğa dönünce tazelenir.
+ *  4. Kitaplığım listeleri de aynı şekilde bayat işaretlenir (adım 7): her kartta "Puanım" yazıyor, liste
+ *     puana göre süzülüp sıralanabiliyor. Bu satır olmasaydı puan verip 30 sn içinde Kitaplığım'a geçen
+ *     okur eski puanını görürdü (eskiden sayfa her açılışta yeniden çektiği için sorun yoktu).
  *
  * NEDEN bu iş kancada, sayfada değil: eskiden sayfa her başarılı puandan sonra `loadBook()` çağırıp kitabı
  * ve özeti elle yeniden yüklüyordu. "Puan değişince neyin tazeleneceği" bilgisi verinin yanında durunca,
@@ -133,7 +157,10 @@ export function useRateBook(bookId: number, userId: number | undefined) {
       return score;
     },
     onSuccess: (score) => {
-      if (userId !== undefined) queryClient.setQueryData(queryKeys.myRating(userId, bookId), score);
+      if (userId !== undefined) {
+        queryClient.setQueryData(queryKeys.myRating(userId, bookId), score);
+        void queryClient.invalidateQueries({ queryKey: ["me", userId, "library", "list"], refetchType: "none" });
+      }
       void queryClient.invalidateQueries({ queryKey: ["books"], refetchType: "none" });
       return queryClient.invalidateQueries({ queryKey: queryKeys.ratingSummary(bookId) });
     },
