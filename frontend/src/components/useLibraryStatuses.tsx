@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { keepPreviousOwnData, queryKeys } from "../api/queries";
 import type { LibraryStatus } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 
-type Owned = { owner?: number; statuses: Record<number, LibraryStatus> };
-const EMPTY: Owned = { statuses: {} };
+const NONE: Record<number, LibraryStatus> = {};
 
 /**
  * Ekrandaki kitapların kitaplık durumları — kitap başına bir istek değil, TEK istek (N+1 yok).
@@ -13,30 +13,28 @@ const EMPTY: Owned = { statuses: {} };
  * Anahtar sıralı ve tekrarsız kimliklerden kurulur: aynı kitaplar başka sırayla gelince yeniden sormaz.
  * Okuma başarısızsa kartlar rozetsiz kalır (süs bilgi; sayfayı bozmaz).
  * Kimlikler değişince yeni cevap gelene kadar öncekiler gösterilir (sayfa değişirken rozetler yanıp sönmesin).
+ *
+ * Faz 16d adım 7: artık bir sorgu. Eskiden burada bir etki, geç gelen cevap bayrağı ve "bu durumlar kime
+ * ait" kaydı vardı:
+ *  - geç gelen cevap: her kimlik listesi kendi anahtarına yazılır, ekran yalnız güncelini gösterir;
+ *  - kime ait: kullanıcı kimliği anahtarın parçası; yer tutucu da yalnız aynı kullanıcınınsa gösterilir
+ *    (keepPreviousOwnData);
+ *  - okuma başarısızsa: hata olunca veri yok, kartlar rozetsiz. Fark: okuma artık 5xx'te bir kez yeniden
+ *    deneniyor (lib/queryClient.ts), eskiden denenmiyordu.
+ * Kazanç: kitap sayfasında rafa eklemek bu kayıtları geçersiz kılar (api/libraryQueries.ts); kataloğa
+ * dönünce rozet güncel. Eskiden de günceldi ama her açılışta yeniden sorulduğu için; şimdi önbellekten
+ * gelen kayıt yalnız bir değişiklik onu eskittiyse yeniden sorulur.
  */
 export function useLibraryStatuses(bookIds: number[]): Record<number, LibraryStatus> {
-  const { user } = useAuth();
   // Kimliğe bağlı: sessiz token yenilemesi yeni bir kullanıcı nesnesi getirir, aynı okur için yeniden sorulmaz.
-  const userId = user?.id;
-  const key = [...new Set(bookIds)].sort((a, b) => a - b).join(",");
-  // Durumlar kime ait olduklarıyla saklanır: kullanıcı değişince yeni cevap beklenmeden gizlenir.
-  const [state, setState] = useState<Owned>(EMPTY);
-
-  useEffect(() => {
-    if (userId === undefined || key === "") {
-      setState(EMPTY);
-      return;
-    }
-    let current = true;
-    api.libraryStatuses(key.split(",").map(Number)).then(
-      // JSON nesne anahtarları zaten metin: statuses[3] ile statuses["3"] aynı alanı okur.
-      (r) => current && setState({ owner: userId, statuses: r.statuses }),
-      () => current && setState(EMPTY),
-    );
-    return () => {
-      current = false;
-    };
-  }, [userId, key]);
-
-  return state.owner === userId ? state.statuses : EMPTY.statuses;
+  const userId = useAuth().user?.id;
+  const ids = [...new Set(bookIds)].sort((a, b) => a - b).join(",");
+  const query = useQuery({
+    queryKey: queryKeys.libraryStatuses(userId ?? 0, ids),
+    queryFn: () => api.libraryStatuses(ids.split(",").map(Number)),
+    enabled: userId !== undefined && ids !== "",
+    placeholderData: keepPreviousOwnData(userId),
+  });
+  // JSON nesne anahtarları zaten metin: statuses[3] ile statuses["3"] aynı alanı okur.
+  return userId === undefined ? NONE : (query.data?.statuses ?? NONE);
 }

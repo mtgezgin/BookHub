@@ -5,9 +5,9 @@
 > **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
 > "Hangi sırayla?" sorusunun cevabı: **[ROADMAP.md](ROADMAP.md)**.
 >
-> Son güncelleme: 2026-11-19 — Faz 1–16c canlıda: arama (16b, migration `0014`), katalog sorguları (16c),
+> Son güncelleme: 2026-11-21 — Faz 1–16c canlıda: arama (16b, migration `0014`), katalog sorguları (16c),
 > ikinci incelemenin düzeltmeleri (index'ler `0015`, süre bütçeleri, istek ölçümü, hata sınırı),
-> OpenTelemetry. Faz 16d (TanStack Query) ayrı dalda sürüyor; arayüzün veri satırları o birleşince değişir.
+> OpenTelemetry. Faz 16d (TanStack Query) bu haritada; yayından sonra doğrulanacak.
 
 ---
 
@@ -208,11 +208,14 @@ LOCKED`) · `LockUserPasswordForChange` (`FOR NO KEY UPDATE`) · `LockUserPasswo
 |---|---|
 | `src/api/client.ts` | fetch sarmalayıcı + **oturum durum makinesi** (Faz 13'te yeniden yazıldı): access token yalnız bellekte, refresh token httpOnly çerezte (bu dosya onu hiç görmez), `localStorage`'da yalnız sır olmayan `bookhub.session` ipucu ve `bookhub.logout_pending` bayrağı; çerez yazan tüm istekler (login / refresh / logout / password) **Web Locks** (`bookhub-refresh`) ile origin başına seri; `sessionEpoch` geç gelen cevabın oturumu diriltmesini engeller |
 | `src/api/types.ts` | API sözleşmesinin TS tipleri (`Session`'da `refresh_token` YOK) |
-| `src/auth/AuthContext.tsx` | oturum durumu, açılışta geri yükleme |
+| `src/api/queries.ts` | sunucu verisinin **sorgu ve değişiklik kancaları** (TanStack Query, Faz 16d) ve bütün **sorgu anahtarları** (`queryKeys`) tek yerde; kullanıcıya özel veri `["me", kullanıcı, …]` altında. Ana pakette |
+| `src/api/adminQueries.ts`, `src/api/libraryQueries.ts` | yalnız tembel yüklenen parçaların kancaları (Moderasyon; Kitaplığım ve kitaplık menüsü): ayrı dosyada ki ana pakete girmesin |
+| `src/lib/queryClient.ts` | tek `QueryClient` ve varsayılanları: `staleTime` 30 sn, okumada yeniden deneme yalnız 5xx/ağda bir kez, değişiklikte hiç |
+| `src/auth/AuthContext.tsx` | oturum durumu, açılışta geri yükleme; oturum kapanınca (çıkış, başka sekme, yenileme reddi) sorgu önbelleğini boşaltır |
 | `src/pages/` | Home (katalog + en iyiler), BookDetail, **Library** ("Kitaplığım", Faz 15), Auth, Suggest, **Account** ("Hesabım": parola değiştirme, Faz 13), admin/Moderation |
 | `src/styles.css` | Tailwind + **tasarım token'ları** (açık/koyu tema, OKLCH); değeri değişince `node scripts/check-contrast.mjs` — [Faz 14](phases/phase-14-ui-redesign.md) |
 | `src/components/ui/` | shadcn/ui yaklaşımıyla repoya kopyalanmış temel bileşenler (Button, Input, Card, Badge, Alert, Skeleton, Label, Dialog) |
-| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `EditionStrip` + `PrimaryEditionNote` (Faz 16: "Diğer baskılar" şeridi, kapak altı baskı notu), `BookCard`, `EmptyState`, `NotFound`, `ErrorBoundary` (yakalanmayan hata tek sayfayı düşürür, uygulamayı değil; F34), `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged` (+ `Pager`: 10.000 sınırında "Sonraki" kapanır), `LibraryButton` (kitap sayfasındaki kontrol; giriş yoksa bağlantı) + `LibraryMenu` (tembel parça: bölünmüş düğme, menü, onay), `LibraryBadge` + `useLibraryStatuses` (kart rozeti, tek toplu istek), `filters.tsx` (katalog ve Kitaplığım'ın ortak `Chip`, `GRID`, `useParamUpdater`; adresten okunan süzgeçleri sunucunun sınırlarıyla temizleyen `asGenre`/`asQuery`/`asOffset`), `ui/dropdown-menu.tsx` (Radix menüsü), `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
+| `src/components/` | `BookCover` (üretilmiş kapak, başlıktan sabit renk), `EditionStrip` + `PrimaryEditionNote` (Faz 16: "Diğer baskılar" şeridi, kapak altı baskı notu), `BookCard`, `EmptyState`, `NotFound`, `ErrorBoundary` (yakalanmayan hata tek sayfayı düşürür, uygulamayı değil; F34), `common.tsx` (ErrorBox, Rating, PageTitle), `usePaged.tsx` (`usePageView`: sayfalı sorgunun sonucunu ekrana hazırlar, boş sayfada son dolu sayfaya döner; `Pager`: 10.000 sınırında "Sonraki" kapanır), `LibraryButton` (kitap sayfasındaki kontrol; giriş yoksa bağlantı) + `LibraryMenu` (tembel parça: bölünmüş düğme, menü, onay), `LibraryBadge` + `useLibraryStatuses` (kart rozeti, tek toplu istek; bir sorgu, rafa eklemek onu geçersiz kılar), `filters.tsx` (katalog ve Kitaplığım'ın ortak `Chip`, `GRID`, `useParamUpdater`; adresten okunan süzgeçleri sunucunun sınırlarıyla temizleyen `asGenre`/`asQuery`/`asOffset`), `ui/dropdown-menu.tsx` (Radix menüsü), `toast.tsx` (bildirimler), `PasswordField`, `UserMenu`, `ThemeToggle` |
 | `src/lib/` | `cn()` (sınıf birleştirme), `format.ts` (Türkçe puan, dil adı, göreli zaman, baş harf), `theme.ts` (açık/koyu tema), `chunkReload.ts` (yayından sonra eski parça yüklenemezse bir kez yeniden yükleme; `main.tsx`'teki `vite:preloadError` dinleyicisi) |
 | `public/theme-init.js` | temayı ilk boyamadan önce uygular (CSP satır içi betiğe izin vermediği için ayrı dosya) |
 | `e2e/` | Playwright senaryoları (`catalog`, `library`, `auth-flow`, `reuse`, `tabs`, `cross-origin`, `rating-comment`, `moderation`, `resilience`, `cache-headers`, `theme`) + `env.ts`, `helpers.ts` (**rate limit bütçesi tablosu**), `global-setup.ts` |

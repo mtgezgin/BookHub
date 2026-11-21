@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "../api/types";
+import { testQueryClient, withQuery } from "../test/render";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -28,14 +29,14 @@ beforeEach(() => {
   vi.mocked(api.sessionUncertain).mockReset().mockReturnValue(false);
 });
 
-function mount() {
+function mount(client = testQueryClient()) {
   const box: { current?: State } = {};
   function Probe() {
     box.current = useAuth();
     return null;
   }
   const root = createRoot(document.createElement("div"));
-  act(() => root.render(<AuthProvider><Probe /></AuthProvider>));
+  act(() => root.render(withQuery(<AuthProvider><Probe /></AuthProvider>, client)));
   cleanup.push(() => act(() => root.unmount()));
   return box;
 }
@@ -197,5 +198,49 @@ describe("useAuth", () => {
     cleanup.push(() => act(() => root.unmount()));
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toMatch(/AuthProvider/);
+  });
+});
+
+// Karar 4 (Faz 16d adım 8): oturum kapanınca kullanıcıya özel veri önbellekte kalmaz.
+describe("AuthProvider — önbellek", () => {
+  const MY_LIBRARY = ["me", 7, "library", "list", { limit: 12, offset: 0 }];
+  const ADMIN_QUEUE = ["admin", "books", "PENDING", 0];
+  function seeded() {
+    const client = testQueryClient();
+    client.setQueryData(MY_LIBRARY, { items: [], total: 0, limit: 12, offset: 0 });
+    client.setQueryData(ADMIN_QUEUE, { items: [], total: 0, limit: 20, offset: 0 });
+    return client;
+  }
+  async function signedIn(client: ReturnType<typeof testQueryClient>) {
+    vi.mocked(api.restore).mockResolvedValue(ali);
+    const box = mount(client);
+    await act(async () => {});
+    expect(box.current!.user?.id).toBe(7);
+    return box;
+  }
+
+  it("çıkış yapınca önbellek boşalır", async () => {
+    const client = seeded();
+    const box = await signedIn(client);
+    vi.mocked(api.logout).mockResolvedValue(undefined);
+    await act(async () => box.current!.logout());
+    expect(box.current!.user).toBeNull();
+    expect(client.getQueryCache().getAll()).toEqual([]);
+  });
+
+  it("oturum dışarıdan düşünce (başka sekmede çıkış, yenileme reddi) de önbellek boşalır", async () => {
+    const client = seeded();
+    const box = await signedIn(client);
+    await act(async () => h.session!(null));
+    expect(box.current!.user).toBeNull();
+    expect(client.getQueryData(MY_LIBRARY)).toBeUndefined();
+    expect(client.getQueryData(ADMIN_QUEUE)).toBeUndefined();
+  });
+
+  it("oturum yenilenince (aynı kullanıcı, yeni token) önbellek kalır", async () => {
+    const client = seeded();
+    await signedIn(client);
+    await act(async () => h.session!({ ...ali }));
+    expect(client.getQueryData(MY_LIBRARY)).toBeDefined();
   });
 });

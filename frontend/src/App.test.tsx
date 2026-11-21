@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withQuery } from "./test/render";
 import type { User } from "./api/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -38,7 +39,7 @@ function render(path: string, user: User | null, ready = true) {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
-  act(() => root.render(<MemoryRouter initialEntries={[path]}><App /></MemoryRouter>));
+  act(() => root.render(withQuery(<MemoryRouter initialEntries={[path]}><App /></MemoryRouter>)));
   cleanup.push(() => {
     act(() => root.unmount());
     el.remove();

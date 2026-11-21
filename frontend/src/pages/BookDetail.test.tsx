@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withQuery } from "../test/render";
 import type { BookDetail as BookDetailData, Comment, RatingSummary, User } from "../api/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -83,14 +84,16 @@ async function render(path = "/books/1") {
   const root = createRoot(el);
   act(() =>
     root.render(
-      <ToastProvider>
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/books/:id" element={<><BookDetail /><Nav /></>} />
-            <Route path="/login" element={<FromProbe />} />
-          </Routes>
-        </MemoryRouter>
-      </ToastProvider>,
+      withQuery(
+        <ToastProvider>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/books/:id" element={<><BookDetail /><Nav /></>} />
+              <Route path="/login" element={<FromProbe />} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>,
+      ),
     ),
   );
   cleanup.push(() => {
@@ -177,6 +180,50 @@ describe("BookDetail — başarısız yorum", () => {
   });
 });
 
+describe("BookDetail — hata kutusu", () => {
+  it("yeni bir işlem önceki işlemin hatasını temizler: başarısız puandan sonra gönderilen yorum kutuyu boşaltır", async () => {
+    stub({
+      rate: () => Promise.reject(new ApiError(429, "rate_limited", "çok fazla istek")),
+      addComment: async () => comment(99, null),
+    });
+    const { el } = await render();
+    await act(async () => button(el, "7")!.click());
+    await flush();
+    expect(alertText(el)).toBe("çok fazla istek");
+    await postComment(el, "yine de yazayım");
+    expect(alertText(el)).toBeNull();
+  });
+
+  it("yorumlar yüklenemezse hata gösterilir, kitap yine çizilir", async () => {
+    stub({ comments: () => Promise.reject(new ApiError(500, "internal", "yorumlar gelmedi")) });
+    const { el } = await render();
+    expect(el.querySelector("h1")!.textContent).toBe("Kitap 1");
+    expect(alertText(el)).toBe("yorumlar gelmedi");
+  });
+
+  it("son sayfadaki tek yorum silinince bir önceki sayfaya dönülür", async () => {
+    h.user = ADMIN;
+    let total = 11;
+    stub({
+      comments: async (_id: number, offset: number) => ({
+        items: offset === 0 ? [comment(1, null)] : total > 10 ? [comment(11, null)] : [],
+        total, limit: 10, offset,
+      }),
+      deleteComment: async () => { total = 10; },
+    });
+    const { el } = await render();
+    await act(async () => button(el, "Eskiler →")!.click());
+    await flush();
+    expect(el.textContent).toContain("yorum 11");
+    await act(async () => button(el, "sil")!.click());
+    await flush();
+    expect(calls.comments.at(-1)).toEqual([1, 0]);
+    expect(el.textContent).toContain("yorum 1");
+    expect(el.textContent).not.toContain("yorum 11");
+    expect(el.textContent).not.toContain("Henüz yorum yok");
+  });
+});
+
 describe("BookDetail — admin yorum silme", () => {
   it("\"sil\" düğmesi yalnız ADMIN'e görünür", async () => {
     const asUser = await render();
@@ -238,6 +285,25 @@ describe("BookDetail — puan verme/kaldırma", () => {
     await flush();
     expect(button(el, "kaldır")).toBeUndefined();
     expect(calls.ratingSummary.length).toBe(before + 1);
+  });
+
+  it("puan kaydedilirken yıldızlar ve 'kaldır' kilitli: hızlı ikinci tık ikinci istek göndermez (F11)", async () => {
+    let release!: () => void;
+    stub({
+      myRating: async () => ({ score: 8, created_at: "", updated_at: "" }),
+      rate: (_id: number, score: number) => new Promise((res) => { release = () => res({ score }); }),
+    });
+    const { el } = await render();
+    await act(async () => button(el, "7")!.click());
+    await flush();
+    expect(button(el, "3")!.disabled).toBe(true);
+    expect(button(el, "kaldır")!.disabled).toBe(true);
+    await act(async () => button(el, "3")!.click());
+    expect(calls.rate).toEqual([[1, 7]]);
+    await act(async () => release());
+    await flush();
+    expect(button(el, "3")!.disabled).toBe(false);
+    expect(button(el, "7")!.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("başarısız unrate gösterilir", async () => {

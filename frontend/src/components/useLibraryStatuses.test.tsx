@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibraryStatus, User } from "../api/types";
+import { testQueryClient, withQuery } from "../test/render";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -41,12 +42,13 @@ function mount(ids: number[]) {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
-  act(() => root.render(<Probe ids={ids} />));
+  const client = testQueryClient();
+  act(() => root.render(withQuery(<Probe ids={ids} />, client)));
   cleanup.push(() => {
     act(() => root.unmount());
     el.remove();
   });
-  return { el, rerender: (next: number[]) => act(() => root.render(<Probe ids={next} />)) };
+  return { el, rerender: (next: number[]) => act(() => root.render(withQuery(<Probe ids={next} />, client))) };
 }
 
 describe("useLibraryStatuses", () => {
@@ -101,6 +103,7 @@ describe("useLibraryStatuses", () => {
     await act(async () => replies[0]({ statuses: { "3": "READ" } }));
     (api as unknown as Record<string, unknown>).libraryStatuses = () => Promise.reject(new Error("db"));
     rerender([3, 5]);
+    await act(async () => {});
     await act(async () => {});
     expect(el.textContent).toBe("3:- 5:-");
   });
