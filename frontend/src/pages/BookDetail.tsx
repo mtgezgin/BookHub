@@ -30,7 +30,7 @@ const MAX_COMMENT = 2000;
  * 10 yıldızlık puan seçici. Üstüne gelince/odaklanınca önizleme; seçili olan aria-pressed.
  * Her düğmenin adı puanın kendisi (ekran okuyucuya özel metin): "7, düğme, basılı".
  */
-function StarPicker({ value, onPick, disabled }: { value: number | null; onPick: (score: number) => void; disabled: boolean }) {
+function StarPicker({ value, onPick, disabled }: Readonly<{ value: number | null; onPick: (score: number) => void; disabled: boolean }>) {
   const [preview, setPreview] = useState<number | null>(null);
   const shown = preview ?? value ?? 0;
   return (

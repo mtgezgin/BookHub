@@ -24,7 +24,7 @@ export function usePageView<T>(
   setOffset: (offset: number) => void,
 ) {
   const data = query.data;
-  const empty = data !== undefined && data.items.length === 0;
+  const empty = data?.items.length === 0;
   // Yer tutucu (önceki anahtarın verisi) boşsa geri adım atılmaz: gerçek cevabı beklemek gerek.
   const stepBackTo = empty && offset > 0 && !query.isPlaceholderData ? lastPageOffset(data.total, data.limit) : null;
   useEffect(() => {

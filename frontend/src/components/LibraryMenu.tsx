@@ -59,7 +59,7 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
   const disabled = busy || statusQuery.data === undefined;
   const menu = (
     <DropdownMenuContent align="start">
-      <DropdownMenuRadioGroup value={status ?? ""} onValueChange={(v) => void change(v as LibraryStatus)}>
+      <DropdownMenuRadioGroup value={status ?? ""} onValueChange={(v) => change(v as LibraryStatus)}>
         {LIBRARY_STATUSES.map((s) => (
           <DropdownMenuRadioItem key={s} value={s}>{libraryStatusLabel(s)}</DropdownMenuRadioItem>
         ))}
@@ -102,7 +102,7 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
         </DropdownMenu>
       ) : (
         <div role="group" aria-label="Kitaplık" className="inline-flex">
-          <Button disabled={disabled} className="rounded-r-none" onClick={() => void change("WANT_TO_READ")}>
+          <Button disabled={disabled} className="rounded-r-none" onClick={() => change("WANT_TO_READ")}>
             <Plus aria-hidden="true" />
             Okumak istiyorum
           </Button>
@@ -125,7 +125,7 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
             <DialogClose asChild>
               <Button type="button" variant="outline">Vazgeç</Button>
             </DialogClose>
-            <Button type="button" variant="destructive" disabled={busy} onClick={() => void remove()}>Çıkar</Button>
+            <Button type="button" variant="destructive" disabled={busy} onClick={() => remove()}>Çıkar</Button>
           </div>
         </DialogContent>
       </Dialog>
