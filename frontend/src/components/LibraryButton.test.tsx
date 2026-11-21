@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibraryStatus, User } from "../api/types";
+import { testQueryClient, withQuery } from "../test/render";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 // Radix menüsünün konumlandırıcısı ResizeObserver ister; jsdom'da yok.
@@ -22,6 +23,7 @@ vi.mock("../auth/AuthContext", () => ({ useAuth: () => ({ user: h.user, ready: t
 import { api, ApiError } from "../api/client";
 import { LibraryButton } from "./LibraryButton";
 import { ToastProvider } from "./toast";
+import { useLibraryStatuses } from "./useLibraryStatuses";
 
 const USER: User = { id: 7, email: "ali@example.com", display_name: "Ali", role: "USER", created_at: "" };
 const calls: Record<string, unknown[][]> = {};
@@ -34,9 +36,9 @@ function stub(impls: Record<string, (...a: any[]) => unknown>) {
   }
 }
 const entry = (status: LibraryStatus) => ({ book_id: 12, status, added_at: "", updated_at: "" });
-function statusesOf(status?: LibraryStatus) {
-  return async () => ({ statuses: status ? { "12": status } : {} });
-}
+// Sunucudaki kayıt: değişiklikten sonra menü durumu sunucudan YENİDEN okuyor (adım 7), o yüzden sahte uç
+// noktalar sabit cevap değil, yazılanı hatırlayan küçük bir sunucu gibi davranıyor.
+let shelf: Record<string, LibraryStatus> = {};
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach((f) => f()));
@@ -48,10 +50,18 @@ beforeAll(async () => {
 beforeEach(() => {
   for (const k of Object.keys(calls)) delete calls[k];
   h.user = USER;
+  shelf = {};
   stub({
-    libraryStatuses: statusesOf(),
-    setLibraryStatus: async (_id: number, s: LibraryStatus) => entry(s),
-    removeFromLibrary: async () => undefined,
+    libraryStatuses: async (ids: number[]) => ({
+      statuses: Object.fromEntries(ids.filter((id) => shelf[id]).map((id) => [String(id), shelf[id]])),
+    }),
+    setLibraryStatus: async (id: number, s: LibraryStatus) => {
+      shelf[id] = s;
+      return entry(s);
+    },
+    removeFromLibrary: async (id: number) => {
+      delete shelf[id];
+    },
   });
 });
 
@@ -67,20 +77,28 @@ function FromProbe() {
   return <p data-from={from}>login</p>;
 }
 
+// Aynı sayfada başka bir bileşen: katalog kartlarının rozet kancası (Home ve benzer kitaplar şeridi).
+function BadgeProbe() {
+  const statuses = useLibraryStatuses([12, 13]);
+  return <p data-badges>{`12:${statuses[12] ?? "-"} 13:${statuses[13] ?? "-"}`}</p>;
+}
+
 let rerender: () => void = () => {};
-async function render() {
+async function render(opts: { badges?: boolean } = {}) {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
-  const tree = () => (
+  const client = testQueryClient();
+  const tree = () => withQuery(
       <ToastProvider>
         <MemoryRouter initialEntries={["/books/12"]}>
           <Routes>
-            <Route path="/books/:id" element={<LibraryButton bookId={12} />} />
+            <Route path="/books/:id" element={<>{opts.badges && <BadgeProbe />}<LibraryButton bookId={12} /></>} />
             <Route path="/login" element={<FromProbe />} />
           </Routes>
         </MemoryRouter>
-      </ToastProvider>
+      </ToastProvider>,
+      client,
   );
   act(() => root.render(tree()));
   rerender = () => act(() => root.render(tree()));
@@ -125,7 +143,7 @@ describe("LibraryButton", () => {
   });
 
   it("menüden durum değiştirilir", async () => {
-    stub({ libraryStatuses: statusesOf("READING") });
+    shelf = { 12: "READING" };
     await render();
     expect(trigger().textContent).toContain("Şu an okuyorum");
     await openMenu();
@@ -137,7 +155,7 @@ describe("LibraryButton", () => {
   });
 
   it("çıkarmadan önce onay; vazgeçince çağrı yok, onaylayınca çıkar", async () => {
-    stub({ libraryStatuses: statusesOf("READ") });
+    shelf = { 12: "READ" };
     await render();
     await openMenu();
     await click(byText("Kitaplığımdan çıkar"));
@@ -153,7 +171,7 @@ describe("LibraryButton", () => {
   });
 
   it("token yenilenince (aynı kullanıcı, yeni nesne) durum yeniden okunmaz", async () => {
-    stub({ libraryStatuses: statusesOf("READ") });
+    shelf = { 12: "READ" };
     await render();
     h.user = { ...USER };
     rerender();
@@ -165,6 +183,8 @@ describe("LibraryButton", () => {
   it("istek sürerken menü pasif", async () => {
     let finish: (v: unknown) => void = () => {};
     stub({ setLibraryStatus: () => new Promise((r) => (finish = r)) });
+    // Sunucu yazmayı ancak cevap verirken bitirmiş olsun.
+    const done = (s: LibraryStatus) => { shelf[12] = s; finish(entry(s)); };
     await render();
     await click(byText("Okumak istiyorum"));
     expect((byText("Okumak istiyorum") as HTMLButtonElement).disabled).toBe(true);
@@ -173,9 +193,10 @@ describe("LibraryButton", () => {
     // olayı tetikliyor. Menü gerçekten AÇILMAMALI, yoksa ikinci bir PUT ilkiyle yarışır.
     await openMenu();
     expect(document.querySelector("[role=menuitemradio]")).toBeNull();
-    await act(async () => finish(entry("WANT_TO_READ")));
+    await act(async () => done("WANT_TO_READ"));
     await flush();
     expect(trigger().disabled).toBe(false);
+    expect(trigger().textContent).toContain("Kitaplığında");
   });
 
   it("ekleme başarısızsa hata bildirimi, bölünmüş düğme kalır", async () => {
@@ -188,10 +209,8 @@ describe("LibraryButton", () => {
   });
 
   it("çıkarma başarısızsa hata bildirimi, Kitaplığında düğmesi kalır", async () => {
-    stub({
-      libraryStatuses: statusesOf("READ"),
-      removeFromLibrary: async () => { throw new ApiError(500, "internal", "Çıkarılamadı"); },
-    });
+    shelf = { 12: "READ" };
+    stub({ removeFromLibrary: async () => { throw new ApiError(500, "internal", "Çıkarılamadı"); } });
     await render();
     await openMenu();
     await click(byText("Kitaplığımdan çıkar"));
@@ -220,5 +239,23 @@ describe("LibraryButton", () => {
     expect(calls.libraryStatuses).toEqual([[[12]], [[12]]]);
     expect(trigger().textContent).toContain("Okudum");
     expect(calls.setLibraryStatus).toBeUndefined();
+  });
+
+  // Adımın asıl dersi: menü ile rozet arasında hiçbir bağlantı yok, ortak noktaları yalnız sorgu anahtarı.
+  it("menüden eklenen kitabın rozeti aynı sayfadaki başka bir bileşende de güncellenir", async () => {
+    shelf = { 13: "READ" };
+    const el = await render({ badges: true });
+    expect(el.querySelector("[data-badges]")!.textContent).toBe("12:- 13:READ");
+    await click(byText("Okumak istiyorum"));
+    expect(el.querySelector("[data-badges]")!.textContent).toBe("12:WANT_TO_READ 13:READ");
+  });
+
+  it("değişiklikten sonra durum yeniden okunamazsa eklemeye değil tekrar denemeye dönülür", async () => {
+    await render();
+    stub({ libraryStatuses: async () => { throw new ApiError(500, "internal", "x"); } });
+    await click(byText("Okumak istiyorum"));
+    expect(calls.setLibraryStatus).toEqual([[12, "WANT_TO_READ"]]);
+    expect(byText("Okumak istiyorum")).toBeUndefined();
+    expect(byText("Kitaplık durumu yüklenemedi, tekrar dene")).toBeTruthy();
   });
 });

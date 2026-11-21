@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminBook, BookStatus, Page } from "../../api/types";
+import { withQuery } from "../../test/render";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -48,7 +49,7 @@ async function render() {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
-  act(() => root.render(<ToastProvider><Moderation /></ToastProvider>));
+  act(() => root.render(withQuery(<ToastProvider><Moderation /></ToastProvider>)));
   cleanup.push(() => {
     act(() => root.unmount());
     el.remove();
@@ -364,6 +365,47 @@ describe("Moderation", () => {
     await act(async () => finish());
     await flush();
     expect(button(el, "Arşivle")!.disabled).toBe(false);
+  });
+
+  it("sekme değişirken yeni liste gelene kadar önceki sekmenin satırları görünür ama işlem göremez", async () => {
+    let approved!: () => void;
+    stub({
+      adminBooks: (status: BookStatus) =>
+        status === "PENDING"
+          ? Promise.resolve(pageOf([book(1, "PENDING")]))
+          : new Promise((res) => { approved = () => res(pageOf([book(2, "APPROVED")])); }),
+    });
+    const el = await render();
+    await act(async () => button(el, "Yayında")!.click());
+    await flush();
+    // Yer tutucu: "Bekleyen"in satırı duruyor (ızgara boşalıp yanıp sönmesin), düğmeleri kilitli.
+    expect(el.querySelector(QUEUE)!.textContent).toContain("Kitap 1");
+    expect(button(el, "Onayla")!.disabled).toBe(true);
+    expect(button(el, "Reddet")!.disabled).toBe(true);
+    await act(async () => approved());
+    await flush();
+    expect(el.querySelector(QUEUE)!.textContent).toContain("Kitap 2");
+    expect(button(el, "Arşivle")!.disabled).toBe(false);
+  });
+
+  it("son sayfadaki son kitap onaylanınca bir sayfa geri gidilir", async () => {
+    let total = 21;
+    stub({
+      adminBooks: async (_s: BookStatus, offset: number) =>
+        offset === 0
+          ? { items: [book(1, "PENDING")], total, limit: 20, offset }
+          : { items: total > 20 ? [book(21, "PENDING")] : [], total, limit: 20, offset },
+      approve: async () => { total = 20; return book(21, "APPROVED"); },
+    });
+    const el = await render();
+    await act(async () => button(el, "Sonraki →")!.click());
+    await flush();
+    expect(el.querySelector(QUEUE)!.textContent).toContain("Kitap 21");
+    await act(async () => button(el, "Onayla")!.click());
+    await flush();
+    expect(calls.adminBooks.at(-1)).toEqual(["PENDING", 0]);
+    expect(el.querySelector(QUEUE)!.textContent).toContain("Kitap 1");
+    expect(el.textContent).not.toContain("Bu listede kitap yok.");
   });
 
   it("arşivlenip geri yayınlanan kitap Yayında sekmesinde yeniden arşivlenebilir", async () => {

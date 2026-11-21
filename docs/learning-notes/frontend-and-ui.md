@@ -11,6 +11,7 @@ arayüz testleri. Format: [README.md](README.md).
 4. [?? ve ??= ile ||: boş değer mi, yanlış değer mi?](#4--ve--ile--boş-değer-mi-yanlış-değer-mi)
 5. [Dış kaynaktan kapak: lisans, bağlantı ve referrerPolicy](#5-dış-kaynaktan-kapak-lisans-bağlantı-ve-referrerpolicy)
 6. [Yazarken arama (search-as-you-type): bekleme süresi neden tek başına yetmez?](#6-yazarken-arama-search-as-you-type-bekleme-süresi-neden-tek-başına-yetmez)
+7. [Sunucu verisi önbelleği (TanStack Query): anahtar, bayatlık, geçersiz kılma](#7-sunucu-verisi-önbelleği-tanstack-query-anahtar-bayatlık-geçersiz-kılma)
 
 ---
 
@@ -294,3 +295,61 @@ NGINX, hazır önek tablosu) bugünkü trafikte gereksiz; ihtiyaç ölçülünce
 - [Home.tsx](../../frontend/src/pages/Home.tsx) — bekleme, ipucu ve sıra düğmeleri
 - [database.md](database.md) #16 — önek aramasının bedeli · [backend-and-web.md](backend-and-web.md) #10 — iptalden ayrılmış sorgu
 - [#3 Erişilebilirlik ve rol tabanlı test](#3-erişilebilirlik-ve-rol-tabanlı-test-bütün-kartı-tıklanır-yapmak-dahil)
+
+---
+
+## 7. Sunucu verisi önbelleği (TanStack Query): anahtar, bayatlık, geçersiz kılma
+
+**🗓️ Bağlam:** 2026-11-19 → 21, Faz 16d. İkinci inceleme (REVIEW_FEEDBACK F33) her sayfanın veriyi kendi
+`useEffect`'iyle çektiğini, "yüklüyor / hata / geç gelen eski cevap" işini her yerde farklı yaptığını
+söylemişti. Faz 17 yeni yazma işlemleri getireceği için "bir şey değişince hangi ekran tazelenmeli"
+sorusunu her sayfada elle cevaplamak istemedim. Kodu asistan yazdı, ben her adımı commit'ten önce okudum.
+Yolda iki soru sordum: "neden önbelleğe doğrudan yazmak yerine sunucuya yeniden soruyoruz?" ve "bu 12 KB
+sınırı nereden geliyor?" (cevabı: gerekçesiz bir sayıydı, kaldırıldı).
+
+**⚡ Kısa cevap:** Sunucu verisi, arayüz durumu (açık menü, yazılan metin) değil, sunucudaki bir şeyin
+**kopyasıdır**: bayatlar, başkası değiştirir. TanStack Query bu kopyaları bir **anahtarla** saklar. Aynı
+anahtarı isteyen her bileşen aynı kaydı görür. Bir değişiklik "şu önekle başlayan kayıtlar artık eski" der;
+ekranda olanlar hemen, ötekiler açılınca yeniden çekilir.
+
+**📖 Açıklama:**
+
+| Kavram | Ne demek | BookHub'da |
+| --- | --- | --- |
+| Sorgu anahtarı | Kaydın adı, bir dizi; hiyerarşik | `["books", "list", {q, genre}]`, `["me", 7, "library", …]`; hepsi `queryKeys`'te tek yerde |
+| Eski cevap koruması | Her cevap kendi anahtarına yazılır, ekran yalnız güncel anahtarı gösterir | Eskiden bayrak ve sıra numarasıyla elle yapılıyordu |
+| `staleTime` | Veri ne kadar süre "taze" sayılır; taze veri için istek gitmez | Genel 30 sn, türler 5 dk |
+| `gcTime` | Kimse kullanmayan kayıt ne kadar bellekte kalır | Varsayılan 5 dk |
+| Yer tutucu (`placeholderData`) | Yeni anahtar gelene kadar öncekini göster | Sayfa değişirken ızgara boşalmaz; kullanıcıya özel veride yalnız aynı kullanıcınınsa |
+| Değişiklik (`useMutation`) | Sunucuya yazan istek; `isPending`, `error`, `reset` | Puan, yorum, moderasyon, rafa ekleme |
+| Geçersiz kılma (`invalidateQueries`) | Önekle eşleşen kayıtlar bayat; ekrandakiler yeniden çekilir | Rafa ekleme → `["me", kullanıcı, "library"]`: menü, rozetler, Kitaplığım |
+
+Üç ders:
+
+1. **Değişiklik neyi eskittiğini kendisi söyler, sayfa değil.** Kural kancanın içinde
+   (`useRateBook`, `useSetLibraryStatus` …). Puanın verildiği her yer aynı kuralı kendiliğinden uygular.
+   Menü ile katalog rozeti birbirini tanımıyor; ortak noktaları yalnız anahtar.
+2. **Ne zaman yaz, ne zaman yeniden sor.** Yeni değer tek bir kayıttaysa ve biliniyorsa doğrudan yaz
+   (`setQueryData`; "benim puanım"). Aynı bilgi birçok kayıtta dağınıksa (bir kitabın durumu, ekrandaki her
+   kimlik listesinde) geçersiz kıl, sunucu doğruyu söylesin: bir küçük istek, karşılığında tek kural.
+3. **Önbellek, eskiden kendiliğinden doğru olanı açıkça söylemeyi gerektirir.** Sayfa her açılışta yeniden
+   çekerken Kitaplığım'daki "Puanım" hep günceldi. Liste önbellekte durmaya başlayınca puan vermenin onu da
+   eskittiğini yazmak gerekti. Aynı nedenle çıkışta önbellek boşaltılıyor: bir sonraki kişi öncekinin
+   verisini bellekten görmesin.
+
+İki tuzak, ikisi de paketin kaynağında bulundu:
+
+- Bildirimler `setTimeout(0)` ile gelir. Testte `act` zamanlayıcıları beklemez, cevap önbelleğe gelir ama
+  ekrana gelmez. Çözüm: testte `notifyManager.setScheduler(queueMicrotask)`.
+- `isPending` bir SONRAKİ çizimde görünür. Aynı anda gelen iki tıklamayı durdurmak için düğmeyi pasif
+  yapmak yetmez; moderasyonda bir ref kaldı.
+
+**Dürüst karşılaştırma:** Küçük bir uygulamada `useEffect` + `fetch` yeterli ve bir bağımlılık daha az
+(bizde +10,8 KB gzip). Kazanç, ekranlar arası paylaşılan ve değişen veri çoğaldıkça büyür; Faz 17 tam da
+bunu getiriyor. Benzer işi SWR ve RTK Query de yapar.
+
+**🔗 İlgili:**
+- [docs/phases/phase-16d-server-state.md](../phases/phase-16d-server-state.md) — kararlar, sekiz adımın her biri, ölçümler
+- [queries.ts](../../frontend/src/api/queries.ts) — anahtarlar ve ana kancalar · [libraryQueries.ts](../../frontend/src/api/libraryQueries.ts) — "neden yeniden soruyoruz"
+- [lib/queryClient.ts](../../frontend/src/lib/queryClient.ts) — varsayılanlar ve gerekçeleri
+- [#6 Yazarken arama](#6-yazarken-arama-search-as-you-type-bekleme-süresi-neden-tek-başına-yetmez) — eski cevap sorununun ilk görüldüğü yer

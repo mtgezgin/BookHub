@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { useState } from "react";
+import { ApiError } from "../api/client";
+import { useLibraryStatus, useRemoveFromLibrary, useSetLibraryStatus } from "../api/libraryQueries";
 import type { LibraryStatus } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { LIBRARY_STATUSES, libraryStatusLabel } from "../lib/format";
@@ -18,69 +19,47 @@ import {
  * "Okumak istiyorum" olarak ekler, ok diğer durumları açar. Kitaplıktaysa tek bir menü düğmesi
  * mevcut durumu gösterir; menüde durum değiştirilir ya da kitap (onayla) çıkarılır.
  * İstek sürerken düğmeler pasif: art arda iki seçim iki isteği yarıştırıp sırayı belirsizleştirmesin.
+ *
+ * Faz 16d adım 7: durum bir sorgu, ekleme ve çıkarma birer değişiklik. Eskiden burada dört durum (status,
+ * loaded, busy, failed), bir "tekrar dene" sayacı ve bir etki vardı. Değişiklikten sonra durumu artık
+ * menü kendisi yazmıyor: değişiklik kitaplık kayıtlarını geçersiz kılıyor, menünün durumu da (katalog
+ * rozetleri ve Kitaplığım gibi) sunucudan yeniden okunuyor.
  */
 export function LibraryMenu({ bookId }: { bookId: number }) {
   const { user } = useAuth();
   const toast = useToast();
-  const [status, setStatus] = useState<LibraryStatus | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  // Kimliğe bağlı, nesneye değil: her sessiz token yenilemesi YENİ bir kullanıcı nesnesi getirir;
-  // nesneye bağlı olsaydı durum yeniden okunur ve yeniden denenen PUT'la yarışıp eskisini yazabilirdi.
+  // Kimliğe bağlı, nesneye değil: her sessiz token yenilemesi YENİ bir kullanıcı nesnesi getirir; anahtar
+  // nesneye bağlı olsaydı durum her yenilemede yeniden okunurdu.
   const userId = user?.id;
+  const statusQuery = useLibraryStatus(userId, bookId);
+  const setStatus = useSetLibraryStatus(userId);
+  const removal = useRemoveFromLibrary(userId);
+  const status = statusQuery.data ?? null;
 
-  useEffect(() => {
-    if (userId === undefined) return;
-    let current = true;
-    setLoaded(false);
-    setFailed(false);
-    setStatus(null);
-    // Okuma başarısızsa durum BİLİNMİYOR: "Okumak istiyorum" gösterilmez, çünkü PUT kayıtlı bir durumun
-    // (ör. Okudum) üstüne yazar. Onun yerine tekrar dene.
-    api.libraryStatuses([bookId]).then(
-      (r) => current && setStatus(r.statuses[String(bookId)] ?? null),
-      () => current && setFailed(true),
-    ).finally(() => current && setLoaded(true));
-    return () => {
-      current = false;
-    };
-  }, [userId, bookId, attempt]);
+  const failToast = (err: unknown) => toast(err instanceof ApiError ? err.message : "Kitaplık güncellenemedi", "error");
 
-  async function change(next: LibraryStatus) {
+  function change(next: LibraryStatus) {
     if (next === status) return;
-    setBusy(true);
-    try {
-      const e = await api.setLibraryStatus(bookId, next);
-      toast(status ? `Durum: ${libraryStatusLabel(e.status)}` : `Kitaplığına eklendi: ${libraryStatusLabel(e.status)}`);
-      setStatus(e.status);
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Kitaplık güncellenemedi", "error");
-    } finally {
-      setBusy(false);
-    }
+    // `status` tıklama anındaki durum: bildirim "eklendi" mi "durum değişti" mi, ona göre.
+    setStatus.mutate({ bookId, status: next }, {
+      onSuccess: () => toast(status ? `Durum: ${libraryStatusLabel(next)}` : `Kitaplığına eklendi: ${libraryStatusLabel(next)}`),
+      onError: failToast,
+    });
   }
 
-  async function remove() {
+  function remove() {
     setConfirming(false);
-    setBusy(true);
-    try {
-      await api.removeFromLibrary(bookId);
-      setStatus(null);
-      toast("Kitaplığından çıkarıldı");
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Kitaplık güncellenemedi", "error");
-    } finally {
-      setBusy(false);
-    }
+    removal.mutate(bookId, { onSuccess: () => toast("Kitaplığından çıkarıldı"), onError: failToast });
   }
 
-  const disabled = busy || !loaded;
+  // Pasif: değişiklik sürerken (sunucuya yazma + ardından durumun yeniden okunması) ve durum ilk kez
+  // okunurken.
+  const busy = setStatus.isPending || removal.isPending;
+  const disabled = busy || statusQuery.data === undefined;
   const menu = (
     <DropdownMenuContent align="start">
-      <DropdownMenuRadioGroup value={status ?? ""} onValueChange={(v) => void change(v as LibraryStatus)}>
+      <DropdownMenuRadioGroup value={status ?? ""} onValueChange={(v) => change(v as LibraryStatus)}>
         {LIBRARY_STATUSES.map((s) => (
           <DropdownMenuRadioItem key={s} value={s}>{libraryStatusLabel(s)}</DropdownMenuRadioItem>
         ))}
@@ -94,9 +73,12 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
     </DropdownMenuContent>
   );
 
-  if (failed) {
+  // Okuma başarısızsa durum BİLİNMİYOR: "Okumak istiyorum" gösterilmez, çünkü PUT kayıtlı bir durumun
+  // (ör. Okudum) üstüne yazar. Onun yerine tekrar dene. Daha önce okunmuş bir durum varken yeniden okuma
+  // (ör. değişiklikten sonra) başarısız olursa da: ekrandaki durum artık doğru olmayabilir.
+  if (statusQuery.isError) {
     return (
-      <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>
+      <Button variant="outline" disabled={statusQuery.isFetching} onClick={() => void statusQuery.refetch()}>
         Kitaplık durumu yüklenemedi, tekrar dene
       </Button>
     );
@@ -120,7 +102,7 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
         </DropdownMenu>
       ) : (
         <div role="group" aria-label="Kitaplık" className="inline-flex">
-          <Button disabled={disabled} className="rounded-r-none" onClick={() => void change("WANT_TO_READ")}>
+          <Button disabled={disabled} className="rounded-r-none" onClick={() => change("WANT_TO_READ")}>
             <Plus aria-hidden="true" />
             Okumak istiyorum
           </Button>
@@ -143,7 +125,7 @@ export function LibraryMenu({ bookId }: { bookId: number }) {
             <DialogClose asChild>
               <Button type="button" variant="outline">Vazgeç</Button>
             </DialogClose>
-            <Button type="button" variant="destructive" disabled={busy} onClick={() => void remove()}>Çıkar</Button>
+            <Button type="button" variant="destructive" disabled={busy} onClick={() => remove()}>Çıkar</Button>
           </div>
         </DialogContent>
       </Dialog>

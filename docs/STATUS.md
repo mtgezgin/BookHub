@@ -3,8 +3,9 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-11-19):** Faz 1–16c canlıda · repo public (MIT) · **Şimdi: Faz 16d — arayüz
-veri katmanı (TanStack Query)**, ardından Faz 17 ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-11-21):** Faz 1–16c canlıda · repo public (MIT) · **Şimdi: Faz 16d — arayüz
+veri katmanı (TanStack Query)**, kod bitti, birleşme ve yayın doğrulaması sırada; ardından Faz 17
+([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React, CI/CD, NGINX, Kubernetes) + oturum
 sertleştirme (Faz 13) + ürün fazları 14–16c.
 
@@ -39,10 +40,11 @@ sertleştirme (Faz 13) + ürün fazları 14–16c.
 - **Kubernetes öğrenimi ertelendi (kullanıcı kararı, 2026-11-09):** önce özellikler. `make k8s-up`'ın
   Windows düzeltmesi hazır ([#67](https://github.com/mtgezgin/BookHub/issues/67)).
 
-> **Faz 16d — arayüz veri katmanı (sürüyor, 2026-11-19):** sunucu verisi sayfaların `useEffect`'lerinden
-> TanStack Query'ye taşınıyor (REVIEW_FEEDBACK F33). Kullanıcı her adımı commit'ten önce editörde okuyor.
-> Adım 1–4 (kurulum; türler, katalog, şerit) dal `feat/105-tanstack-query`'de; sırada kitap sayfası ve ilk
-> değişiklik (puan) · [#105](https://github.com/mtgezgin/BookHub/issues/105).
+> **Faz 16d — arayüz veri katmanı (kod bitti, 2026-11-21):** sunucu verisi sayfaların `useEffect`'lerinden
+> TanStack Query'ye taşındı (REVIEW_FEEDBACK F33); kullanıcı her adımı commit'ten önce okudu. Sorgu
+> anahtarları tek yerde, değişiklikler neyin eskidiğini kendisi söylüyor, çıkışta önbellek boşalıyor.
+> vitest 385 → 407; ana paket +10,8 KB gzip. Birleşme ve yayından sonra doğrulama sırada ·
+> [phase-16d](phases/phase-16d-server-state.md) · [#105](https://github.com/mtgezgin/BookHub/issues/105).
 
 > **Faz 16c — katalog sorguları (canlıda 2026-11-19):** tür süzgeci kimlikle ayrı sorguda, "önce kimlik sonra
 > görünüm", tür başına sayım ve genel ortalama süreç içinde 60 sn, bağlantılarda `plan_cache_mode =
@@ -106,7 +108,7 @@ sertleştirme (Faz 13) + ürün fazları 14–16c.
 | 16 | Eser ve baskı (`editions`, "Diğer baskılar" şeridi; migration 0011–0013, genişlet → daralt) | ✅ (canlı 2026-11-15) |
 | 16b | Türkçe duyarlı arama ve yazarken arama (migration 0014) | ✅ (canlı 2026-11-18) |
 | 16c | Katalog sorguları: tür süzgeci, sayım, derin sayfa (500 bin kitapta ölçüldü) | ✅ (canlı 2026-11-19) |
-| 16d | Arayüz veri katmanı: TanStack Query | 🚧 adım 1–4 / 8 |
+| 16d | Arayüz veri katmanı: TanStack Query | 🔍 kod bitti (8/8); yayından sonra doğrulanacak |
 
 ## Faz 2'de ne oldu (özet)
 
@@ -204,9 +206,8 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 
 Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 
-1. **Şimdi — Faz 16d** ([#105](https://github.com/mtgezgin/BookHub/issues/105)): adım 5 kitap sayfası ve
-   puan (ilk `useMutation`), adım 6 yorumlar ve moderasyon (`usePaged`'in yerine), adım 7 kitaplık, adım 8
-   çıkışta önbellek temizliği ve son ölçüm.
+1. **Şimdi — Faz 16d** ([#105](https://github.com/mtgezgin/BookHub/issues/105)): kod bitti (adım 1–8);
+   PR'ın birleşmesi, yayın ve canlıda doğrulama, ardından faz kapanışı.
 2. **Sonra — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02;
    [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylı).
    Migration'ları `0016`–`0018`.
