@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { api, subscribeSession } from "../api/client";
 import type { User } from "../api/types";
@@ -25,6 +26,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [uncertain, setUncertain] = useState(false);
+  // Karar 4 (Faz 16d adım 8): oturum kapanınca sunucu verisinin önbelleği TAMAMEN boşaltılır. Aynı
+  // tarayıcıda sonraki kişi öncekinin kitaplığını, puanlarını ya da (admin idiyse) moderasyon kuyruğunu
+  // önbellekten görmesin. Anahtarlarda kullanıcı kimliği olduğu için ekranda zaten görünmezdi; ama veri
+  // bellekte durur, geliştirici aracında okunur ve yalnız "me" altına yazılmayı unutulan bir sonraki
+  // anahtar onu ekrana taşır. Yalnız "me"yi silmek yerine hepsi: kural basit kalsın, ileride eklenen
+  // kullanıcıya özel bir anahtar da kendiliğinden kapsansın.
+  // Bedeli: çıkış anında açık sayfanın herkese açık verisi de (katalog, kitap) yeniden çekilir.
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     let cancelled = false;
@@ -41,10 +50,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // İstemci oturumu düşürürse (yenileme reddedildi) ya da başka bir istek oturumu yenilerse
     // arayüz de hemen bilsin. Kullanıcı geldiyse belirsizlik bitmiştir.
+    // Oturumun kapandığı HER yol buradan geçer: çıkış düğmesi (api.logout → clearSession), başka sekmede
+    // çıkış ("storage" olayı), yenilemenin reddi. Önbellek bu yüzden burada temizlenir. Oturum yenilemesi
+    // (aynı kullanıcı, yeni token) da buraya gelir ama u dolu olduğu için önbelleğe dokunmaz.
     subscribeSession((u) => {
       if (cancelled) return;
       if (u) settle(u);
-      else setUser(null);
+      else {
+        queryClient.clear();
+        setUser(null);
+      }
     });
 
     // async + try/catch: zincirin her adımındaki hata burada biter (yakalanmamış bir ret kalmaz).
@@ -78,7 +93,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
       window.removeEventListener("online", onOnline);
     };
-  }, []);
+    // queryClient uygulamada tek ve hiç değişmez (main.tsx); bağımlılık listesinde yalnız kural gereği.
+  }, [queryClient]);
 
   const value: AuthState = {
     user,
@@ -93,6 +109,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     logout: async () => {
       await api.logout();
+      // api.logout oturumu düşürürken yukarıdaki abonelik önbelleği zaten temizledi; burada yeniden
+      // yazmak, istemcinin o bildirimi bir gün atlaması durumunda da çıkışı güvenli tutar.
+      queryClient.clear();
       setUser(null);
     },
   };

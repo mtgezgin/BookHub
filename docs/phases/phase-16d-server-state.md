@@ -1,6 +1,6 @@
 # Faz 16d — Sunucu verisi TanStack Query ile
 
-> Durum: 🚧 adım 1–7 tamam (kullanıcı okudu, 2026-11-21); sıradaki adım 8 · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
+> Durum: 🔍 adım 1–8 tamam (kullanıcı okudu, 2026-11-21); birleşme ve yayından sonra doğrulama sırada · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
 > [ROADMAP](../ROADMAP.md) · Bulgu: [REVIEW_FEEDBACK](../REVIEW_FEEDBACK.md) F33 ·
 > İlgili: [client.ts](../../frontend/src/api/client.ts), [usePaged.tsx](../../frontend/src/components/usePaged.tsx),
 > [Home.tsx](../../frontend/src/pages/Home.tsx), [BookDetail.tsx](../../frontend/src/pages/BookDetail.tsx)
@@ -389,13 +389,55 @@ Her adım: **amaç**, **neden**, **sonuç** (yazıldıkça doldurulur), **bakıl
 
 - **Amaç:** çıkışta önbelleği temizlemek (karar 4), kullanılmayan kodu silmek, paket boyutunu ve test
   sayısını son kez ölçmek, öğrenme notunu yazmak (`/not`).
+- **Ne yapıldı (2026-11-21):**
+  - `AuthContext.tsx`: oturum kapanınca `queryClient.clear()`.
+  - Dokümanlar: PROJECT_MAP'in arayüz satırları (yeni `api/*Queries.ts` ve `lib/queryClient.ts` satırları,
+    `usePaged` → `usePageView`), phases/README'deki 16d bağlantısı göreli, STATUS ve ROADMAP'te durum.
+  - Öğrenme notu: [frontend-and-ui.md #7](../learning-notes/frontend-and-ui.md).
+- **Önbellek NEREDE temizleniyor:** oturumun kapandığı her yol (çıkış düğmesi, başka sekmede çıkış,
+  yenilemenin reddi) `client.ts`'te aynı bildirimden (`onSessionChange(null)`) geçiyor. Temizlik
+  `AuthContext`'in bu bildirime aboneliğinde; `logout` da ayrıca temizliyor (istemci bildirimi bir gün
+  atlarsa diye). Oturum yenilemesi de aynı bildirimden geçer ama kullanıcıyla geldiği için önbelleğe
+  dokunmaz; bunun da testi var.
+- **Neden hepsi, yalnız "me" değil (karar 4'ün kendisi):** ileride `["me", …]` dışına yazılan kullanıcıya
+  özel bir anahtar da (moderasyon kuyruğu zaten `["admin", …]`) kendiliğinden kapsansın.
+- **Deneyle görülen bedel:** `clear()` ekrandaki sorguları da siler. Bileşen yeniden çizilince sorgusunu
+  baştan kurar ve veriyi yeniden çeker (önce `pending`, iskelet). Çıkış anında açık sayfanın herkese açık
+  verisi (katalog, kitap) bu yüzden bir kez yeniden yüklenir. Çıkış seyrek; kural basitliği buna değer.
+  Bedel ağırlaşırsa seçenek: `removeQueries({ queryKey: ["me"] })` ve `["admin"]`.
+- **Kullanılmayan kod:** `frontend/src` altında dışa aktarılıp başka hiçbir üretim dosyasında kullanılmayan
+  tanımlar tarandı. Çıkanların hepsi testler için dışa aktarılıyor ya da dosya içinde kullanılıyor
+  (`shouldRetry`, `RESTORE_RETRY_DELAYS_MS`, `__resetForTests` …); fazdan kalan ölü kod yok. Kullanılmayan
+  yerel değişkeni ve parametreyi zaten `tsc` yakalıyor (`noUnusedLocals`, `noUnusedParameters`).
+- **Bilerek bırakılan:** Hesabım (parola değiştirme), kayıt ve öneri formları `api.*`'yi doğrudan
+  çağırıyor. Bunlar etki değil, form gönderimi; başka bir ekranın verisini eskitmiyorlar. `useMutation`'a
+  çevirmek bir şey kazandırmaz; kabul kriteri 1'in de dışındalar.
+- **Sonuç (fazın tamamı):**
+  - vitest 385 → **407**, `tsc -b` temiz, Playwright 20/20 (yerelde).
+  - Ana paket (Vite'ın gzip rakamı): **110,7 → 121,5 KB (+10,8 KB)**. Adım adım: 1 +7,4 · 2–4 +2,6 · 5 +0,6
+    · 6 +1,3 · 7 −1,1 · 8 ±0. Adım 1'deki +7,4 kütüphanenin çekirdeği (kurulum kodumuz birkaç satır);
+    sonraki adımlar kütüphanenin yeni kullanılan parçaları (ör. `useMutation`) ve kancalarımız. Adım 7'deki
+    düşüş, adım 6'da ayrılan ikinci dosyanın (`toast-….js`) kalkması; nedenini incelemedim. Beklenmedik
+    büyüme yok: geliştirici aracı üretim paketinde değil; moderasyon ve kitaplık değişikliklerinin kodu
+    ana pakette değil, derleme çıktısında `Moderation-….js` ve `libraryQueries-….js` parçalarında (ana
+    pakette yalnız anahtarlar ve kancaların ortak kısmı).
+  - Yeni testler: oturum kapanınca önbellek (3: çıkış, dışarıdan düşme, yenilemede KALIR). Temizlik
+    satırları geçici olarak silinince ilgili test kırıldı.
+- **Bakılacak yerler:**
+  1. `frontend/src/auth/AuthContext.tsx`: üstteki karar 4 yorumu, abonelikteki `queryClient.clear()`, `logout`.
+  2. `frontend/src/auth/AuthContext.test.tsx`: en alttaki "önbellek" testleri.
+  3. `docs/learning-notes/frontend-and-ui.md` #7.
+  4. PROJECT_MAP, STATUS, ROADMAP, phases/README'deki 16d satırları.
+- **Kendin dene:** `make dev`, giriş yap, Kitaplığım'ı ve bir kitabı aç. DevTools'ta `["me",…]` kayıtları
+  görünür. Çıkış yap: önbellek boşalır, açık sayfanın herkese açık verisi bir kez yeniden çekilir.
 
 ## ✅ Kabul kriterleri
 
-- Sayfalarda veri çeken `useEffect` kalmaz (`AuthContext` ve tema hariç).
-- Mevcut vitest ve Playwright testleri geçer; eski cevap yarışı için bir test vardır.
-- Çıkış yapınca kullanıcıya özel veri önbellekte kalmaz (test).
-- Ana paket artışı ölçülür ve PR'da adım adım yazılır. Kabul koşulu: artışın kaynağı açıklanabilir olmalı
+- ✅ Sayfalarda veri çeken `useEffect` kalmaz (`AuthContext` ve tema hariç). Adım 7'de doğrulandı.
+- ✅ Mevcut vitest ve Playwright testleri geçer; eski cevap yarışı için bir test vardır
+  (`usePaged.test.tsx`, "geç gelen ESKİ sayfa cevabı yenisinin üzerine yazmaz"; katalog için Home testleri).
+- ✅ Çıkış yapınca kullanıcıya özel veri önbellekte kalmaz (test: `AuthContext.test.tsx`, "önbellek").
+- ✅ Ana paket artışı ölçülür ve PR'da adım adım yazılır. Kabul koşulu: artışın kaynağı açıklanabilir olmalı
   (kütüphanenin kendisi ve bizim kancalarımız); beklenmedik bir büyüme (ör. geliştirici aracının üretim
   paketine girmesi, admin kodunun ana pakete kayması) varsa düzeltilir.
   - Bu kriter önce "12 KB gzip'i geçmez" idi. O sayı gerekçesizdi (bkz. adım 6'daki "Sonradan" notu);
