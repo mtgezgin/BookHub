@@ -17,12 +17,12 @@ Gerçek kullanıcıya açılma kararı verilirse Faz 18 (katkı ve hesap) ile ca
 
 ## Neredeyiz
 
-- **Platform hazır:** Faz 1–16c bitti — API, veritabanı, auth, moderasyon, puan, önbellek, Docker,
+- **Platform hazır:** Faz 1–16d bitti — API, veritabanı, auth, moderasyon, puan, önbellek, Docker,
   React, CI/CD, NGINX, Kubernetes, oturum sertleştirme, arayüz, kişisel kitaplık, eser ve baskı, Türkçe
-  arama, büyük katalog için sorgular ([STATUS](STATUS.md)).
+  arama, büyük katalog için sorgular, arayüz veri katmanı ([STATUS](STATUS.md)).
 - **Faz 17'den önce (kullanıcı kararı, 2026-11-17/18):** ikinci incelemenin düzeltmeleri. Partiler
-  A, B, index'ler, arayüz sağlamlığı ve yayın güveni canlıda (#90–#95); sürenler: arayüz veri katmanı
-  (Faz 16d, [#105](https://github.com/mtgezgin/BookHub/issues/105)) ve yedek
+  A, B, index'ler, arayüz sağlamlığı ve yayın güveni canlıda (#90–#95); arayüz veri katmanı Faz 16d
+  olarak canlıda ([#105](https://github.com/mtgezgin/BookHub/issues/105), 2026-11-22); süren: yedek
   ([#100](https://github.com/mtgezgin/BookHub/issues/100)).
 - **Ürün döngüsünün ilk adımı canlıda (2026-10-25):** Faz 15 ile "kitaplığına ekle" tamam — LIB-01 ve
   LIB-02, SOC-02'nin varsayılan gizlilik yarısı. 17 Ekim'deki durum: 34 maddenin 7'si kısmen vardı, 27'si
@@ -39,7 +39,7 @@ Gerçek kullanıcıya açılma kararı verilirse Faz 18 (katkı ve hesap) ile ca
 | ✅ | 16 — Eser ve baskı | CAT-02 ([#36](https://github.com/mtgezgin/BookHub/issues/36)) | Okuma kaydının sayfa toplamı baskıdan gelecek (READ-01'in bağımlılığı). | [canlıda](phases/phase-16-works-editions.md) (2026-11-15; PR [#73](https://github.com/mtgezgin/BookHub/pull/73), [#74](https://github.com/mtgezgin/BookHub/pull/74)) |
 | ✅ | 16b — Arama | [DISC-01](FEATURE_REQUESTS.md)'in arama yarısı: Türkçe duyarlı, index'li arama; yazarken arama kuralları | Canlıda arama Türkçe başlıkları bulamıyordu ("ince memed" sıfır sonuç) ve yazarken arama istek sayısını artırıyordu. | [canlıda](phases/phase-16b-search.md) (2026-11-18; [#82](https://github.com/mtgezgin/BookHub/issues/82), PR [#89](https://github.com/mtgezgin/BookHub/pull/89)) |
 | ✅ | 16c — Katalog sorguları | REVIEW_FEEDBACK F24–F26: tür süzgeci, sayım, derin sayfa | "Yüksek trafik ve çok kayıt varmış gibi" (kullanıcı kararı, 2026-11-18); 500 bin kitapta ölçüldü. | [canlıda](phases/phase-16c-catalog-queries.md) (2026-11-19; [#98](https://github.com/mtgezgin/BookHub/issues/98), PR [#102](https://github.com/mtgezgin/BookHub/pull/102)) |
-| **Şimdi** | 16d — Arayüz veri katmanı | REVIEW_FEEDBACK F33: sunucu verisi TanStack Query ile | Faz 17 yeni yazma işlemleri getiriyor; yazmadan sonra hangi verinin tazeleneceği bugün her sayfada elle. Kullanıcı her adımı okuyarak ilerliyor. | [#105](https://github.com/mtgezgin/BookHub/issues/105), dal `feat/105-tanstack-query` (adım 1–8 bitti; birleşme ve yayın doğrulaması sırada) |
+| ✅ | 16d — Arayüz veri katmanı | REVIEW_FEEDBACK F33: sunucu verisi TanStack Query ile | Faz 17 yeni yazma işlemleri getiriyor; yazmadan sonra hangi verinin tazeleneceği her sayfada elleydi. Kullanıcı her adımı okuyarak ilerledi. | [canlıda](phases/phase-16d-server-state.md) (2026-11-22; [#105](https://github.com/mtgezgin/BookHub/issues/105), PR [#112](https://github.com/mtgezgin/BookHub/pull/112)) |
 | Sonra | 17 — Okuma takibi ve inceleme | Paket B: READ-01, READ-02, REV-01, REV-02 | Döngüyü kapatır. İnceleme geniş kullanıma açılmadan MOD-04 gerekir; demo hedefinde Faz 18'e kalır. | [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylandı |
 | Daha sonra | 18 — Katkı döngüsü ve hesap | Paket C: MOD-01, MOD-02, ACC-01–03, DATA-02; kullanıcının baskı önermesi ([#79](https://github.com/mtgezgin/BookHub/issues/79)) | Gerçek kullanıcının kapısı; bir e-posta sağlayıcısı gerektirir. | — |
 | Daha sonra | — | Paket D (keşif: DISC-01–03, STATS-01, READ-03, REV-03) · Paket E (sosyal) | Veri ve kullanım oluştukça. | — |

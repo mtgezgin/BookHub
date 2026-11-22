@@ -5,9 +5,9 @@
 > **[STATUS.md](STATUS.md)** ise "NEREDEYİZ" sorusunun cevabı. İkisi kardeş: harita + imleç.
 > "Hangi sırayla?" sorusunun cevabı: **[ROADMAP.md](ROADMAP.md)**.
 >
-> Son güncelleme: 2026-11-21 — Faz 1–16c canlıda: arama (16b, migration `0014`), katalog sorguları (16c),
-> ikinci incelemenin düzeltmeleri (index'ler `0015`, süre bütçeleri, istek ölçümü, hata sınırı),
-> OpenTelemetry. Faz 16d (TanStack Query) bu haritada; yayından sonra doğrulanacak.
+> Son güncelleme: 2026-11-22 — Faz 1–16d canlıda: arama (16b, migration `0014`), katalog sorguları (16c),
+> arayüz veri katmanı (16d, TanStack Query), ikinci incelemenin düzeltmeleri (index'ler `0015`, süre
+> bütçeleri, istek ölçümü, hata sınırı), OpenTelemetry.
 
 ---
 
@@ -20,7 +20,7 @@ gerçek bir problem doğunca eklendi; kodun içi Türkçe "neden böyle" yorumla
 - **Yığın:** Go (chi, pgx, sqlc, goose, slog, OpenTelemetry) · PostgreSQL · Redis · React + Vite · NGINX ·
   Docker · Kubernetes · GitHub Actions · Playwright · yerelde Grafana + Prometheus. **ORM yok.**
 - **Kapsam:** MVP (Faz 1–7) + altyapı rayı (Faz 8–12) + oturum sertleştirme (Faz 13) + ürün fazları
-  14–16c tamam. Canlıda (2026-10-04'ten beri): Northflank + Supabase + Upstash — [DEPLOYMENT.md](DEPLOYMENT.md).
+  14–16d tamam. Canlıda (2026-10-04'ten beri): Northflank + Supabase + Upstash — [DEPLOYMENT.md](DEPLOYMENT.md).
 - **Boyut (2026-11-19, `wc -l`):** ~8,7k satır Go (üretilmiş `internal/db` hariç; + ~13,7k satır test,
   303 test fonksiyonu), ~3,4k satır TypeScript (+ ~4,8k vitest, ~1,1k Playwright), 15 migration, ~90
   öğrenme notu.

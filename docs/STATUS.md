@@ -3,11 +3,10 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-11-21):** Faz 1–16c canlıda · repo public (MIT) · **Şimdi: Faz 16d — arayüz
-veri katmanı (TanStack Query)**, kod bitti, birleşme ve yayın doğrulaması sırada; ardından Faz 17
-([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-11-22):** Faz 1–16d canlıda · repo public (MIT) · **Şimdi: açık işlerin
+kullanıcıyla gözden geçirilmesi**, ardından Faz 17 ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React, CI/CD, NGINX, Kubernetes) + oturum
-sertleştirme (Faz 13) + ürün fazları 14–16c.
+sertleştirme (Faz 13) + ürün fazları 14–16d.
 
 - **Canlıda (2026-10-04'ten beri):** Northflank (`web` public, `api` private) + Supabase (Frankfurt) +
   Upstash — https://p01--web--4x2qb6s8vg5j.code.run · [DEPLOYMENT.md](DEPLOYMENT.md).
@@ -22,7 +21,8 @@ sertleştirme (Faz 13) + ürün fazları 14–16c.
 - **İkinci inceleme (2026-11-17):** [REVIEW_FEEDBACK](REVIEW_FEEDBACK.md) F20–F40. Düzeltmeler Faz 17'den
   önce partiler hâlinde (kullanıcı kararı): A, B, index'ler, arayüz sağlamlığı, yayın güveni canlıda
   (PR #90–#95, 2026-11-18); katalog sorguları Faz 16c olarak canlıda (PR #102, 2026-11-19); kapak
-  önerisi (PR #104) ve CI iyileştirmeleri (PR #109) canlıda.
+  önerisi (PR #104) ve CI iyileştirmeleri (PR #109) canlıda; arayüz veri katmanı Faz 16d olarak canlıda
+  (PR #112, 2026-11-22).
 - **Canlı izleme:** günlük erişilebilirlik (`uptime.yml`, #63), haftalık imaj taraması (`scan.yml`, #48),
   her PR'da bağımlılık incelemesi. Web imajında **süreli Trivy istisnası** var (nginx 1.30.6, 2026-12-19'a
   kadar; [#106](https://github.com/mtgezgin/BookHub/issues/106)). Northflank sağlık kontrolleri ve hata
@@ -40,10 +40,10 @@ sertleştirme (Faz 13) + ürün fazları 14–16c.
 - **Kubernetes öğrenimi ertelendi (kullanıcı kararı, 2026-11-09):** önce özellikler. `make k8s-up`'ın
   Windows düzeltmesi hazır ([#67](https://github.com/mtgezgin/BookHub/issues/67)).
 
-> **Faz 16d — arayüz veri katmanı (kod bitti, 2026-11-21):** sunucu verisi sayfaların `useEffect`'lerinden
+> **Faz 16d — arayüz veri katmanı (canlıda 2026-11-22):** sunucu verisi sayfaların `useEffect`'lerinden
 > TanStack Query'ye taşındı (REVIEW_FEEDBACK F33); kullanıcı her adımı commit'ten önce okudu. Sorgu
 > anahtarları tek yerde, değişiklikler neyin eskidiğini kendisi söylüyor, çıkışta önbellek boşalıyor.
-> vitest 385 → 407; ana paket +10,8 KB gzip. Birleşme ve yayından sonra doğrulama sırada ·
+> vitest 385 → 407; ana paket +10,8 KB gzip. Canlıda tarayıcıyla doğrulandı (PR #112) ·
 > [phase-16d](phases/phase-16d-server-state.md) · [#105](https://github.com/mtgezgin/BookHub/issues/105).
 
 > **Faz 16c — katalog sorguları (canlıda 2026-11-19):** tür süzgeci kimlikle ayrı sorguda, "önce kimlik sonra
@@ -108,7 +108,7 @@ sertleştirme (Faz 13) + ürün fazları 14–16c.
 | 16 | Eser ve baskı (`editions`, "Diğer baskılar" şeridi; migration 0011–0013, genişlet → daralt) | ✅ (canlı 2026-11-15) |
 | 16b | Türkçe duyarlı arama ve yazarken arama (migration 0014) | ✅ (canlı 2026-11-18) |
 | 16c | Katalog sorguları: tür süzgeci, sayım, derin sayfa (500 bin kitapta ölçüldü) | ✅ (canlı 2026-11-19) |
-| 16d | Arayüz veri katmanı: TanStack Query | 🔍 kod bitti (8/8); yayından sonra doğrulanacak |
+| 16d | Arayüz veri katmanı: TanStack Query | ✅ (canlı 2026-11-22) |
 
 ## Faz 2'de ne oldu (özet)
 
@@ -206,8 +206,8 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 
 Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 
-1. **Şimdi — Faz 16d** ([#105](https://github.com/mtgezgin/BookHub/issues/105)): kod bitti (adım 1–8);
-   PR'ın birleşmesi, yayın ve canlıda doğrulama, ardından faz kapanışı.
+1. **Şimdi — açık işlerin gözden geçirilmesi** (kullanıcıyla): yedek (#100, #101), #103'ün canlı
+   doğrulaması, #84, Trivy istisnası (#106), CI öğrenme adımları; Faz 17'ye geçiş bu konuşmadan sonra.
 2. **Sonra — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02;
    [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylı).
    Migration'ları `0016`–`0018`.
