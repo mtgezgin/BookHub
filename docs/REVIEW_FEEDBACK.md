@@ -59,7 +59,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [x] | F30 | Orta | Geçersiz bayt içeren metin 500 üretiyor |
 | [x] | F31 | Orta | `create-admin` var olan hesabı parolasına dokunmadan admin yapıyor |
 | [x] | F32 | Orta | Bir isteğin süresinin nereye gittiği görünmüyor |
-| [ ] | F33 | Orta | Sunucu verisi her sayfada elle çekiliyor — *Faz 16d sürüyor (#105)* |
+| [x] | F33 | Orta | Sunucu verisi her sayfada elle çekiliyor |
 | [x] | F34 | Orta | Hata sınırı yok; NGINX'in ürettiği hatalar boş mesajla görünüyor |
 | [x] | F35 | Orta | Bulunamayan `/assets/` dosyası bir yıl önbelleklenebilir |
 | [x] | F36 | Orta | Açılıştaki geçici hata "çıkış yapılmış" gibi görünüyor |
@@ -661,6 +661,8 @@ Test dışı kodda 25 `useEffect` var; 11'i veri çekiyor ve ortak bir kurallar�
 **Öneri:** Tek bir sorgu katmanı: TanStack Query ya da aynı kuralları uygulayan tek bir ortak kanca. Sayfa sayfa geçilebilir; [client.ts](../frontend/src/api/client.ts) altında değişmeden kalır. Bu bir mimari yargıdır; effect sayıları sayıldı, kazanç ölçülmedi.
 
 **Kabul kriteri:** Veri çeken her sayfa aynı katmandan geçer; eski cevap, hata ve yeniden yükleme davranışı tek yerde tanımlı ve testli.
+
+**Durum (22 Kasım 2026, [Faz 16d](phases/phase-16d-server-state.md), #105, PR #112, canlıda 2026-11-22):** Sunucu verisi TanStack Query'ye taşındı. Sayfalarda veri çeken `useEffect` kalmadı (`AuthContext` hariç); sorgu anahtarları ve varsayılanlar tek yerde (`api/queries.ts`, `lib/queryClient.ts`), her değişiklik neyi eskittiğini kendisi söylüyor, çıkışta önbellek boşalıyor. Eski cevap yarışı için testler `usePaged.test.tsx` ve `Home.test.tsx`'te. Ana paket +10,8 KB gzip; adım adım ölçüm spec'te.
 
 ## F34 — Hata sınırı yok; NGINX'in ürettiği hatalar boş mesajla görünüyor
 

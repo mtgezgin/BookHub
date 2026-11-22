@@ -1,6 +1,6 @@
 # Faz 16d — Sunucu verisi TanStack Query ile
 
-> Durum: 🔍 adım 1–8 tamam (kullanıcı okudu, 2026-11-21); birleşme ve yayından sonra doğrulama sırada · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
+> Durum: ✅ canlıda (PR [#112](https://github.com/mtgezgin/BookHub/pull/112), 2026-11-22; canlı doğrulama #105'te) · Issue: [#105](https://github.com/mtgezgin/BookHub/issues/105) —
 > [ROADMAP](../ROADMAP.md) · Bulgu: [REVIEW_FEEDBACK](../REVIEW_FEEDBACK.md) F33 ·
 > İlgili: [client.ts](../../frontend/src/api/client.ts), [usePaged.tsx](../../frontend/src/components/usePaged.tsx),
 > [Home.tsx](../../frontend/src/pages/Home.tsx), [BookDetail.tsx](../../frontend/src/pages/BookDetail.tsx)
@@ -443,6 +443,33 @@ Her adım: **amaç**, **neden**, **sonuç** (yazıldıkça doldurulur), **bakıl
   - Bu kriter önce "12 KB gzip'i geçmez" idi. O sayı gerekçesizdi (bkz. adım 6'daki "Sonradan" notu);
     kullanıcıyla konuşulup 2026-11-21'de bu hâle getirildi. Gerçek bir boyut bütçesi (ör. ilk yüklenen
     toplam JS için bir üst sınır ve CI denetimi) istenirse kendi gerekçesiyle ayrı bir iş olarak açılır.
+
+## 🌐 Yayın ve canlı doğrulama (2026-11-22)
+
+- **Birleşme:** PR [#112](https://github.com/mtgezgin/BookHub/pull/112) (`717f92e`). İlk CI koşusunda
+  SonarCloud kalite kapısı yeni koddaki tekrar oranından kırıldı (%4,9; sınır %3): adım 6 ve 7'de iki test
+  dosyasına aynı `mountHook` yardımcısı kopyalanmıştı. Yardımcı `test/render.tsx`'e alındı, oran %0,2.
+  Sonar'ın beş küçük bulgusu da birleşmeden önce düzeltildi; en anlamlısı, adım 7'de `change()` ve
+  `remove()` artık söz döndürmediği hâlde önlerinde kalan `void`.
+- **Canlıda tarayıcıyla** (kullanıcı hesabı, Ağ sekmesi izlenerek):
+
+  | Bakılan | Sonuç |
+  |---|---|
+  | Katalog → kitap → geri (30 sn içinde) | ✅ katalog önbellekten, hiç `/api/` isteği gitmedi |
+  | Arama ve sayfalama | ✅ ızgara arada boşalmadı |
+  | Puan | ✅ `PUT …/rating`, ardından yalnız özet yeniden çekildi |
+  | Rafa ekleme, durum değiştirme → katalog rozeti | ✅ her değişiklikten sonra durumlar yeniden okundu, rozet güncel |
+  | Kitaplığım, filtre; kitaplıktan çıkarma → rozet | ✅ |
+  | Çıkış | ✅ Kitaplığım giriş sayfasına düştü, kişisel veri görünmedi |
+  | Moderasyon listesi (yalnız bakıldı) | ✅ |
+
+  Konsolda hata yok. Test verisi (puan, kitaplık kaydı) sonunda geri alındı.
+- **Doğrulanamayan:** çıkışta önbelleğin boşaldığı arayüzden ayırt edilemiyor (çıkıştan sonra yönlendirme
+  ve kullanıcı kimliğiyle anahtarlanmış kayıtlar o veriyi zaten göstermiyor). Kanıt
+  `AuthContext.test.tsx`'teki "önbellek" testleri.
+- **Ayrı iş adayı (bu fazın dışında):** `GET /api/books/{id}/rating` puan yokken 404 dönüyor. Arayüz bunu
+  "henüz puan yok" sayıyor, ama Ağ sekmesinde hata gibi görünüyor. Arka ucun eski davranışı; 204 ya da
+  `null` gövde düşünülebilir.
 
 ## 🚫 Kapsam dışı
 
