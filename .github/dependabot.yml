@@ -6,6 +6,12 @@
 # bu dosya. Aynı mantık Go modülleri, npm paketleri ve GitHub Actions için de geçerli.
 #
 # Her PR CI'dan geçer (testler + Trivy imaj taraması); yeşilse birleştirmek yeterli.
+#
+# BEKLEME (cooldown, 14 gün): yeni bir sürüm ancak yayımlanmasından 14 gün sonra önerilir (kullanıcı
+# kuralı: en az iki haftalık sürüm). Yeni sürümdeki bir hata ya da ele geçirilmiş bir paket çoğu zaman
+# ilk günlerde fark edilip geri çekilir. GÜVENLİK güncellemeleri bu beklemeye tabi değildir (GitHub
+# belgesi: cooldown yalnız sürüm güncellemelerine uygulanır). Docker ve Actions'ta yalnız default-days
+# desteklenir; npm ve gomod'da da aynısını kullanıyoruz (tek kural).
 version: 2
 updates:
   # Temel imajlar: FROM ...@sha256 satırlarındaki digest'ler (ve etiketler) güncellenir.
@@ -15,12 +21,16 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: "build(api)"
   - package-ecosystem: docker
     directory: /frontend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: "build(web)"
 
@@ -29,6 +39,8 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: "build(api)"
     groups:
@@ -41,6 +53,8 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: "build(web)"
     groups:
@@ -53,6 +67,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: "ci"
     groups:
