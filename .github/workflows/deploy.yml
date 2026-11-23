@@ -141,7 +141,21 @@ jobs:
             echo "::error::PROD_DATABASE_URL secret'ı tanımlı değil; migration uygulanamadığı için yayın durduruldu."
             exit 1
           fi
+          # ÖNCE YEDEK (REVIEW_FEEDBACK F23): bir migration'ın veriyi bozabileceği tek an bu. Şifreli döküm
+          # alınamazsa migration da uygulanmaz ve yayın durur. Sır bu adımdan çıkmaz: döküm aynı adımda,
+          # şifrelenmiş olarak dosyaya yazılır; sonraki adım yalnız o dosyayı yükler.
+          scripts/backup.sh dump "yedek/bookhub-migration-oncesi-${SHA:0:7}.dump.age"
           go -C backend run ./cmd/manage migrate
+
+      # Migration başarısız olsa da yedek yüklenir (geri dönüş tam o durumda gerekir).
+      - name: Upload the pre-migration backup (encrypted, 90 days)
+        if: ${{ !cancelled() && steps.plan.outputs.skip == 'false' && steps.plan.outputs.migrate == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: bookhub-yedek-migration-oncesi-${{ github.run_id }}
+          path: yedek/*.dump.age
+          retention-days: 90
+          if-no-files-found: warn
 
   release:
     name: Release

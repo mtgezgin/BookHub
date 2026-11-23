@@ -22,8 +22,10 @@ yazılır — kuralın "neden"i silinmesin.
   istemeden **push edilmez**.
 - Uygulama kodu için çoklu ajan iş akışı kullanılmaz; inceleme ve araştırma için serbest.
 - Kullanıcı bir kavram sorduğunda açıklamadan sonra `/not` ile öğrenme notuna eklemeyi öner.
-- Sırlar asistana verilmez: canlı değerleri kullanıcı Keychain'den doğrudan panele/secret'a
-  aktarır (`security find-generic-password … | pbcopy` ya da `| gh secret set …`).
+- Sırlar asistana verilmez: canlı değerleri kullanıcı parola yöneticisinden (Bitwarden) doğrudan
+  panele/secret'a aktarır (`gh secret set …` değeri ekranda göstermeden sorar). Okunabilir kopyalar
+  yalnız Bitwarden ve Northflank paneli; GitHub sırları geri okunamaz. (2026-11-23'e kadar macOS
+  Keychain'di; kullanıcının artık Mac'i yok.)
 - Commit kimliği kişisel hesaptır (repo-yerel `user.email`); iş hesabı kullanılmaz.
 
 ## Kod kuralları
@@ -64,8 +66,11 @@ yazılır — kuralın "neden"i silinmesin.
 - İstek gövdeleri ayrı DTO + `DisallowUnknownFields` ile okunur (mass assignment yok); kaynak
   sahipliği servis ya da SQL katmanında kontrol edilir (IDOR yok).
 - bcrypt cost ≥ 12; JWT algoritması sabit (HS256), `iss`/`aud`/`exp` doğrulanır.
-- CI/CD: `secrets.PROD_DATABASE_URL` yalnız deploy.yml'in migration adımında kullanılır; başka
-  bir iş akışına ya da işe eklenmez. deploy.yml'in `if:` koşulu (başarılı + push + main + ci.yml +
+- CI/CD: `secrets.PROD_DATABASE_URL` yalnız deploy.yml'in migration adımında kullanılır (aynı adımda
+  migration öncesi şifreli yedek alınır); `secrets.BACKUP_DATABASE_URL` yalnız backup.yml'de, `backup`
+  ortamında (yalnız `main`). İkisi başka bir iş akışına ya da işe eklenmez; `secrets: inherit` yok
+  (`scripts/checks.sh` `check_secret_scope`). Yedek yalnız şifreli saklanır; gizli anahtar repoya ve
+  GitHub'a girmez ([DEPLOYMENT](docs/DEPLOYMENT.md) "Yedek"). deploy.yml'in `if:` koşulu (başarılı + push + main + ci.yml +
   aynı depo) ve `permissions`'ı gevşetilmez; `pull_request_target` eklenmez; olay verisi `run:` içine
   `${{ }}` ile yazılmaz. CI işlerini atlatan bir değişiklik (`if: false`, `continue-on-error`)
   engelleyicidir. Action'lar commit SHA'sıyla sabitlenir, etiketle (`@v7`) çağrılmaz

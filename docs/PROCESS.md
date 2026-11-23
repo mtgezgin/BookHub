@@ -236,9 +236,10 @@ artık doğrudan değil Deploy üzerinden yayına çıkar.
 1. `scripts/setup-github.sh` — etiketleri ve `release` dalını oluşturur.
 2. Northflank: `api` ve `web` servislerinin derlendiği dalı `main` → `release` yap (Build options).
    İstersen aynı yerde commit mesajı atlama bayraklarını kapat.
-3. Migration'lar için GitHub secret'ı (değer ekranda görünmez):
+3. Migration'lar için GitHub secret'ı (komut değeri sorar, ekranda görünmez; değer Bitwarden'daki
+   `BookHub canlı veritabanı adresi` notundan):
    ```bash
-   security find-generic-password -s bookhub-prod-dsn -w | tr -d '\n' | gh secret set PROD_DATABASE_URL
+   gh secret set PROD_DATABASE_URL --repo mtgezgin/BookHub
    ```
 4. (İsteğe bağlı, çift sigorta) GitHub → Settings → General → Issues: "Auto-close issues with
    merged linked pull requests" kapalı.

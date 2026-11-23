@@ -45,7 +45,7 @@ imaja girer). `web` servisinin env değişkeni yok.
 
 | Değişken | Canlı değeri | Not |
 |---|---|---|
-| `DATABASE_URL` | Supabase Session pooler adresi + `?sslmode=require` | Keychain'de `bookhub-prod-dsn`; panele `security … \| tr -d '\n' \| pbcopy` ile |
+| `DATABASE_URL` | Supabase Session pooler adresi + `?sslmode=require` | Okunabilir kopyası Bitwarden'da (`BookHub canlı veritabanı adresi`); panelde göz simgesiyle de görülür |
 | `REDIS_URL` | Upstash `rediss://…` | Boş olsaydı cache kapalı, rate limit bellek içi olurdu. Redis'e ulaşılamazsa API yine açılır ve çalışır (uyarı loglar; cache'siz, API'nin rate limit'i açık); bağlantı geri gelince kendiliğinden kullanılır |
 | `JWT_SECRET` | `openssl rand -base64 48` çıktısı | Başka yerde saklanmaz. Yalnız access token'ları imzalar: değişince verilmiş access token'lar geçersizleşir ama oturumlar refresh çereziyle kendiliğinden yenilenir (refresh token'lar secret'tan bağımsız). Herkesi çıkarmak: aşağıdaki not |
 | `AUTO_MIGRATE` | `false` | Migration'ı Deploy iş akışı uygular; elle yalnız acil durumda ([CLAUDE.md](../CLAUDE.md)) |
@@ -114,6 +114,68 @@ değişikliği gerekmez.
 **Sürüm etiketi:** imajda git bilgisi olmadığı için `service.version` "bilinmiyor" görünür. Northflank'ın
 commit'i bir değişken olarak verip vermediği **doğrulanmadı**; verirse `OTEL_RESOURCE_ATTRIBUTES`'a eklenir.
 
+### 2b. Yedek ([#100](https://github.com/mtgezgin/BookHub/issues/100); REVIEW_FEEDBACK F23)
+
+Supabase'in ücretsiz planında otomatik yedek yok ve yedek indirilemiyor. Yedeği biz alırız:
+
+| Ne zaman | Nerede | Sır |
+|---|---|---|
+| Her pazartesi 03:17 UTC ve elle (Actions → Yedek → *Run workflow*) | [backup.yml](../.github/workflows/backup.yml) | `BACKUP_DATABASE_URL` (`backup` ortamının sırrı; ortam yalnız `main`'e açık) |
+| Her migration'dan hemen önce | [deploy.yml](../.github/workflows/deploy.yml) migration adımı | `PROD_DATABASE_URL` (aynı adım) |
+
+Döküm `pg_dump` ile alınır (yalnız `public` şeması: uygulamanın bütün tabloları ve `goose_db_version`),
+aynı boruda [age](https://github.com/FiloSottile/age) ile **repodaki açık anahtara** şifrelenir
+([ops/backup/recipients.txt](../ops/backup/recipients.txt)) ve artefakt olarak **90 gün** saklanır.
+Şifresiz döküm hiçbir anda diske ya da loga yazılmaz. Dökümü açan **gizli anahtar** yalnız proje
+sahibinde durur. Migration öncesi döküm alınamazsa migration uygulanmaz ve yayın durur.
+
+Her PR'da CI, yükseltilmiş deney veritabanını geçici bir anahtarla döker, çözer, boş bir veritabanına
+geri yükler ve her tablonun satır sayısını karşılaştırır (*Yükseltme* işi). Yani yedeğin **geri
+yüklenebildiği** her değişiklikte sınanır.
+
+**Bir kez kurulum (kullanıcı; sırlar ve gizli anahtar asistana verilmez):**
+
+1. `age`'i kur: macOS'ta `brew install age`, Windows'ta `winget install FiloSottile.age` (paket
+   2026-11-19'da doğrulandı: sürüm 1.3.2; yedek yol [sürüm sayfası](https://github.com/FiloSottile/age/releases)).
+2. Anahtar çifti üret: `age-keygen -o bookhub-yedek.key`. Komut açık anahtarı ekrana yazar
+   (`Public key: age1…`).
+3. `bookhub-yedek.key` dosyasının bütün içeriğini parola yöneticisine güvenli not olarak kaydet
+   (Bitwarden → New → Note; Not Defteri'nden Ctrl+A, Ctrl+C), dosyayı sil, panoyu ve Win+V geçmişini
+   temizle. **Bu anahtar kaybolursa yedekler açılamaz.**
+4. Açık anahtarı (`age1…` satırı; gizli değildir) `ops/backup/recipients.txt`'ye yazdır (asistana
+   verebilirsin).
+5. Sırrı ortama gir: `gh secret set BACKUP_DATABASE_URL --env backup --repo mtgezgin/BookHub` ve değer
+   olarak `PROD_DATABASE_URL` ile **aynı** session pooler adresini yapıştır (Bitwarden'dan ya da
+   Northflank → `api` → Environment → `DATABASE_URL`).
+6. PR birleştikten sonra Actions → **Yedek** → *Run workflow*; iş yeşil bitmeli ve bir
+   `bookhub-yedek-…` artefaktı görünmeli.
+
+Adım 1–5 2026-11-23'te yapıldı (Windows; gizli anahtar ve veritabanı adresi kullanıcının Bitwarden
+kasasında). Açık anahtar, onunla şifrelenen bir deneme metninin aynı dosyadaki gizli anahtarla açılmasıyla
+doğrulandı.
+
+**Geri yükleme provası (kurulumdan sonra bir kez, yerelde):**
+
+```bash
+# Artefaktı indir ve aç (zip içinde .dump.age dosyası):
+gh run download <run-id> -n bookhub-yedek-<run-id> -D /tmp/yedek
+# Gizli anahtarı parola yöneticisinden geçici bir dosyaya koy (iş bitince sil):
+#   /tmp/yedek.key
+# Boş bir yerel veritabanına geri yükle ve satır sayılarına bak:
+docker exec bookhub-postgres psql -U bookhub -d postgres -c "CREATE DATABASE bookhub_restore_check"
+TARGET_URL=postgres://bookhub:bookhub_dev@postgres:5432/bookhub_restore_check \
+  PG_DOCKER_ARGS="--network bookhub_default" MSYS_NO_PATHCONV=1 \
+  scripts/backup.sh restore /tmp/yedek/bookhub-….dump.age /tmp/yedek.key
+rm /tmp/yedek.key
+```
+
+**Felakette:** canlı veritabanının üzerine yüklenmez. Yeni bir Supabase projesi açılır, yedek oraya
+yüklenir (`TARGET_URL` = yeni projenin session pooler adresi), sonra Northflank'taki `DATABASE_URL`,
+GitHub'daki `PROD_DATABASE_URL` ve `BACKUP_DATABASE_URL` yeni adrese çevrilir. Redis'te kalıcı veri yok.
+
+**Neler yedekte yok:** Supabase'in kendi şemaları (auth, storage; kullanılmıyor). Oturumlar yedekte
+vardır ama geri yükleme sonrası herkesin yeniden girmesi beklenir.
+
 ## 3. Yayın akışı (her değişiklikte)
 
 1. Dal → PR → CI yeşil → `main`'e merge.
@@ -141,9 +203,9 @@ Geri dönüş ve yeniden deneme: [PROCESS.md](PROCESS.md) §5.
   | `api` | `/backend/Dockerfile` · `/backend` | 8080 HTTP, private | nf-compute-10 |
   | `web` | `/frontend/Dockerfile` · `/frontend` | 8080 HTTP, public | nf-compute-10 |
 
-- **İlk veritabanı kurulumu** (Mac'ten, repo kökünde):
+- **İlk veritabanı kurulumu** (repo kökünde, Git Bash; adres Bitwarden'dan yapıştırılır, ekranda görünmez):
   ```bash
-  export DATABASE_URL="$(security find-generic-password -s bookhub-prod-dsn -w)"
+  read -rs DATABASE_URL && export DATABASE_URL
   go -C backend run ./cmd/manage migrate
   go -C backend run ./cmd/manage create-admin -email <e-posta>     # parola gizli sorulur
   # Bu adresle bir hesap ZATEN varsa komut durur (o hesabı açan kişi kendi parolasıyla admin olmasın

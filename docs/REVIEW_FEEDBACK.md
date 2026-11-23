@@ -49,7 +49,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [ ] | F20 | Yüksek | Uygulama ile veri ayrı bölgede; istekler sıralı ve çok sorgulu — *bölge taşıması ertelendi (2026-11-18)* |
 | [x] | F21 | Orta | Yarıda kesilen istek veritabanı bağlantısını kapatıyor ve hata olarak loglanıyor |
 | [ ] | F22 | Orta | Yayın akışı canlıda hangi sürümün çalıştığını doğrulamıyor |
-| [ ] | F23 | Orta | Yedek ve geri yükleme tanımlı değil — *karar verildi, PR #101 anahtar bekliyor* |
+| [ ] | F23 | Orta | Yedek ve geri yükleme tanımlı değil — *PR #101; anahtar ve sır hazır, ilk döküm bekliyor* |
 | [ ] | F24 | Orta — ölçekle | Tür süzgeci kalıbı planlayıcının iyi planı kurmasını engelliyor — *canlıda; nadir türde 36 ms (bilinen sınır)* |
 | [ ] | F25 | Orta — ölçekle | Her listede tam sayım, derin sayfa maliyeti ve 10.000 sınırı — *canlıda; sayım önbelleği dakikada bir ıskalar* |
 | [ ] | F26 | Orta — ölçekle | Puana göre sıralama ve "en sevilenler" önbelleği — *önbellek yarısı canlıda; saklanan skor ertelendi* |
@@ -451,6 +451,8 @@ Anonim bir kitap sayfası dört API çağrısıyla 11 sorgu çalıştırıyor ve
 
 **Kabul kriteri:** Canlıda `/api/genres` ile `/health` arasındaki fark 5 ms'nin altına iner ya da katalog listesi tek sorguyla cevaplanır. Ölçüm PR'da yazılı.
 
+**Karar (18 Kasım 2026, kullanıcı):** taşıma **ertelendi**. Postgres ve Redis Frankfurt'ta kalır; gerçek kullanıcılar gelip sayıları artınca taşıma (ve gerekirse ücretli plana geçiş) yeniden ele alınır. Belgelerden doğrulandı: Supabase'te bölge değiştirmek yeni proje + döküm/geri yükleme ister (F23'teki yedek betiği bunu da yapar); Londra bölgesi var. Upstash'te ana bölgenin değiştirilip değiştirilemediği ve ücretsiz planda Londra doğrulanmadı.
+
 ## F21 — Yarıda kesilen istek veritabanı bağlantısını kapatıyor ve hata olarak loglanıyor
 
 **Öncelik:** Orta · Kaynak yönetimi
@@ -496,6 +498,8 @@ Belgelerde yedek, döküm ya da geri yükleme geçmiyor. Kolon silen migration'l
 **Öneri:** Kararı yazın. Ya "veri atılabilir; geri yükleme migration, demo seed ve `create-admin`'dir" denir ya da migration adımından önce şifreli bir döküm alınır (repo public olduğu için düz artefakt olarak yüklenmez). Seçilen yol bir kez denenir. Supabase'in ücretsiz planda ne sakladığı doğrulanmadı.
 
 **Kabul kriteri:** Karar DEPLOYMENT.md'de; seçilen yol bir kez uygulandı ve süresi yazıldı.
+
+**Karar ve ilerleme (18 Kasım 2026, kullanıcı kararı: B2):** otomatik, şifreli döküm. Haftalık (`backup.yml`, `backup` ortamı, yalnız `main`) ve her migration'dan önce (`deploy.yml`, aynı adım). `pg_dump` + `age`, açık anahtar repoda, gizli anahtar yalnız kullanıcıda; artefakt 90 gün. CI her PR'da döküm → şifre → çöz → geri yükle turunu sınıyor (yerelde 13 tablo, satır sayıları aynı). Sırların kapsamı `check_secret_scope` ile denetleniyor. Anahtar çifti ve sır hazır (2026-11-23, DEPLOYMENT §2b). Bekleyen: ilk gerçek döküm ve geri yükleme provası.
 
 ## F24 — Tür süzgeci kalıbı planlayıcının iyi planı kurmasını engelliyor
 
