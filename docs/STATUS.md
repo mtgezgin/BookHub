@@ -3,8 +3,8 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-11-22):** Faz 1–16d canlıda · repo public (MIT) · **Şimdi: açık işlerin
-kullanıcıyla gözden geçirilmesi**, ardından Faz 17 ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-11-23):** Faz 1–16d canlıda · repo public (MIT) · canlı veritabanının şifreli
+yedeği canlıda · açık işler gözden geçirildi; **sıradaki: Faz 17** ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React, CI/CD, NGINX, Kubernetes) + oturum
 sertleştirme (Faz 13) + ürün fazları 14–16d.
 
@@ -22,7 +22,7 @@ sertleştirme (Faz 13) + ürün fazları 14–16d.
   önce partiler hâlinde (kullanıcı kararı): A, B, index'ler, arayüz sağlamlığı, yayın güveni canlıda
   (PR #90–#95, 2026-11-18); katalog sorguları Faz 16c olarak canlıda (PR #102, 2026-11-19); kapak
   önerisi (PR #104) ve CI iyileştirmeleri (PR #109) canlıda; arayüz veri katmanı Faz 16d olarak canlıda
-  (PR #112, 2026-11-22).
+  (PR #112, 2026-11-22); şifreli yedek canlıda (PR #101, 2026-11-23).
 - **Canlı izleme:** günlük erişilebilirlik (`uptime.yml`, #63), haftalık imaj taraması (`scan.yml`, #48),
   her PR'da bağımlılık incelemesi. Web imajında **süreli Trivy istisnası** var (nginx 1.30.6, 2026-12-19'a
   kadar; [#106](https://github.com/mtgezgin/BookHub/issues/106)). Northflank sağlık kontrolleri ve hata
@@ -206,15 +206,18 @@ Tetikleyen: ilk kapsamlı kod/güvenlik incelemesi ([REVIEW_FEEDBACK.md](REVIEW_
 
 Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 
-1. **Şimdi — açık işlerin gözden geçirilmesi** (kullanıcıyla): yedek (#100, #101), #103'ün canlı
-   doğrulaması, #84, Trivy istisnası (#106), CI öğrenme adımları; Faz 17'ye geçiş bu konuşmadan sonra.
-2. **Sonra — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02;
+1. **Açık işler gözden geçirildi (2026-11-23):** yedek canlıda, ilk döküm alındı ve yerelde geri
+   yüklendi (#100; zamanlanmış ilk koşu 2026-11-30, sonra kapanır). #40, #84, #103 canlıda doğrulanıp
+   kapandı. Tarihli bekleyenler: #63 (Supabase duraklamadı mı, panel 2026-11-24), #106 (Trivy istisnası
+   2026-12-19'da bitiyor; Aralık başında nginx imajına bakılır).
+2. **Sıradaki — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02;
    [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylı).
    Migration'ları `0016`–`0018`.
-3. **Kullanıcı adımları:** yedek anahtarı ve sırrı (#100), Northflank sağlık kontrolleri (panel),
-   Grafana Cloud hesabı (#96).
+3. **Kullanıcı adımları:** Northflank sağlık kontrolleri (panel), Grafana Cloud hesabı (#96). Sırlar
+   artık Bitwarden'da (kullanıcının Mac'i yok; CLAUDE.md).
 4. **Teknik hat (araya, küçük):** CodeQL ve SonarCloud'da test kapsamı (CI öğrenme adımları), F22
    (canlıda hangi sürüm çalışıyor) ve geri dönüş provası, `PROD_DATABASE_URL`'i bir GitHub ortamına taşımak,
+   Supabase Security Advisor'ın 7 `search_path` uyarısı (ROADMAP teknik hat),
    [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md)'deki açık bulgular (özet tablo güncel).
 5. **Kural:** yeni fikir önce [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)'e yazılır. Issue yalnız
    "Şimdi" fazı ve teknik hat için açılır ([ROADMAP § Kurallar](ROADMAP.md#kurallar)).

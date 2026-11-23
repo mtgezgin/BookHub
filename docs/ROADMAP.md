@@ -22,8 +22,8 @@ Gerçek kullanıcıya açılma kararı verilirse Faz 18 (katkı ve hesap) ile ca
   arama, büyük katalog için sorgular, arayüz veri katmanı ([STATUS](STATUS.md)).
 - **Faz 17'den önce (kullanıcı kararı, 2026-11-17/18):** ikinci incelemenin düzeltmeleri. Partiler
   A, B, index'ler, arayüz sağlamlığı ve yayın güveni canlıda (#90–#95); arayüz veri katmanı Faz 16d
-  olarak canlıda ([#105](https://github.com/mtgezgin/BookHub/issues/105), 2026-11-22); süren: yedek
-  ([#100](https://github.com/mtgezgin/BookHub/issues/100)).
+  olarak canlıda ([#105](https://github.com/mtgezgin/BookHub/issues/105), 2026-11-22); şifreli yedek
+  canlıda ([#100](https://github.com/mtgezgin/BookHub/issues/100), 2026-11-23).
 - **Ürün döngüsünün ilk adımı canlıda (2026-10-25):** Faz 15 ile "kitaplığına ekle" tamam — LIB-01 ve
   LIB-02, SOC-02'nin varsayılan gizlilik yarısı. 17 Ekim'deki durum: 34 maddenin 7'si kısmen vardı, 27'si
   yoktu ([FEATURE_REQUESTS § Durum özeti](FEATURE_REQUESTS.md#durum-özeti-17-ekim-2026)).
@@ -61,7 +61,8 @@ okuma takibinden hemen önceye kondu.
 | `PROD_DATABASE_URL`'i bir GitHub Environment'a taşımak | Zamanı açık | Repo public olunca Environments ücretsiz: sır yalnız `main`'den koşan Deploy'a açılabilir ([DEPLOYMENT §2](DEPLOYMENT.md)) |
 | NGINX erişim logunda sorgu dizesi ve referrer | Faz 16b ile (canlıda 2026-11-18) | `log_format bookhub` ([default.conf](../frontend/nginx/default.conf)); kural `scripts/checks.sh`'ta |
 | REVIEW_FEEDBACK bulguları | İlgili fazın içinde | F10, F11 → Faz 15–17 (UX-01) · F13 → her fazın UX-02 kabulü · F12, F15 → Faz 18 (MOD-02) · F04 → Faz 18'den önce · F03, F06–F09, F16, F17 → ihtiyaç oldukça ayrı iş. İkinci inceleme (2026-11-17): F20–F40; önerilen sıra [REVIEW_FEEDBACK](REVIEW_FEEDBACK.md#ikinci-incelemenin-önerdiği-sıra)'te |
-| Canlı veritabanının şifreli yedeği ([#100](https://github.com/mtgezgin/BookHub/issues/100), F23) | Kod hazır (taslak PR #101) | Haftalık ve her migration'dan önce `age` ile şifreli döküm; CI her PR'da döküm → geri yükleme turunu sınar. Kullanıcının açık anahtarı ve `backup` ortamının sırrı bekleniyor |
+| Canlı veritabanının şifreli yedeği ([#100](https://github.com/mtgezgin/BookHub/issues/100), F23) | Canlıda 2026-11-23 (PR #101) | Haftalık ve her migration'dan önce `age` ile şifreli döküm; CI her PR'da döküm → geri yükleme turunu sınar. İlk döküm ve yerelde geri yükleme provası 2026-11-23; zamanlanmış ilk koşu 2026-11-30, migration öncesi döküm Faz 17'nin `0016`'sında sınanır |
+| Fonksiyonlarda sabit `search_path` (Supabase Security Advisor, 7 WARN) | Zamanı açık | `search_fold`, `search_tsquery` ve beş tetikleyici fonksiyonu. Risk düşük (tek uygulama kullanıcısı, Data API kapalı). Tek satır değil: `search_fold` index ifadelerinde; SQL fonksiyonuna `SET search_path` eklemek inlining'i kapatır, Faz 16b'nin arama planları önce ve sonra ölçülmeli |
 | CI: zorunlu kontroller, bağımlılık incelemesi, süre sınırları, action SHA kuralı ([#108](https://github.com/mtgezgin/BookHub/issues/108)) | 2026-11-19 (PR #99, #109) | `main`'de 8 zorunlu kontrol (Trivy ve SonarCloud dahil); Dependabot güvenlik uyarıları açık. Kalan öğrenme adımları: CodeQL, SonarCloud'da test kapsamı, "bir kez derle, aynısını yayınla" (F39) |
 | Web imajında süreli Trivy istisnası ([#106](https://github.com/mtgezgin/BookHub/issues/106)) | 2026-12-19'a kadar | nginx 1.30.6'nın 6 açığının koşulu bizde yok; düzeltilmiş temel imaj gelince istisna silinir. Süre dolarsa tarama yeniden kırmızı olur (bilerek) |
 | Dependabot, Sonar ve güvenlik bulguları | Geldikçe | Ürün fazını durdurmaz; güvenlik engelleyicisi hariç |

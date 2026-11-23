@@ -49,7 +49,7 @@ Kutuları yalnız düzeltme uygulanıp kabul kriteri doğrulandığında işaret
 | [ ] | F20 | Yüksek | Uygulama ile veri ayrı bölgede; istekler sıralı ve çok sorgulu — *bölge taşıması ertelendi (2026-11-18)* |
 | [x] | F21 | Orta | Yarıda kesilen istek veritabanı bağlantısını kapatıyor ve hata olarak loglanıyor |
 | [ ] | F22 | Orta | Yayın akışı canlıda hangi sürümün çalıştığını doğrulamıyor |
-| [ ] | F23 | Orta | Yedek ve geri yükleme tanımlı değil — *PR #101; anahtar ve sır hazır, ilk döküm bekliyor* |
+| [ ] | F23 | Orta | Yedek ve geri yükleme tanımlı değil — *canlıda (PR #101, 2026-11-23); zamanlanmış ilk koşu bekleniyor* |
 | [ ] | F24 | Orta — ölçekle | Tür süzgeci kalıbı planlayıcının iyi planı kurmasını engelliyor — *canlıda; nadir türde 36 ms (bilinen sınır)* |
 | [ ] | F25 | Orta — ölçekle | Her listede tam sayım, derin sayfa maliyeti ve 10.000 sınırı — *canlıda; sayım önbelleği dakikada bir ıskalar* |
 | [ ] | F26 | Orta — ölçekle | Puana göre sıralama ve "en sevilenler" önbelleği — *önbellek yarısı canlıda; saklanan skor ertelendi* |
@@ -499,7 +499,7 @@ Belgelerde yedek, döküm ya da geri yükleme geçmiyor. Kolon silen migration'l
 
 **Kabul kriteri:** Karar DEPLOYMENT.md'de; seçilen yol bir kez uygulandı ve süresi yazıldı.
 
-**Karar ve ilerleme (18 Kasım 2026, kullanıcı kararı: B2):** otomatik, şifreli döküm. Haftalık (`backup.yml`, `backup` ortamı, yalnız `main`) ve her migration'dan önce (`deploy.yml`, aynı adım). `pg_dump` + `age`, açık anahtar repoda, gizli anahtar yalnız kullanıcıda; artefakt 90 gün. CI her PR'da döküm → şifre → çöz → geri yükle turunu sınıyor (yerelde 13 tablo, satır sayıları aynı). Sırların kapsamı `check_secret_scope` ile denetleniyor. Anahtar çifti ve sır hazır (2026-11-23, DEPLOYMENT §2b). Bekleyen: ilk gerçek döküm ve geri yükleme provası.
+**Karar ve ilerleme (18 Kasım 2026, kullanıcı kararı: B2):** otomatik, şifreli döküm. Haftalık (`backup.yml`, `backup` ortamı, yalnız `main`) ve her migration'dan önce (`deploy.yml`, aynı adım). `pg_dump` + `age`, açık anahtar repoda, gizli anahtar yalnız kullanıcıda; artefakt 90 gün. CI her PR'da döküm → şifre → çöz → geri yükle turunu sınıyor (yerelde 13 tablo, satır sayıları aynı). Sırların kapsamı `check_secret_scope` ile denetleniyor. Canlıda (2026-11-23): ilk gerçek döküm alındı ve yerelde boş bir veritabanına kullanıcının gizli anahtarıyla geri yüklendi; satır sayıları canlıyla tutarlı (#100'deki doğrulama). Bekleyen: zamanlanmış ilk koşu (2026-11-30) ve ilk migration öncesi döküm (Faz 17'nin `0016`'sı).
 
 ## F24 — Tür süzgeci kalıbı planlayıcının iyi planı kurmasını engelliyor
 

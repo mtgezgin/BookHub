@@ -28,7 +28,10 @@ tarayıcı ──HTTPS──▶ Northflank ağ geçidi (TLS burada çözülür)
 - **Supabase:** Data API kapalı, otomatik RLS kapalı. Uygulama **Session pooler** adresine
   bağlanıyor (IPv4; prepared statement ve oturum kilidi destekli — migration'ların advisory
   lock'u için gerekli). Doğrudan bağlantı yalnız IPv6; transaction pooler prepared statement
-  desteklemiyor.
+  desteklemiyor. Panelde bilinen iki gürültü (2026-11-23'te loglardan bakıldı): ana sayfadaki Postgres
+  kartı saatte ~110 ERROR gösterir, hepsi `schema "pg_pgrst_no_exposed_schemas" does not exist` —
+  Data API kapalıyken Supabase'in kendi PostgREST'i yazıyor, uygulamadan değil. Security Advisor'da 7
+  WARN "Function Search Path Mutable" bizim fonksiyonlarımız ([ROADMAP](ROADMAP.md) teknik hat).
 - **Upstash:** TCP adresi (`rediss://…:6379`), eviction açık. HTTP/REST adresi go-redis ile
   çalışmaz.
 - Neden Northflank: Fly.io'nun yeni hesaplara ücretsiz katmanı yok; Render'ın ücretsiz

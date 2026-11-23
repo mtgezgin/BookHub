@@ -309,7 +309,9 @@ POST   /api/admin/reviews/{id}/unhide                     — audit ile aynı tr
 8. Toplam bilinmeyen okumada "0 sayfa" görünmez; Faz 15'ten kalan okuyorum kaydı "İlerlemeni gir" gösterir.
 9. Başkasının günlük kaydına her uç 404; eski `PUT {status}` aynı sonuçları üretir.
 10. Canlı (17A-1): demo hesabıyla başla → ilerle → ertele → devam et → bitir; kitap sayfası ve
-    Kitaplığım tutarlı.
+    Kitaplığım tutarlı. Yayında Deploy'un migration adımı `0016`'dan **önce** şifreli döküm aldı
+    (`bookhub-yedek-migration-oncesi-…` artefaktı): bu, ilk gerçek migration öncesi yedek
+    ([#100](https://github.com/mtgezgin/BookHub/issues/100) kabul kriteri 3).
 11. Canlı (17A-2): 0017 öncesi sayım PR'da; sonrasında kural dışı yazım veritabanında reddedilir
     (entegrasyon testi), canlı akış yine çalışır.
 
