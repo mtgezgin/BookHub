@@ -22,8 +22,10 @@ yazılır — kuralın "neden"i silinmesin.
   istemeden **push edilmez**.
 - Uygulama kodu için çoklu ajan iş akışı kullanılmaz; inceleme ve araştırma için serbest.
 - Kullanıcı bir kavram sorduğunda açıklamadan sonra `/not` ile öğrenme notuna eklemeyi öner.
-- Sırlar asistana verilmez: canlı değerleri kullanıcı Keychain'den doğrudan panele/secret'a
-  aktarır (`security find-generic-password … | pbcopy` ya da `| gh secret set …`).
+- Sırlar asistana verilmez: canlı değerleri kullanıcı parola yöneticisinden (Bitwarden) doğrudan
+  panele/secret'a aktarır (`gh secret set …` değeri ekranda göstermeden sorar). Okunabilir kopyalar
+  yalnız Bitwarden ve Northflank paneli; GitHub sırları geri okunamaz. (2026-11-23'e kadar macOS
+  Keychain'di; kullanıcının artık Mac'i yok.)
 - Commit kimliği kişisel hesaptır (repo-yerel `user.email`); iş hesabı kullanılmaz.
 
 ## Kod kuralları

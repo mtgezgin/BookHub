@@ -45,7 +45,7 @@ imaja girer). `web` servisinin env değişkeni yok.
 
 | Değişken | Canlı değeri | Not |
 |---|---|---|
-| `DATABASE_URL` | Supabase Session pooler adresi + `?sslmode=require` | Keychain'de `bookhub-prod-dsn`; panele `security … \| tr -d '\n' \| pbcopy` ile |
+| `DATABASE_URL` | Supabase Session pooler adresi + `?sslmode=require` | Okunabilir kopyası Bitwarden'da (`BookHub canlı veritabanı adresi`); panelde göz simgesiyle de görülür |
 | `REDIS_URL` | Upstash `rediss://…` | Boş olsaydı cache kapalı, rate limit bellek içi olurdu. Redis'e ulaşılamazsa API yine açılır ve çalışır (uyarı loglar; cache'siz, API'nin rate limit'i açık); bağlantı geri gelince kendiliğinden kullanılır |
 | `JWT_SECRET` | `openssl rand -base64 48` çıktısı | Başka yerde saklanmaz. Yalnız access token'ları imzalar: değişince verilmiş access token'lar geçersizleşir ama oturumlar refresh çereziyle kendiliğinden yenilenir (refresh token'lar secret'tan bağımsız). Herkesi çıkarmak: aşağıdaki not |
 | `AUTO_MIGRATE` | `false` | Migration'ı Deploy iş akışı uygular; elle yalnız acil durumda ([CLAUDE.md](../CLAUDE.md)) |
@@ -139,14 +139,20 @@ yüklenebildiği** her değişiklikte sınanır.
    2026-11-19'da doğrulandı: sürüm 1.3.2; yedek yol [sürüm sayfası](https://github.com/FiloSottile/age/releases)).
 2. Anahtar çifti üret: `age-keygen -o bookhub-yedek.key`. Komut açık anahtarı ekrana yazar
    (`Public key: age1…`).
-3. `bookhub-yedek.key` dosyasının içeriğini parola yöneticisine (Keychain, 1Password) kaydet, dosyayı
-   sil. **Bu anahtar kaybolursa yedekler açılamaz.**
+3. `bookhub-yedek.key` dosyasının bütün içeriğini parola yöneticisine güvenli not olarak kaydet
+   (Bitwarden → New → Note; Not Defteri'nden Ctrl+A, Ctrl+C), dosyayı sil, panoyu ve Win+V geçmişini
+   temizle. **Bu anahtar kaybolursa yedekler açılamaz.**
 4. Açık anahtarı (`age1…` satırı; gizli değildir) `ops/backup/recipients.txt`'ye yazdır (asistana
    verebilirsin).
-5. Sırrı ortama gir: `gh secret set BACKUP_DATABASE_URL --env backup` ve değer olarak
-   `PROD_DATABASE_URL` ile **aynı** session pooler adresini yapıştır (Keychain'den).
+5. Sırrı ortama gir: `gh secret set BACKUP_DATABASE_URL --env backup --repo mtgezgin/BookHub` ve değer
+   olarak `PROD_DATABASE_URL` ile **aynı** session pooler adresini yapıştır (Bitwarden'dan ya da
+   Northflank → `api` → Environment → `DATABASE_URL`).
 6. PR birleştikten sonra Actions → **Yedek** → *Run workflow*; iş yeşil bitmeli ve bir
    `bookhub-yedek-…` artefaktı görünmeli.
+
+Adım 1–5 2026-11-23'te yapıldı (Windows; gizli anahtar ve veritabanı adresi kullanıcının Bitwarden
+kasasında). Açık anahtar, onunla şifrelenen bir deneme metninin aynı dosyadaki gizli anahtarla açılmasıyla
+doğrulandı.
 
 **Geri yükleme provası (kurulumdan sonra bir kez, yerelde):**
 
@@ -197,9 +203,9 @@ Geri dönüş ve yeniden deneme: [PROCESS.md](PROCESS.md) §5.
   | `api` | `/backend/Dockerfile` · `/backend` | 8080 HTTP, private | nf-compute-10 |
   | `web` | `/frontend/Dockerfile` · `/frontend` | 8080 HTTP, public | nf-compute-10 |
 
-- **İlk veritabanı kurulumu** (Mac'ten, repo kökünde):
+- **İlk veritabanı kurulumu** (repo kökünde, Git Bash; adres Bitwarden'dan yapıştırılır, ekranda görünmez):
   ```bash
-  export DATABASE_URL="$(security find-generic-password -s bookhub-prod-dsn -w)"
+  read -rs DATABASE_URL && export DATABASE_URL
   go -C backend run ./cmd/manage migrate
   go -C backend run ./cmd/manage create-admin -email <e-posta>     # parola gizli sorulur
   # Bu adresle bir hesap ZATEN varsa komut durur (o hesabı açan kişi kendi parolasıyla admin olmasın
