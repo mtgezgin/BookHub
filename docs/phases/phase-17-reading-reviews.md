@@ -1,7 +1,9 @@
 # Faz 17 — Okuma takibi ve inceleme
 
 > Durum: 📝 spec onaylandı (2026-11-16), uygulama başlamadı (ürün kararları ve 17A'nın "tek durum
-> makinesi" modeli aynı gün, § Kararlar) —
+> makinesi" modeli aynı gün, § Kararlar). **Koda göre gözden geçirildi (2026-11-23):** Faz 16d'nin
+> veri katmanı, 0015'in yabancı anahtar index kuralı, 409 cevabı ve Kitaplığım kartları — § Kararlar'ın
+> son dört satırı —
 > [ROADMAP](../ROADMAP.md) · Backlog: [FEATURE_REQUESTS](../FEATURE_REQUESTS.md) Paket B — READ-01,
 > READ-02, REV-01, REV-02 · Issue: [#80](https://github.com/mtgezgin/BookHub/issues/80) · İlgili: [phase-15](phase-15-personal-library.md)
 > (kitaplık), [phase-16](phase-16-works-editions.md) (baskılar), [phase-05](phase-05-comments-ratings.md)
@@ -88,6 +90,10 @@ doğrulanır.
 | Puan | İncelemede ayrı puan yok; `ratings`'ten okunur. İnceleme silmek puanı silmez ve arayüz bunu söyler | REV-01. |
 | Spoiler | Kayıt başına bayrak (`has_spoiler`); API metni döner, gizleme arayüzde ve metin DOM'a girmez | REV-02 ilk sürüm. |
 | Hesap silinince | Okuma geçmişi ve incelemeler `ON DELETE CASCADE` | Kitaplık ve puanla aynı: kullanıcının kendi verisi. |
+| 409 cevabı (2026-11-23) | Gövde her hatadaki zarf: `{"error":{"code":"version_conflict","message"}}`, güncel raf **gövdede yok**. İstemci 409'da rafı bir kez yeniden okur (raf sorgusunu eskitir) ve mesajı o veriden kurar | CLAUDE.md "hata zarfı her yerde"; arayüzün `ApiError`'ı yalnız kod ve mesaj taşıyor. İlk spec gövdede raf öneriyordu; tek hata biçimi nadir bir durumdaki bir istek fazlasından değerli. Asistan kararı, kullanıcı "projeye en uygun" dedi. |
+| Kitaplığım kartları (2026-11-23) | 17A-1'de kartlarda yalnız **ilerleme** (`42 / 310 sayfa`, `%35`); komutlar kitap sayfasında. Kart menüsü ayrı küçük iş (§ Kapsam dışı) | Spec "karttaki menü" diyordu ama kartlarda bugün menü yok (yalnız katalogdan kalkmış kitapta "Çıkar"); menüyü sıfırdan kurmak 17A-1'i büyütürdü. Asistan kararı, kullanıcı "projeye en uygun" dedi. |
+| Veri katmanı (2026-11-23) | Raf sorgusu `["me", kullanıcı, "library", "shelf", kitap]`. Komutun döndüğü raf önbelleğe doğrudan yazılır; kitaplık listesi ve rozetler eskitilir | Faz 16d kuralları: anahtar `["me", kullanıcı, "library"]` önekinin altında olduğu için çıkışta temizlik ve "kitaplığı eskit" onu kendiliğinden kapsar; "tek kayıt, değeri biliniyor" → doğrudan yazılır. |
+| İstemcinin "bugün"ü (2026-11-23) | Yerel tarih (`getFullYear/getMonth/getDate`), testli tek yardımcıdan; `toISOString()` değil | `toISOString()` UTC günüdür: Türkiye'de 00:00–03:00 arasında bitirilen kitap dün bitmiş görünürdü (kavram 6). |
 
 ## 🚫 Kapsam dışı
 
@@ -98,6 +104,8 @@ doğrulanır.
 - İncelemeye beğeni, yanıt; inceleme listesinde sıralama seçenekleri (en yeni önce, sabit).
 - Mevcut yorumlarda değişiklik (düzenleme, sahibinin silmesi, spoiler).
 - Admin için gizlenmiş incelemeler listesi ekranı (geri açma ucu var, ekranı yok).
+- Kitaplığım kartlarında komut menüsü (2026-11-23 kararı): kartlar 17A-1'de yalnız ilerleme gösterir;
+  menü sonra, aynı komutlarla ayrı bir iş.
 
 ## 🗺️ Bölümler
 
@@ -135,8 +143,17 @@ CREATE TABLE reading_log (
     CHECK (ended_on IS NULL OR started_on IS NULL OR ended_on >= started_on)
 );
 CREATE INDEX reading_log_user_book_idx ON reading_log (user_id, book_id, created_at DESC);
+-- Yabancı anahtar index'leri (0015'ten beri kural; schema_integration_test denetler).
+CREATE INDEX library_entries_edition_idx ON library_entries (edition_id) WHERE edition_id IS NOT NULL;
+CREATE INDEX reading_log_book_idx ON reading_log (book_id);
+CREATE INDEX reading_log_edition_idx ON reading_log (edition_id) WHERE edition_id IS NOT NULL;
 ```
 
+- **Yabancı anahtar index'i (2026-11-23 eklendi):** her FK kolonu bir index'in ilk kolonu olmalı;
+  kitap ya da baskı silinince Postgres bağlı satırları bununla arar, index yoksa bütün tabloyu tarar
+  (`TestEveryForeignKeyHasIndex`). Kısmi index yalnız `WHERE <kolon> IS NOT NULL` ise sayılır (denetim
+  NULL aramaz); `edition_id` çoğunlukla boş olacağı için ikisi kısmi. `user_id`'ler birincil anahtar ve
+  `reading_log_user_book_idx` ile zaten karşılanıyor.
 - `library_entries`'e eklenen her kolon boş olabilir ya da varsayılanlıdır: canlıdaki (eski) kod
   bunları hiç anmadan çalışmaya devam eder. `reading_log` yeni tablo olduğu için kısıtları baştan taşır.
 - Eski kod yayın penceresinde okuyan bir satırın durumunu değiştirirse okuma alanları satırda **bayat**
@@ -203,10 +220,10 @@ PATCH  /api/me/reading-log/{id}             {started_on?, ended_on?}
 DELETE /api/me/reading-log/{id}
 ```
 
-- Her komut güncel rafı döner (istemci ayrıca GET yapmaz).
+- Her komut güncel rafı döner (istemci ayrıca GET yapmaz; önbelleğe doğrudan yazar, § Kararlar).
 - Gövdeler ayrı DTO + `DisallowUnknownFields`; başkasının günlük kaydı 404.
-- Hatalar: `version_conflict` (409, gövdede güncel raf; yalnız PATCH reading), `invalid_progress`
-  (400), `invalid_dates` (400).
+- Hatalar: `version_conflict` (409, yalnız PATCH reading; gövde standart hata zarfı, güncel raf için
+  istemci GET yapar), `invalid_progress` (400), `invalid_dates` (400).
 - `GET /api/me/library` kartlar için `unit`, `progress`, `total_pages` de döner (aynı satır, ek JOIN yok).
 
 ### 5. Arayüz: tek raf kontrolü
@@ -226,11 +243,13 @@ durumu ve oradan yapılabilecekleri gösterir:
   42'deki okuman geçmişe kaydedilecek"); birim/baskı değişiminde "İlerlemen sıfırlanacak".
 - **Bitirince:** tarih satırı ("Bugün bitirdin · tarihi değiştir") ve isteğe bağlı davet: "Puan ver"
   (17B'de "İnceleme yaz" eklenir).
-- **409 `version_conflict`:** "İlerlemen başka bir yerde güncellenmiş: sayfa 57" + kullanıcının
-  girdiği değer; yeniden gönder ya da vazgeç. Sessiz yeniden deneme yok.
+- **409 `version_conflict`:** raf yeniden okunur; "İlerlemen başka bir yerde güncellenmiş: sayfa 57"
+  (yeni veriden) + kullanıcının girdiği değer korunur; yeniden gönder (yeni sürümle) ya da vazgeç.
+  Sessiz yeniden deneme yok.
 - **Geçmiş:** kontrolün altında kapanmış okumalar (tarih, baskı, sonuç; tarihi düzelt / sil).
-- **Kitaplığım:** "Şu an okuyorum" kartlarında ilerleme; karttaki menü aynı komutları kullanır.
-- Kart rozetleri (`/api/me/library/statuses`) değişmez.
+- **Kitaplığım:** "Şu an okuyorum" kartlarında ilerleme (yalnız gösterim; menü kapsam dışı).
+- Kart rozetleri (`/api/me/library/statuses`) değişmez; kitap sayfası artık rozet ucunu değil raf
+  ucunu okur. Raf kontrolü bugünkü `LibraryMenu`'nün yerini alır (aynı tembel yükleme).
 
 ## 🪜 17B — adımlar
 
@@ -252,8 +271,14 @@ CREATE TABLE reviews (
     UNIQUE (user_id, book_id),
     CHECK (hidden_at IS NULL OR hidden_reason <> '')
 );
-CREATE INDEX reviews_book_created_idx ON reviews (book_id, created_at DESC) WHERE hidden_at IS NULL;
+CREATE INDEX reviews_book_created_idx ON reviews (book_id, created_at DESC);
+CREATE INDEX reviews_hidden_by_idx ON reviews (hidden_by) WHERE hidden_by IS NOT NULL;
 ```
+
+- **2026-11-23 düzeltmesi:** ilk taslakta liste index'i kısmiydi (`WHERE hidden_at IS NULL`). Böyle bir
+  index yabancı anahtar denetimine sayılmaz (yorumlarda 0015'te düzeltilen sorunun aynısı), bu yüzden
+  tam; gizlenen inceleme az olacağı için liste sorgusu da onu kullanır. `user_id` `UNIQUE (user_id,
+  book_id)` ile karşılanıyor.
 
 ### 2. API
 
@@ -301,6 +326,7 @@ POST   /api/admin/reviews/{id}/unhide                     — audit ile aynı tr
 2. Sayfa ilerlemesi negatif olamaz, bilinen toplamı aşamaz; yüzde 0–100. Yenilemede korunur.
 3. Eski sürümle PATCH 409 döner ve satırı değiştirmez (iki sekme senaryosu, Playwright).
 4. "Bitirdim" bugünün tarihiyle, "Zaten okudum" tarihsiz kaydeder; bitiş başlangıçtan önce olamaz.
+   "Bugün" yerel tarihtir: İstanbul'da 01:00'de (UTC'de önceki gün) yardımcı o günü verir (birim testi).
 5. İlerleme varken ertelemek ve çıkarmak günlüğe "yarım bırakıldı" yazar; ilerleme yokken yazmaz.
    Çıkarılan kitabın geçmişi yeniden eklenince görünür.
 6. Yarım bırakılandan "Devam et" sayfayı ve başlangıç tarihini geri getirir, günlük satırı kalmaz;

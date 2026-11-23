@@ -1,6 +1,6 @@
 # BookHub — Yol haritası (ROADMAP)
 
-> Son güncelleme: **2026-11-19**. Bu dosya tek bir soruyu cevaplar: **hangi sırayla ve neden?**
+> Son güncelleme: **2026-11-23**. Bu dosya tek bir soruyu cevaplar: **hangi sırayla ve neden?**
 > "Ne yapılabilir?" → [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) (ürün) ve
 > [REVIEW_FEEDBACK.md](REVIEW_FEEDBACK.md) (teknik bulgular). "Neredeyiz?" → [STATUS.md](STATUS.md).
 
@@ -40,9 +40,14 @@ Gerçek kullanıcıya açılma kararı verilirse Faz 18 (katkı ve hesap) ile ca
 | ✅ | 16b — Arama | [DISC-01](FEATURE_REQUESTS.md)'in arama yarısı: Türkçe duyarlı, index'li arama; yazarken arama kuralları | Canlıda arama Türkçe başlıkları bulamıyordu ("ince memed" sıfır sonuç) ve yazarken arama istek sayısını artırıyordu. | [canlıda](phases/phase-16b-search.md) (2026-11-18; [#82](https://github.com/mtgezgin/BookHub/issues/82), PR [#89](https://github.com/mtgezgin/BookHub/pull/89)) |
 | ✅ | 16c — Katalog sorguları | REVIEW_FEEDBACK F24–F26: tür süzgeci, sayım, derin sayfa | "Yüksek trafik ve çok kayıt varmış gibi" (kullanıcı kararı, 2026-11-18); 500 bin kitapta ölçüldü. | [canlıda](phases/phase-16c-catalog-queries.md) (2026-11-19; [#98](https://github.com/mtgezgin/BookHub/issues/98), PR [#102](https://github.com/mtgezgin/BookHub/pull/102)) |
 | ✅ | 16d — Arayüz veri katmanı | REVIEW_FEEDBACK F33: sunucu verisi TanStack Query ile | Faz 17 yeni yazma işlemleri getiriyor; yazmadan sonra hangi verinin tazeleneceği her sayfada elleydi. Kullanıcı her adımı okuyarak ilerledi. | [canlıda](phases/phase-16d-server-state.md) (2026-11-22; [#105](https://github.com/mtgezgin/BookHub/issues/105), PR [#112](https://github.com/mtgezgin/BookHub/pull/112)) |
-| Sonra | 17 — Okuma takibi ve inceleme | Paket B: READ-01, READ-02, REV-01, REV-02 | Döngüyü kapatır. İnceleme geniş kullanıma açılmadan MOD-04 gerekir; demo hedefinde Faz 18'e kalır. | [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylandı |
-| Daha sonra | 18 — Katkı döngüsü ve hesap | Paket C: MOD-01, MOD-02, ACC-01–03, DATA-02; kullanıcının baskı önermesi ([#79](https://github.com/mtgezgin/BookHub/issues/79)) | Gerçek kullanıcının kapısı; bir e-posta sağlayıcısı gerektirir. | — |
-| Daha sonra | — | Paket D (keşif: DISC-01–03, STATS-01, READ-03, REV-03) · Paket E (sosyal) | Veri ve kullanım oluştukça. | — |
+| Şimdi | 17 — Okuma takibi ve inceleme | Paket B: READ-01, READ-02, REV-01, REV-02 | Döngüyü kapatır. İnceleme geniş kullanıma açılmadan MOD-04 gerekir; demo hedefinde Faz 18'e kalır. | [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylandı, koda göre gözden geçirildi (2026-11-23) |
+| Sonra (1) | Okuma özeti ve kişisel ana sayfa | STATS-01; SOC-01'in kişisel ana sayfa yarısı ("Şu an okuyorum", hızlı ilerleme) | Faz 17'nin `reading_log`'u tam bu iş için kuruluyor; biriken veri kullanıcıya geri gösterilmezse kayıt tutmak angarya olur. Demo döngüsü "okudum → özetimi gördüm" diye kapanır. Yeni tablo gerekmez. | — |
+| Sonra (2) | Yazarın diğer kitapları | DISC-05 | Küçük; keşfin en doğal yolu. `search_fold` ve 16c'nin ölçüm yöntemi hazır. | — |
+| Sonra (3) | Bağlantı önizlemesi | SOC-04 | Paylaşılan kitap bağlantısı bugün boş kart gösteriyor (tek sayfa uygulaması, `og:` etiketi yok). NGINX, API ve kaçışlama üzerine iyi bir öğrenme işi. | — |
+| Sonra (4) | Notlar ve alıntılar | READ-04 | Kişiye özel, moderasyon gerektirmez; kitaplığa bağlılığı artırır. | — |
+| Gerçek kullanıcı kararıyla | 18 — Katkı döngüsü ve hesap | Paket C: MOD-01, MOD-02, ACC-01–03, DATA-02; kullanıcının baskı önermesi ([#79](https://github.com/mtgezgin/BookHub/issues/79)) | Gerçek kullanıcının kapısı; bir e-posta sağlayıcısı gerektirir. Demo hedefinde yukarıdakilerden sonra. | — |
+| Gerçek kullanıcı kararıyla | — | CAT-04 (seriler), DATA-03 (içe aktarma), UX-03 (kurulabilir site) | Gerçek kullanıcı kazanmaya dönük (içe aktarma bir numaralı yol); demoda değeri sınırlı. | — |
+| Daha sonra | — | Paket D'nin kalanı (DISC-01–03, READ-03, REV-03) · Paket E (sosyal) | Veri ve kullanım oluştukça. | — |
 
 Faz 16, Paket A'nın "CAT-02 kimlik kararı" maddesini zaten karşılıyor: tasarım yapıldı, uygulaması
 okuma takibinden hemen önceye kondu.
@@ -111,3 +116,12 @@ Bu kurallar rastgeleliği önlemek için var:
   - Kapak (F37) için A: önerilerde kapak adresi kabul edilmez (#104). İzin listesi ve CSP daraltması açık.
   - Trivy de zorunlu kontrol olur. Aynı gün nginx açıkları için süreli istisna kabul edildi (#106, #107).
   - CI iyileştirmeleri (bağımlılık incelemesi, süre sınırları, eski koşu iptali, SHA kuralı) yapıldı (#108).
+- **2026-11-23 (kullanıcı):**
+  - Faz 17 spec'i koda göre gözden geçirildi. 409 cevabı standart hata zarfında kalır (istemci rafı
+    yeniden okur); Kitaplığım kartlarında 17A-1'de yalnız ilerleme, kart menüsü sonra. Kullanıcı
+    "projeye en uygun olan" dedi; öneriler asistandan ([spec](phases/phase-17-reading-reviews.md) § Kararlar).
+  - Altı yeni backlog maddesi (READ-04, CAT-04, DISC-05, SOC-04, DATA-03, UX-03) ve Faz 17'den sonraki
+    sıra: okuma özeti ve kişisel ana sayfa → DISC-05 → SOC-04 → READ-04; Paket C ile CAT-04, DATA-03,
+    UX-03 gerçek kullanıcı kararıyla. Öneri asistandan, kullanıcı "hepsini istiyorum" dedi.
+  - Faz numarası iş "Şimdi" olunca verilir; Faz 18 adı Paket C'de kalır (dokümanlardaki "MOD-04 Faz
+    18'de" gibi atıflar değişmesin). Araya girenler numarasını başlarken alır.

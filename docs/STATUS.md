@@ -212,7 +212,9 @@ Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
    2026-12-19'da bitiyor; Aralık başında nginx imajına bakılır).
 2. **Sıradaki — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02;
    [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylı).
-   Migration'ları `0016`–`0018`.
+   Migration'ları `0016`–`0018`. Spec 2026-11-23'te koda göre gözden geçirildi. Ardından (ROADMAP,
+   2026-11-23): okuma özeti ve kişisel ana sayfa → yazarın diğer kitapları → bağlantı önizlemesi →
+   notlar ve alıntılar.
 3. **Kullanıcı adımları:** Northflank sağlık kontrolleri (panel), Grafana Cloud hesabı (#96). Sırlar
    artık Bitwarden'da (kullanıcının Mac'i yok; CLAUDE.md).
 4. **Teknik hat (araya, küçük):** CodeQL ve SonarCloud'da test kapsamı (CI öğrenme adımları), F22
