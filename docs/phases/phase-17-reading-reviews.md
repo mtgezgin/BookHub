@@ -132,7 +132,7 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 | 4 | Arayüz veri katmanı: tipler, raf kancaları, yerel tarih yardımcısı | ✅ commit (2026-11-24) |
 | 5 | Arayüz: tek raf kontrolü, onaylar, 409 akışı, geçmiş | ✅ commit (2026-11-25) |
 | 6 | Kitaplığım kartlarında ilerleme | ✅ commit (2026-11-25) |
-| 7 | Playwright (iki sekme 409 dahil), dokümanlar, PR | — |
+| 7 | Playwright (iki sekme 409 dahil), dokümanlar, PR | ✅ commit (2026-11-25); PR açıldı |
 
 ### Adım 1 — Şema ve sorgular
 
@@ -412,6 +412,37 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 - **Bakılacak yerler:**
   1. [`frontend/src/components/ReadingProgress.tsx`](../../frontend/src/components/ReadingProgress.tsx).
   2. [`frontend/src/pages/Library.tsx`](../../frontend/src/pages/Library.tsx) kartın `extra`'sı.
+
+### Adım 7 — Uçtan uca test, dokümanlar, PR
+
+- **Amaç:** okuma akışının gerçek yığında (NGINX + API + Postgres + Redis, tarayıcı) sınanması, iki sekme
+  senaryosu dahil; dokümanlar; tek PR.
+- **Parçalar:**
+  - `e2e/library.spec.ts`: ikinci senaryo **okuma** — başla → ilerle → **iki sekmede 409** → yarım bırak
+    → devam et → Kitaplığım kartında ilerleme → bitir → "Puan ver" puan seçiciye odaklanıyor → çıkar
+    (geçmiş kalır). Okurken 360 px'te kitap sayfası (çubuk, açık form, geçmiş) yatay taşmıyor.
+  - İki sekme: A ilerleme formunu açıp 50 yazar; B aynı bağlamda (aynı oturum) 57 kaydeder; A
+    gönderince 409. A'da öteki sekmenin değeri ("57 / 704 sayfa") görünür, A'nın 50'si alanda kalır; B
+    yenilenince 57 durur (409 satırı değiştirmedi); A "Benimkini kaydet" deyince ikisinde de 50.
+  - `e2e/helpers.ts` bütçe tablosu: `library.spec` yine **1 giriş**.
+  - STATUS, ROADMAP, PROJECT_MAP: 17A-1 PR'da. FEATURE_REQUESTS ve "canlıda" ibareleri yayından ve
+    canlı doğrulamadan sonra (§ Tamamlanma).
+- **Bu adımda verilen karar (asistan):** okuma senaryosu **ayrı dosya değil**, `library.spec.ts`'te
+  ikinci senaryo; ikisi `describe.serial` + `beforeAll`'da tek girişle aynı sayfayı paylaşıyor. Neden:
+  NGINX'in giriş kovası koşu başına 11 istek; bugün 10 kullanılıyor ve kural "11'in altında tut"
+  (helpers.ts). Ayrı dosya kendi girişiyle tavana dayardı. İkinci sekme aynı tarayıcı bağlamında
+  açıldığı için oturum çerezle geliyor, giriş harcamıyor.
+- **Sonuç (2026-11-25):**
+  - Playwright yerel yığında (`make e2e`, canlı değil): **21 senaryonun 21'i** yeşil. İlk koşuda okuma
+    senaryosu kırmızıydı: `browser.newPage()` ile açılan sayfanın bağlamına ikinci sekme eklenemiyor;
+    bağlam açıkça açıldı.
+  - Zamanlama kırılganlığına karşı kitaplık + okuma dosyası **beş kez arka arkaya** (tek işçiyle): 10'un 10'u yeşil. Paralel tekrar (`--repeat-each` varsayılanı) anlamsız kırmızı verdi: beş kopya aynı okur hesabıyla aynı kitabı aynı anda değiştiriyordu; normal pakette bu kitaba ve hesaba dokunan başka senaryo yok.
+    (409'u kaçırtabilecek tek şey A sekmesinin kendiliğinden tazelenmesi; önbelleğin 30 sn'lik bayatlama
+    süresi senaryonun süresinden uzun, pencereye dönünce tazeleme bu sürede olmaz.)
+  - Bütün backend testleri (gerçek Postgres + Redis) yeşil; frontend 485, `typecheck`, `bundle`
+    temiz; `scripts/checks.sh` yalnız yerelde kurulu olmayan sqlc'yi söylüyor (CI denetler).
+- **Bakılacak yerler:** [`frontend/e2e/library.spec.ts`](../../frontend/e2e/library.spec.ts) dosyanın
+  başındaki açıklama ve "Okuma (Faz 17A-1)" bölümü.
 
 ## 🪜 17A — adımlar
 
