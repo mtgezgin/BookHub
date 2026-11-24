@@ -118,7 +118,8 @@ repository/servis HTTP'yi tanımaz; hatalar domain hatasına çevrilip HTTP'ye t
 | `moderation.go` | öneri ucu + admin kitap uçları, admin DTO, durum geçişleri (method expression) |
 | `editions.go` | baskılar (Faz 16): `editionService`, `editionResponse`, detay DTO'ları (`bookDetailResponse`, `adminBookDetailResponse`: + `editions`), admin uçları (ekle / PATCH / sil / varsayılan yap), ISBN temizleme |
 | `community.go` | yorum + puan + top-rated uçları |
-| `library.go` | kişisel kitaplık uçları (`/api/me/library…`, Faz 15): `libraryStore` arayüzü, PUT/DELETE kayıt, toplu durum (`parseBookIDs`, en çok 100), süzülen liste (`parseLibraryFilter`) |
+| `library.go` | kişisel kitaplık uçları (`/api/me/library…`, Faz 15): `libraryStore` arayüzü (yalnız okuma), toplu durum (`parseBookIDs`, en çok 100), süzülen liste (`parseLibraryFilter`; okurken `unit`/`progress`/`total_pages`); eski PUT {status} ve DELETE artık raf servisinin komutları (Faz 17A-1) |
+| `shelf.go` | raf uçları (Faz 17A-1): `shelfService` arayüzü, `GET/POST /api/me/books/{id}/shelf…` (komutlar tek üreticiden: `handleShelfCommand`), `PATCH …/shelf/reading` (sürümlü, 409), `PATCH/DELETE /api/me/reading-log/{id}`; `writeShelfError` hata haritası, günler `YYYY-AA-GG` |
 | `genres.go` | tür uçları |
 | `observe.go` | OpenTelemetry ara katmanı: istek başına iz (yalnız method, rota kalıbı, durum kodu) ve süre histogramı; telemetri kapalıyken boş |
 | `auth.go` | register/login/refresh/logout/me + `handleChangePassword` (`POST /api/auth/password`); refresh çerezi yardımcıları: `cookieSettings`/`cookieSettingsFrom`, `newRefreshCookie`, `setRefreshCookie`, `clearRefreshCookie`, `readRefreshCookie` (`r.CookiesNamed`: tam 1, ≤256 bayt) |
@@ -155,7 +156,7 @@ bağlanmaz, sır kullanmaz; adres `BOOKHUB_API_URL` (varsayılan `http://localho
 | `audit` | denetim kaydı yazıcısı (append-only tablo) |
 | `comments` | yorum servisi (yumuşak silme + denetim) |
 | `ratings` | puan servisi (kilit + upsert + türetme), `WeightedScore` (saf), `CachedService` (Redis; puan yazımında silmez, Faz 16c), `GlobalAverage` (ağırlıklı puanın C'si süreç içinde 60 sn) |
-| `library` | kişisel kitaplık repository'si (Faz 15, service yok): `Put` (yalnız APPROVED kitap, `ON CONFLICT`), `Remove`, `Statuses` (toplu), `List` (süzgeç + `CASE` ile sıralama, başlık `tr-x-icu`, toplam aynı sorguda `count(*) OVER ()`) |
+| `library` | kişisel kitaplık ve okuma takibi. `Repository` yalnız okur: `Statuses` (toplu), `List` (süzgeç + `CASE` ile sıralama, başlık `tr-x-icu`, toplam aynı sorguda `count(*) OVER ()`). Yazımlar `Service`'te (Faz 17A-1): saf durum makinesi `resolve` (`commands.go`), komutlar, okurken düzeltme (`version`), geçmiş; (kullanıcı, kitap) danışma kilidi |
 | `cache` | `Cache` arayüzü: Redis / Noop |
 | `ratelimit` | sabit pencere: Memory / Redis / Unlimited |
 | `slug` | NFD ile Türkçe/aksanlı → URL slug'ı, `Truncate` |
@@ -182,6 +183,7 @@ bağlanmaz, sır kullanmaz; adres `BOOKHUB_API_URL` (varsayılan `http://localho
 | `0013` | daraltma (Faz 16): varsayılan baskısı olmayan kitaba eski kolonlardan baskı açar, sonra `books.cover_url` ve `books.page_count`'u siler; Down kolonları varsayılan baskıdan geri doldurur |
 | `0014` | arama (Faz 16b, canlı 2026-11-18): `search_fold` (Türkçe duyarlı katlama) ve `search_tsquery`, kitap başına bir satırlık `book_search` belgesi (GIN index), onu `books` ve `editions` yazımlarında güncelleyen iki tetikleyici, ilk doldurma; Up başında `und-x-icu` koruması ve `lock_timeout` ([phase-16b](phases/phase-16b-search.md)) |
 | `0015` | index düzeltmeleri (F28): index'siz üç yabancı anahtara index, liste index'lerinin sadeleştirilmesi; yalnız index değişir. Kural bir testte: `internal/database/schema_integration_test.go` |
+| `0016` | okuma takibi, genişletme (Faz 17A-1): `library_entries`'e okuma alanları ve `version`, kapanmış okumalar için `reading_log`; kısıtsız kolonlar, CHECK'ler 0017'de ([phase-17](phases/phase-17-reading-reviews.md)) |
 
 `sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
 

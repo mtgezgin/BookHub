@@ -114,6 +114,49 @@ func TestResolveRejectsUnknownInput(t *testing.T) {
 	}
 }
 
+// TestCommandForStatus, eski PUT {status} eşlemesi (spec 17A § 3, Doğrulama 9). Komut makineden
+// geçtiği için her durumdan hedef durum aynı: eski uç ne yaptıysa (durumu ayarla) o olur.
+func TestCommandForStatus(t *testing.T) {
+	want := map[Status]Command{
+		StatusWantToRead: CmdWant, StatusReading: CmdStart, StatusRead: CmdMarkRead, StatusAbandoned: CmdAbandon,
+	}
+	for s, c := range want {
+		got, ok := CommandForStatus(s)
+		if !ok || got != c {
+			t.Errorf("%s → %q (%v), istenen %q", s, got, ok, c)
+		}
+		for _, from := range allStatuses {
+			st, err := resolve(from, got, ModeAuto)
+			if err != nil {
+				t.Fatalf("%s'den %s: %v", from, got, err)
+			}
+			if target := targetOf(from, st); target != s {
+				t.Errorf("eski PUT %s, %s'den %s'e götürdü", s, from, target)
+			}
+		}
+	}
+	if _, ok := CommandForStatus("DONE"); ok {
+		t.Error("bilinmeyen durum komuta çevrilmemeli")
+	}
+}
+
+// targetOf, bir etkinin sonunda satırın durumu (StatusNone = satır yok).
+func targetOf(from Status, st step) Status {
+	switch st.act {
+	case actNone:
+		return from
+	case actSetStatus, actClose:
+		return st.status
+	case actStart, actResume:
+		return StatusReading
+	case actPostpone:
+		return StatusWantToRead
+	case actMarkRead:
+		return StatusRead
+	}
+	return StatusNone // actRemove
+}
+
 // TestValidProgress, 0017'deki library_progress_valid kısıtının Go karşılığı (spec Doğrulama 2).
 func TestValidProgress(t *testing.T) {
 	page, percent := new(UnitPage), new(UnitPercent)

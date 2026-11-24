@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/mtgezgin/bookhub/backend/internal/config"
+	"github.com/mtgezgin/bookhub/backend/internal/library"
 	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
 )
 
@@ -26,6 +27,7 @@ type deps struct {
 	comments   commentService
 	ratings    ratingService
 	library    libraryStore
+	shelf      shelfService
 	// ratingMinVotes: ağırlıklı puandaki m (RATING_MIN_VOTES); katalogun ?sort=rating sırası için.
 	ratingMinVotes int64
 	auth           authService
@@ -88,15 +90,28 @@ func newRouter(d deps) http.Handler {
 		r.Delete("/api/books/{id}/rating", handleRemoveRating(d.ratings))
 	})
 
-	// Kişisel kitaplık (Faz 15). "me" = token'daki kullanıcı; adreste kullanıcı kimliği HİÇ
-	// yok, başkasının kitaplığını istemek ifade bile edilemez. Kitaplık gizli: herkese açık uç yok.
-	// Statik "statuses" segmenti yalnız GET'te; {id} yalnız PUT/DELETE'te → çakışmazlar.
+	// Kişisel kitaplık (Faz 15) ve okuma takibi (Faz 17A-1). "me" = token'daki kullanıcı; adreste
+	// kullanıcı kimliği HİÇ yok, başkasının kitaplığını istemek ifade bile edilemez. Kitaplık gizli:
+	// herkese açık uç yok. Statik "statuses" segmenti yalnız GET'te; {id} yalnız PUT/DELETE'te →
+	// çakışmazlar. Bütün yazımlar raf servisinden (d.shelf) geçer, eski PUT/DELETE dahil.
 	r.Group(func(r chi.Router) {
 		r.Use(requireAuth(d.tokens))
 		r.Get("/api/me/library", handleListLibrary(d.library, d.books))
 		r.Get("/api/me/library/statuses", handleLibraryStatuses(d.library))
-		r.Put("/api/me/library/{id}", handlePutLibraryEntry(d.library))
-		r.Delete("/api/me/library/{id}", handleRemoveLibraryEntry(d.library))
+		r.Put("/api/me/library/{id}", handlePutLibraryEntry(d.shelf))
+		r.Delete("/api/me/library/{id}", handleRemoveLibraryEntry(d.shelf))
+
+		// Raf: niyet komutları (spec 17A § 4). Her komut ayrı, sabit bir rota; hepsi tek üreticiden.
+		r.Get("/api/me/books/{id}/shelf", handleGetShelf(d.shelf))
+		for _, c := range []library.Command{
+			library.CmdWant, library.CmdStart, library.CmdFinish, library.CmdAbandon,
+			library.CmdPostpone, library.CmdMarkRead, library.CmdRemove,
+		} {
+			r.Post("/api/me/books/{id}/shelf/"+string(c), handleShelfCommand(d.shelf, c))
+		}
+		r.Patch("/api/me/books/{id}/shelf/reading", handlePatchReading(d.shelf))
+		r.Patch("/api/me/reading-log/{id}", handlePatchReadingLog(d.shelf))
+		r.Delete("/api/me/reading-log/{id}", handleDeleteReadingLog(d.shelf))
 	})
 
 	limiter := d.limiter

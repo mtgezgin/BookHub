@@ -29,6 +29,9 @@ var (
 
 // Shelf, bir kitabın kullanıcının rafındaki hâli: güncel kayıt ve kapanmış okumaları.
 type Shelf struct {
+	// BookID, rafın kitabı. Günlük uçları kitabı adresten değil kayıttan bulur; kayıt da kitaplık satırı
+	// da kalmamışsa (son geçmiş satırı silindi) cevap yine hangi kitabın rafı olduğunu söyler.
+	BookID int64
 	// Entry nil = kitaplıkta değil. Okuma alanları yalnız Status READING iken dolu döner (0017'ye kadar
 	// başka durumda bayat kalabilirler; spec 17A § 1).
 	Entry *db.LibraryEntry
@@ -456,7 +459,7 @@ func lockShelf(ctx context.Context, q *db.Queries, userID, bookID int64) (*db.Li
 
 // load, güncel raf: kayıt (okuma alanları yalnız READING iken) ve geçmiş.
 func load(ctx context.Context, q *db.Queries, userID, bookID int64) (Shelf, error) {
-	var out Shelf
+	out := Shelf{BookID: bookID}
 	e, err := q.GetShelf(ctx, db.GetShelfParams{UserID: userID, BookID: bookID})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):

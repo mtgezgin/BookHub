@@ -1,17 +1,5 @@
 -- library.sql — kişisel kitaplık sorguları (Faz 15).
 
--- Ekle ya da durumu değiştir, TEK deyimde. Kitap yayında değilse SELECT satır üretmez,
--- hiçbir şey yazılmaz ve RETURNING boş döner → 404 (kitabın varlığı da sızmaz).
--- Arşivlenmiş bir kitabın kaydı bu yüzden güncellenemez; yalnız silinebilir.
--- name: UpsertLibraryEntry :one
-INSERT INTO library_entries (user_id, book_id, status)
-SELECT sqlc.arg('user_id')::bigint, b.id, sqlc.arg('status')::text
-FROM books b
-WHERE b.id = sqlc.arg('book_id') AND b.status = 'APPROVED'
-ON CONFLICT (user_id, book_id)
-DO UPDATE SET status = EXCLUDED.status, updated_at = now()
-RETURNING *;
-
 -- Silmek idempotent: kayıt yoksa da hata değil.
 -- name: DeleteLibraryEntry :exec
 DELETE FROM library_entries WHERE user_id = $1 AND book_id = $2;
@@ -77,9 +65,10 @@ SELECT * FROM library_entries WHERE user_id = $1 AND book_id = $2;
 SELECT * FROM library_entries WHERE user_id = $1 AND book_id = $2 FOR UPDATE;
 
 -- Rafın TEK yazma yolu: durum ve okuma alanları birlikte, version her yazımda artar. Kitap yayında
--- değilse SELECT satır üretmez, hiçbir şey yazılmaz → pgx.ErrNoRows → 404 (UpsertLibraryEntry'nin
--- kuralı). Satır yoksa (iki komut aynı anda "kitaplıkta değil" gördüyse) ikinci INSERT çakışır ve
--- ilk transaction'ın bitmesini bekleyip güncellemeye döner.
+-- değilse SELECT satır üretmez, hiçbir şey yazılmaz → pgx.ErrNoRows → 404 (Faz 15'in kuralı; o
+-- fazın UpsertLibraryEntry'si 17A-1'de kalktı, eski PUT da buradan geçer). Satır yoksa (iki komut
+-- aynı anda "kitaplıkta değil" gördüyse) ikinci INSERT çakışır ve ilk transaction'ın bitmesini
+-- bekleyip güncellemeye döner.
 -- name: SaveShelf :one
 INSERT INTO library_entries (user_id, book_id, status, edition_id, unit, progress, total_pages, started_on)
 SELECT sqlc.arg('user_id')::bigint, b.id, sqlc.arg('status')::text, sqlc.narg('edition_id')::bigint,

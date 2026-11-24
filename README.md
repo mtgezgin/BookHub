@@ -99,6 +99,7 @@ Kubernetes (yerel kind kümesi): `make k8s-up` → `make k8s-port` → http://lo
 | `POST /api/auth/password` (parola değiştir; diğer tüm oturumları kapatır) | giriş |
 | `POST /api/books/suggestions` (kapak adresi kabul edilmez) · `POST /api/books/{id}/comments` · `GET/PUT/DELETE /api/books/{id}/rating` | giriş |
 | `GET /api/me/library` (süzgeçli) · `GET /api/me/library/statuses` (toplu) · `PUT/DELETE /api/me/library/{id}` | giriş |
+| `GET /api/me/books/{id}/shelf` · `POST …/shelf/want\|start\|finish\|abandon\|postpone\|mark-read\|remove` · `PATCH …/shelf/reading` (sürümlü) · `PATCH/DELETE /api/me/reading-log/{id}` | giriş |
 | `/api/admin/books…` (kuyruk, approve/reject/restore, PATCH, DELETE=arşiv, audit) · `POST /api/admin/books/{id}/editions` · `PATCH/DELETE /api/admin/editions/{id}` · `POST …/editions/{id}/primary` · `/api/admin/genres…` · `DELETE /api/admin/comments/{id}` | admin |
 
 Hata zarfı her yerde aynı: `{"error":{"code":"…","message":"…"}}`; her cevapta `X-Request-Id`.

@@ -25,6 +25,7 @@ func (q *Queries) BookIsApproved(ctx context.Context, id int64) (bool, error) {
 }
 
 const deleteLibraryEntry = `-- name: DeleteLibraryEntry :exec
+
 DELETE FROM library_entries WHERE user_id = $1 AND book_id = $2
 `
 
@@ -33,6 +34,7 @@ type DeleteLibraryEntryParams struct {
 	BookID int64 `json:"book_id"`
 }
 
+// library.sql — kişisel kitaplık sorguları (Faz 15).
 // Silmek idempotent: kayıt yoksa da hata değil.
 func (q *Queries) DeleteLibraryEntry(ctx context.Context, arg DeleteLibraryEntryParams) error {
 	_, err := q.db.Exec(ctx, deleteLibraryEntry, arg.UserID, arg.BookID)
@@ -338,9 +340,10 @@ type SaveShelfParams struct {
 }
 
 // Rafın TEK yazma yolu: durum ve okuma alanları birlikte, version her yazımda artar. Kitap yayında
-// değilse SELECT satır üretmez, hiçbir şey yazılmaz → pgx.ErrNoRows → 404 (UpsertLibraryEntry'nin
-// kuralı). Satır yoksa (iki komut aynı anda "kitaplıkta değil" gördüyse) ikinci INSERT çakışır ve
-// ilk transaction'ın bitmesini bekleyip güncellemeye döner.
+// değilse SELECT satır üretmez, hiçbir şey yazılmaz → pgx.ErrNoRows → 404 (Faz 15'in kuralı; o
+// fazın UpsertLibraryEntry'si 17A-1'de kalktı, eski PUT da buradan geçer). Satır yoksa (iki komut
+// aynı anda "kitaplıkta değil" gördüyse) ikinci INSERT çakışır ve ilk transaction'ın bitmesini
+// bekleyip güncellemeye döner.
 func (q *Queries) SaveShelf(ctx context.Context, arg SaveShelfParams) (LibraryEntry, error) {
 	row := q.db.QueryRow(ctx, saveShelf,
 		arg.UserID,
@@ -352,46 +355,6 @@ func (q *Queries) SaveShelf(ctx context.Context, arg SaveShelfParams) (LibraryEn
 		arg.StartedOn,
 		arg.BookID,
 	)
-	var i LibraryEntry
-	err := row.Scan(
-		&i.UserID,
-		&i.BookID,
-		&i.Status,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.EditionID,
-		&i.Unit,
-		&i.Progress,
-		&i.TotalPages,
-		&i.StartedOn,
-		&i.Version,
-	)
-	return i, err
-}
-
-const upsertLibraryEntry = `-- name: UpsertLibraryEntry :one
-
-INSERT INTO library_entries (user_id, book_id, status)
-SELECT $1::bigint, b.id, $2::text
-FROM books b
-WHERE b.id = $3 AND b.status = 'APPROVED'
-ON CONFLICT (user_id, book_id)
-DO UPDATE SET status = EXCLUDED.status, updated_at = now()
-RETURNING user_id, book_id, status, created_at, updated_at, edition_id, unit, progress, total_pages, started_on, version
-`
-
-type UpsertLibraryEntryParams struct {
-	UserID int64  `json:"user_id"`
-	Status string `json:"status"`
-	BookID int64  `json:"book_id"`
-}
-
-// library.sql — kişisel kitaplık sorguları (Faz 15).
-// Ekle ya da durumu değiştir, TEK deyimde. Kitap yayında değilse SELECT satır üretmez,
-// hiçbir şey yazılmaz ve RETURNING boş döner → 404 (kitabın varlığı da sızmaz).
-// Arşivlenmiş bir kitabın kaydı bu yüzden güncellenemez; yalnız silinebilir.
-func (q *Queries) UpsertLibraryEntry(ctx context.Context, arg UpsertLibraryEntryParams) (LibraryEntry, error) {
-	row := q.db.QueryRow(ctx, upsertLibraryEntry, arg.UserID, arg.Status, arg.BookID)
 	var i LibraryEntry
 	err := row.Scan(
 		&i.UserID,

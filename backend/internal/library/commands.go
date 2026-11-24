@@ -137,6 +137,24 @@ func resolve(current Status, c Command, m StartMode) (step, error) {
 
 func knownStatus(s Status) bool { return s == StatusNone || ValidStatus(s) }
 
+// CommandForStatus, eski `PUT /api/me/library/{id} {status}` ucunun komut karşılığı (spec 17A § 3):
+// yayın penceresindeki eski arayüz de aynı servisten geçer, ikinci bir yazma yolu kalmaz. READING
+// "başla"dır (yarım bırakılmışsa ModeAuto onu sürdürür), READ "zaten okudum"dur (okurken tarihsiz
+// bitirir). Bilinmeyen durum için ok=false.
+func CommandForStatus(s Status) (c Command, ok bool) {
+	switch s {
+	case StatusWantToRead:
+		return CmdWant, true
+	case StatusReading:
+		return CmdStart, true
+	case StatusRead:
+		return CmdMarkRead, true
+	case StatusAbandoned:
+		return CmdAbandon, true
+	}
+	return "", false
+}
+
 // ValidCommand, dışarıdan gelen komut adını sınırda doğrular (handler'ın 400'ü).
 func ValidCommand(c string) bool {
 	switch Command(c) {

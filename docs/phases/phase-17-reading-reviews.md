@@ -128,7 +128,7 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 | 0 | Spec'in koda göre gözden geçirilmesi | ✅ PR #120 (2026-11-24) |
 | 1 | `0016_reading.sql` + sqlc sorguları + migration testi | ✅ commit (2026-11-24) |
 | 2 | `internal/library` servisi: durum makinesi, tablo testleri | ✅ commit (2026-11-24) |
-| 3 | API: komut uçları, reading PATCH, günlük uçları; eski `PUT {status}` servise | — |
+| 3 | API: komut uçları, reading PATCH, günlük uçları; eski `PUT {status}` servise | ✅ commit (2026-11-24) |
 | 4 | Arayüz veri katmanı: tipler, raf kancaları, yerel tarih yardımcısı | — |
 | 5 | Arayüz: tek raf kontrolü, onaylar, 409 akışı, geçmiş | — |
 | 6 | Kitaplığım kartlarında ilerleme | — |
@@ -208,6 +208,68 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
      `LockShelfKey` (danışma kilidi neden).
   5. [`backend/internal/library/service_integration_test.go`](../../backend/internal/library/service_integration_test.go):
      senaryolar, Doğrulama numaralarıyla.
+
+### Adım 3 — API uçları
+
+- **Amaç:** servisi HTTP'ye bağlamak: raf okuma, yedi komut, okurken düzeltme, geçmiş düzeltme ve silme
+  (§ 4). Eski `PUT {status}` ve `DELETE` kendi yazımlarını bırakıp aynı servise geçer; böylece rafa
+  yazan **tek yol** kalır. Arayüz henüz değişmez (4. adım).
+- **Parçalar:**
+  - `cmd/api/shelf.go` (yeni): `shelfService` arayüzü, cevap ve gövde DTO'ları, `writeShelfError`
+    (hata → kod), yedi komutun tek üreticisi `handleShelfCommand` (§ Önemli noktalar "Sonar tekrar
+    kapısı").
+  - `cmd/api/library.go`: eski PUT durumu bir komuta çevirir (`library.CommandForStatus`), DELETE
+    "çıkar" komutudur; liste okurken ilerlemeyi de döner.
+  - `internal/library`: `Repository`'den `Put`/`Remove`, sorgulardan `UpsertLibraryEntry` kalktı;
+    `Shelf`'e `BookID` eklendi (geçmiş uçları kitabı adresten değil kayıttan bilir).
+- **Bu adımda verilen kararlar (§ 4'e de yazıldı):** çıkarma için güncel rafı döndüren
+  `POST …/shelf/remove` eklendi, eski `DELETE` 204 olarak kaldı. Geçmiş kaydını silmek 204 değil
+  200 + raf döner. Komut gövdesi isteğe bağlı; varsa yalnız o komutun alanları kabul edilir.
+- **Sonuç (2026-11-24):**
+  - `TestShelfEndpointsRealDB` (yeni, gerçek Postgres): yönlendirici, handler ve servis birlikte
+    deneniyor. Kapsadığı senaryolar:
+    - iki sekme: eski sürüm 409 `version_conflict` dönüyor, satır değişmiyor (Doğrulama 3'ün API
+      yarısı);
+    - eski `PUT READ` süren okumayı tarihsiz kapatıyor;
+    - başkasının geçmiş kaydı her uçta 404 (9);
+    - tarih ekleme çalışıyor, ters günler 400 `invalid_dates` dönüyor;
+    - `DELETE` kitabı kitaplıktan çıkarıyor, geçmiş kalıyor (5);
+    - geçmişten silme çalışıyor, ikinci silme 404;
+    - yayında olmayan kitap 404, geçersiz ilerleme 400.
+  - Birim testleri (sahte servisle):
+    - her komutun rotası; gövdesiz istek varsayılanlarla çalışıyor;
+    - her komut yalnız kendi alanlarını kabul ediyor (`bitir`'e `mode` 400). Takvimde olmayan gün
+      (`2026-02-30`) ve saatli gün de 400;
+    - `version` zorunlu;
+    - servisin yedi hata türü × beş uç doğru koda düşüyor ve ham hata metni cevaba sızmıyor;
+    - on bir rotanın hepsi token'sız 401;
+    - cevap şekli sözleşme testiyle sabit: kullanıcı kimliği yok, günler `YYYY-AA-GG`.
+  - Eski PUT'un eşlemesi (`TestCommandForStatus`): dört durum, beş başlangıç durumunun her birinden
+    hedefe varıyor (Doğrulama 9).
+  - **Testlerin gerçekten yakaladığı denendi** (bilinçli bozma, sonra geri alındı; dördü de kırmızı):
+    - liste bayat ilerlemeyi de dönünce;
+    - 409 yerine 400 dönünce;
+    - eski `PUT READ` `finish`'e çevrilince;
+    - `bitir` başla'nın gövdesini kabul edince.
+  - **Yan bulgu, düzeltildi:** `ratings` testi bir koşuda "duplicate key users_email_key" ile kırmızı
+    oldu, yeniden koşuda yeşildi. Nedeni şuydu: `testdb.Unique` zaman ve süreç içi sayaçtan üretiliyor,
+    paketler ise ayrı süreçlerde paralel koşuyor. Bu makinede saat çok kaba (sıkı döngüde 100.000
+    çağrının 99.996'sı aynı değer), iki paketin ilk kullanıcısı aynı e-postayı alabiliyordu. Değere
+    süreç kimliği eklendi. CI Linux'ta koştuğu için orada görünmüyordu.
+  - Bütün backend testleri iki kez arka arkaya, `go vet`, golangci-lint (0 sorun), sqlc kontrolü temiz.
+  - `PROJECT_MAP` (`shelf.go`, `library`, `0016`) ve README'deki uç tablosu güncellendi; kalan
+    dokümanlar 7. adımda.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`backend/cmd/api/router.go`](../../backend/cmd/api/router.go) kitaplık grubu: yeni rotalar; yedi
+     komut tek döngüden.
+  2. [`backend/cmd/api/shelf.go`](../../backend/cmd/api/shelf.go): `handleShelfCommand` ve
+     `readCommandInput` (hangi komut hangi alanı kabul eder), `writeShelfError` (hata haritası),
+     `shelfResponse` (cevabın şekli).
+  3. [`backend/cmd/api/library.go`](../../backend/cmd/api/library.go): `handlePutLibraryEntry`,
+     `handleRemoveLibraryEntry` (eski uçlar servise), listede `if row.Status == library.StatusReading`.
+  4. [`backend/internal/library/commands.go`](../../backend/internal/library/commands.go) `CommandForStatus`.
+  5. [`backend/cmd/api/shelf_integration_test.go`](../../backend/cmd/api/shelf_integration_test.go):
+     uçtan uca senaryo; [`shelf_test.go`](../../backend/cmd/api/shelf_test.go) birim testleri.
 
 ## 🪜 17A — adımlar
 
@@ -318,6 +380,7 @@ POST   /api/me/books/{id}/shelf/finish      {ended_on?}
 POST   /api/me/books/{id}/shelf/abandon     {ended_on?}
 POST   /api/me/books/{id}/shelf/postpone
 POST   /api/me/books/{id}/shelf/mark-read
+POST   /api/me/books/{id}/shelf/remove      çıkar, güncel rafı döner (adım 3)
 PATCH  /api/me/books/{id}/shelf/reading     {version, progress?, started_on?, unit?, edition_id?}
 DELETE /api/me/library/{id}                 çıkar (mevcut uç, artık servisten)
 PATCH  /api/me/reading-log/{id}             {started_on?, ended_on?}
@@ -327,7 +390,17 @@ DELETE /api/me/reading-log/{id}
 - Her komut güncel rafı döner (istemci ayrıca GET yapmaz; önbelleğe doğrudan yazar, § Kararlar).
 - Gövdeler ayrı DTO + `DisallowUnknownFields`; başkasının günlük kaydı 404.
 - Hatalar: `version_conflict` (409, yalnız PATCH reading; gövde standart hata zarfı, güncel raf için
-  istemci GET yapar), `invalid_progress` (400), `invalid_dates` (400).
+  istemci GET yapar), `invalid_progress` (400), `invalid_dates` (400), `invalid_edition` (400).
+- **Cevap şekli (2026-11-24, adım 3):** `{book_id, entry, log}`. `entry` null = kitaplıkta değil;
+  `entry.reading` yalnız READING'de dolu, içinde `unit` null = ilerleme henüz girilmedi; `log` en yeni
+  önce, kitaplıkta değilken de dolu olabilir. Günler `"YYYY-AA-GG"` (saatsiz).
+- **Gövdeler (adım 3):** komut gövdesi isteğe bağlı (tek tık = varsayılanlar); varsa yalnız o komutun
+  alanlarını kabul eder: `start` → `mode, edition_id, unit, started_on`; `finish`/`abandon` →
+  `ended_on`; diğerleri yalnız `{}`. Takvimde olmayan ya da saatli gün 400 `validation_error`.
+- **`POST …/shelf/remove` (adım 3, asistan kararı):** ilk listede çıkarma yalnız eski `DELETE`'ti. O uç
+  Faz 15'in gövdesiz 204'üyle kalır (yayın penceresindeki eski arayüz onu bekliyor), yeni arayüz güncel
+  rafı döndüren komutu kullanır ("her komut güncel rafı döner": çıkarma geçmişe satır yazabilir).
+  Aynı gerekçeyle `DELETE /api/me/reading-log/{id}` de 204 değil 200 + raf döner.
 - `GET /api/me/library` kartlar için `unit`, `progress`, `total_pages` de döner (aynı satır, ek JOIN yok).
 
 ### 5. Arayüz: tek raf kontrolü

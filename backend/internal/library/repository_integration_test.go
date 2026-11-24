@@ -3,6 +3,7 @@ package library_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -27,16 +28,16 @@ func countEntries(t *testing.T, pool *pgxpool.Pool, userID, bookID int64) int {
 
 func TestLibraryRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
-	repo := library.NewRepository(pool)
+	repo, svc := library.NewRepository(pool), library.NewService(pool)
 	ctx := context.Background()
 
 	t.Run("ekle, değiştir, tek kayıt kalır", func(t *testing.T) {
 		alice, book := testdb.CreateUser(t, pool, "Okur"), testdb.CreateBook(t, pool, "", books.StatusApproved)
-		e1, err := repo.Put(ctx, alice, book, library.StatusWantToRead)
+		e1, err := put(ctx, svc, alice, book, library.StatusWantToRead)
 		if err != nil || e1.Status != library.StatusWantToRead {
 			t.Fatalf("ilk ekleme: %+v %v", e1, err)
 		}
-		e2, err := repo.Put(ctx, alice, book, library.StatusRead)
+		e2, err := put(ctx, svc, alice, book, library.StatusRead)
 		if err != nil || e2.Status != library.StatusRead {
 			t.Fatalf("durum değişimi: %+v %v", e2, err)
 		}
@@ -50,10 +51,10 @@ func TestLibraryRealDB(t *testing.T) {
 
 	t.Run("yayında olmayan ya da olmayan kitap → ErrNotFound", func(t *testing.T) {
 		alice, pending := testdb.CreateUser(t, pool, "Okur"), testdb.CreateBook(t, pool, "", books.StatusPending)
-		if _, err := repo.Put(ctx, alice, pending, library.StatusRead); !errors.Is(err, books.ErrNotFound) {
+		if _, err := put(ctx, svc, alice, pending, library.StatusRead); !errors.Is(err, books.ErrNotFound) {
 			t.Errorf("bekleyen kitap: err = %v, istenen ErrNotFound", err)
 		}
-		if _, err := repo.Put(ctx, alice, 999_999_999, library.StatusRead); !errors.Is(err, books.ErrNotFound) {
+		if _, err := put(ctx, svc, alice, 999_999_999, library.StatusRead); !errors.Is(err, books.ErrNotFound) {
 			t.Errorf("olmayan kitap: err = %v, istenen ErrNotFound", err)
 		}
 		if n := countEntries(t, pool, alice, pending); n != 0 {
@@ -63,7 +64,7 @@ func TestLibraryRealDB(t *testing.T) {
 
 	t.Run("başkasının kaydı görünmez", func(t *testing.T) {
 		alice, bob, book := testdb.CreateUser(t, pool, "Okur"), testdb.CreateUser(t, pool, "Okur"), testdb.CreateBook(t, pool, "", books.StatusApproved)
-		if _, err := repo.Put(ctx, alice, book, library.StatusReading); err != nil {
+		if _, err := put(ctx, svc, alice, book, library.StatusReading); err != nil {
 			t.Fatal(err)
 		}
 		m, err := repo.Statuses(ctx, bob, []int64{book})
@@ -78,13 +79,13 @@ func TestLibraryRealDB(t *testing.T) {
 
 	t.Run("başkası yazamaz: bob'un ekleme ve silmesi alice'in kaydına dokunmaz", func(t *testing.T) {
 		alice, bob, book := testdb.CreateUser(t, pool, "Okur"), testdb.CreateUser(t, pool, "Okur"), testdb.CreateBook(t, pool, "", books.StatusApproved)
-		if _, err := repo.Put(ctx, alice, book, library.StatusRead); err != nil {
+		if _, err := put(ctx, svc, alice, book, library.StatusRead); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := repo.Put(ctx, bob, book, library.StatusAbandoned); err != nil {
+		if _, err := put(ctx, svc, bob, book, library.StatusAbandoned); err != nil {
 			t.Fatal(err)
 		}
-		if err := repo.Remove(ctx, bob, book); err != nil {
+		if err := remove(ctx, svc, bob, book); err != nil {
 			t.Fatal(err)
 		}
 		if m, err := repo.Statuses(ctx, alice, []int64{book}); err != nil || m[book] != library.StatusRead {
@@ -104,12 +105,12 @@ func TestLibraryRealDB(t *testing.T) {
 
 	t.Run("çıkarmak idempotent ve puana dokunmaz", func(t *testing.T) {
 		alice, book := testdb.CreateUser(t, pool, "Okur"), testdb.CreateBook(t, pool, "", books.StatusApproved)
-		if _, err := repo.Put(ctx, alice, book, library.StatusRead); err != nil {
+		if _, err := put(ctx, svc, alice, book, library.StatusRead); err != nil {
 			t.Fatal(err)
 		}
 		testdb.Exec(t, pool, `INSERT INTO ratings (user_id, book_id, score) VALUES ($1, $2, 8)`, alice, book)
 		for i := range 2 {
-			if err := repo.Remove(ctx, alice, book); err != nil {
+			if err := remove(ctx, svc, alice, book); err != nil {
 				t.Fatalf("%d. çıkarma: %v", i+1, err)
 			}
 		}
@@ -124,17 +125,17 @@ func TestLibraryRealDB(t *testing.T) {
 
 	t.Run("arşivlenen kitap güncellenemez, çıkarılabilir", func(t *testing.T) {
 		alice, book := testdb.CreateUser(t, pool, "Okur"), testdb.CreateBook(t, pool, "", books.StatusApproved)
-		if _, err := repo.Put(ctx, alice, book, library.StatusRead); err != nil {
+		if _, err := put(ctx, svc, alice, book, library.StatusRead); err != nil {
 			t.Fatal(err)
 		}
 		testdb.Exec(t, pool, `UPDATE books SET status = 'ARCHIVED' WHERE id = $1`, book)
-		if _, err := repo.Put(ctx, alice, book, library.StatusReading); !errors.Is(err, books.ErrNotFound) {
+		if _, err := put(ctx, svc, alice, book, library.StatusReading); !errors.Is(err, books.ErrNotFound) {
 			t.Errorf("arşivlenmiş kitapta durum değişimi: err = %v, istenen ErrNotFound", err)
 		}
 		if m, err := repo.Statuses(ctx, alice, []int64{book}); err != nil || m[book] != library.StatusRead {
 			t.Errorf("kayıt eski durumuyla kalmalı: %v %v", m, err)
 		}
-		if err := repo.Remove(ctx, alice, book); err != nil {
+		if err := remove(ctx, svc, alice, book); err != nil {
 			t.Errorf("arşivlenmiş kitap çıkarılabilmeli: %v", err)
 		}
 	})
@@ -156,9 +157,31 @@ func ids(rows []db.ListLibraryRow) []int64 {
 	return out
 }
 
-func mustPut(t *testing.T, repo *library.Repository, userID, bookID int64, status string) {
+// put, kitabı verilen duruma getirir; Faz 15'in Repository.Put'u 17A-1'de kalktı, eski PUT ucu gibi
+// durum komuta çevrilip raf servisinden geçer (library.CommandForStatus).
+func put(ctx context.Context, svc *library.Service, userID, bookID int64, status string) (db.LibraryEntry, error) {
+	c, ok := library.CommandForStatus(status)
+	if !ok {
+		return db.LibraryEntry{}, fmt.Errorf("bilinmeyen durum %q", status)
+	}
+	s, err := svc.Do(ctx, userID, bookID, library.CommandInput{Command: c})
+	if err != nil {
+		return db.LibraryEntry{}, err
+	}
+	if s.Entry == nil {
+		return db.LibraryEntry{}, errors.New("komuttan sonra kitaplık satırı yok")
+	}
+	return *s.Entry, nil
+}
+
+func remove(ctx context.Context, svc *library.Service, userID, bookID int64) error {
+	_, err := svc.Do(ctx, userID, bookID, library.CommandInput{Command: library.CmdRemove})
+	return err
+}
+
+func mustPut(t *testing.T, svc *library.Service, userID, bookID int64, status string) {
 	t.Helper()
-	if _, err := repo.Put(context.Background(), userID, bookID, status); err != nil {
+	if _, err := put(context.Background(), svc, userID, bookID, status); err != nil {
 		t.Fatalf("kitaplığa eklenemedi: %v", err)
 	}
 }
@@ -177,12 +200,12 @@ func mustList(t *testing.T, repo *library.Repository, userID int64, f library.Li
 
 func TestLibraryListRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
-	repo := library.NewRepository(pool)
+	repo, svc := library.NewRepository(pool), library.NewService(pool)
 
 	t.Run("başlık Türkçe alfabeyle sıralanır", func(t *testing.T) {
 		alice := testdb.CreateUser(t, pool, "Okur")
 		for _, title := range []string{"Şato", "Dune", "İnce", "Cesur", "Sapiens", "Ilık", "Çalıkuşu"} {
-			mustPut(t, repo, alice, testdb.CreateBook(t, pool, title, books.StatusApproved), library.StatusRead)
+			mustPut(t, svc, alice, testdb.CreateBook(t, pool, title, books.StatusApproved), library.StatusRead)
 		}
 		rows, total := mustList(t, repo, alice, library.ListFilter{Sort: library.SortTitle})
 		want := []string{"Cesur", "Çalıkuşu", "Dune", "Ilık", "İnce", "Sapiens", "Şato"}
@@ -195,7 +218,7 @@ func TestLibraryListRealDB(t *testing.T) {
 		alice := testdb.CreateUser(t, pool, "Okur")
 		first, second, third := testdb.CreateBook(t, pool, "", books.StatusApproved), testdb.CreateBook(t, pool, "", books.StatusApproved), testdb.CreateBook(t, pool, "", books.StatusApproved)
 		for _, b := range []int64{first, second, third} {
-			mustPut(t, repo, alice, b, library.StatusWantToRead)
+			mustPut(t, svc, alice, b, library.StatusWantToRead)
 		}
 		rows, _ := mustList(t, repo, alice, library.ListFilter{})
 		if want := []int64{third, second, first}; !slices.Equal(ids(rows), want) {
@@ -207,7 +230,7 @@ func TestLibraryListRealDB(t *testing.T) {
 		alice := testdb.CreateUser(t, pool, "Okur")
 		seven, nine, unrated := testdb.CreateBook(t, pool, "", books.StatusApproved), testdb.CreateBook(t, pool, "", books.StatusApproved), testdb.CreateBook(t, pool, "", books.StatusApproved)
 		for _, b := range []int64{unrated, seven, nine} {
-			mustPut(t, repo, alice, b, library.StatusRead)
+			mustPut(t, svc, alice, b, library.StatusRead)
 		}
 		testdb.Exec(t, pool, `INSERT INTO ratings (user_id, book_id, score) VALUES ($1, $2, 7), ($1, $3, 9)`, alice, seven, nine)
 		rows, _ := mustList(t, repo, alice, library.ListFilter{Sort: library.SortMyRating})
@@ -219,9 +242,9 @@ func TestLibraryListRealDB(t *testing.T) {
 	t.Run("durum, tür ve puan filtreleri; sayı eşleşir", func(t *testing.T) {
 		alice, bob := testdb.CreateUser(t, pool, "Okur"), testdb.CreateUser(t, pool, "Okur")
 		read, reading, other := testdb.CreateBook(t, pool, "Vakıf", books.StatusApproved), testdb.CreateBook(t, pool, "Dune Mesihi", books.StatusApproved), testdb.CreateBook(t, pool, "", books.StatusApproved)
-		mustPut(t, repo, alice, read, library.StatusRead)
-		mustPut(t, repo, alice, reading, library.StatusReading)
-		mustPut(t, repo, bob, other, library.StatusRead)
+		mustPut(t, svc, alice, read, library.StatusRead)
+		mustPut(t, svc, alice, reading, library.StatusReading)
+		mustPut(t, svc, bob, other, library.StatusRead)
 		slug := testdb.Unique("tur")
 		var genreID int64
 		if err := pool.QueryRow(context.Background(), `INSERT INTO genres (name, slug) VALUES ($1, $1) RETURNING id`, slug).Scan(&genreID); err != nil {
@@ -258,7 +281,7 @@ func TestLibraryListRealDB(t *testing.T) {
 	t.Run("sayfalama toplamı değiştirmez", func(t *testing.T) {
 		alice := testdb.CreateUser(t, pool, "Okur")
 		for range 3 {
-			mustPut(t, repo, alice, testdb.CreateBook(t, pool, "", books.StatusApproved), library.StatusRead)
+			mustPut(t, svc, alice, testdb.CreateBook(t, pool, "", books.StatusApproved), library.StatusRead)
 		}
 		rows, total := mustList(t, repo, alice, library.ListFilter{Limit: 2, Offset: 2})
 		if len(rows) != 1 || total != 3 {
@@ -269,7 +292,7 @@ func TestLibraryListRealDB(t *testing.T) {
 	t.Run("sonun ötesindeki sayfada satır yok ama toplam doğru", func(t *testing.T) {
 		alice := testdb.CreateUser(t, pool, "Okur")
 		for range 3 {
-			mustPut(t, repo, alice, testdb.CreateBook(t, pool, "", books.StatusApproved), library.StatusRead)
+			mustPut(t, svc, alice, testdb.CreateBook(t, pool, "", books.StatusApproved), library.StatusRead)
 		}
 		rows, total := mustList(t, repo, alice, library.ListFilter{Limit: 2, Offset: 20})
 		if len(rows) != 0 || total != 3 {
@@ -282,7 +305,7 @@ func TestLibraryListRealDB(t *testing.T) {
 
 	t.Run("yüzde işareti joker değil", func(t *testing.T) {
 		alice := testdb.CreateUser(t, pool, "Okur")
-		mustPut(t, repo, alice, testdb.CreateBook(t, pool, "Martin Eden", books.StatusApproved), library.StatusRead)
+		mustPut(t, svc, alice, testdb.CreateBook(t, pool, "Martin Eden", books.StatusApproved), library.StatusRead)
 		for _, q := range []string{"%", "_"} {
 			if _, total := mustList(t, repo, alice, library.ListFilter{Query: q}); total != 0 {
 				t.Errorf("q=%q: toplam %d, istenen 0", q, total)
@@ -292,7 +315,7 @@ func TestLibraryListRealDB(t *testing.T) {
 
 	t.Run("arşivlenen kitap in_catalog=false ile listede", func(t *testing.T) {
 		alice, book := testdb.CreateUser(t, pool, "Okur"), testdb.CreateBook(t, pool, "", books.StatusApproved)
-		mustPut(t, repo, alice, book, library.StatusRead)
+		mustPut(t, svc, alice, book, library.StatusRead)
 		rows, _ := mustList(t, repo, alice, library.ListFilter{})
 		if len(rows) != 1 || !rows[0].InCatalog {
 			t.Fatalf("yayındaki kitap in_catalog=true olmalı: %+v", rows)
