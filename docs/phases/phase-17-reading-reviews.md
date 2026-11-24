@@ -115,6 +115,61 @@ doğrulanır.
 - **17B — inceleme:** migration `0018_reviews`, `internal/reviews`, inceleme uçları ve admin gizleme,
   kitap sayfasında İncelemeler bölümü, spoiler gösterimi, bitirince inceleme daveti.
 
+## 🧭 17A-1 nasıl takip edilecek
+
+Faz 16d'deki gibi: asistan bir adımı yazar, **commit etmez**; o adımın kaydını aşağıya yazar (amaç,
+sonuç, bakılacak yerler). Testleri asistan koşturur, CI her PR'da yeniden koşar; kullanıcıdan elle
+deneme beklenmez (2026-11-24). Kullanıcı VS Code'da okur (*Source Control* → dosyaya tıkla:
+önce/sonra yan yana); "tamam" deyince adım commit edilir. Bütün adımlar `feat/80-okuma-takibi` dalında
+birikir ve tek PR olur. Her adım testleri yeşil bırakır.
+
+| Adım | İçerik | Durum |
+| --- | --- | --- |
+| 0 | Spec'in koda göre gözden geçirilmesi | ✅ PR #120 (2026-11-24) |
+| 1 | `0016_reading.sql` + sqlc sorguları + migration testi | ✅ commit (2026-11-24) |
+| 2 | `internal/library` servisi: durum makinesi, tablo testleri | — |
+| 3 | API: komut uçları, reading PATCH, günlük uçları; eski `PUT {status}` servise | — |
+| 4 | Arayüz veri katmanı: tipler, raf kancaları, yerel tarih yardımcısı | — |
+| 5 | Arayüz: tek raf kontrolü, onaylar, 409 akışı, geçmiş | — |
+| 6 | Kitaplığım kartlarında ilerleme | — |
+| 7 | Playwright (iki sekme 409 dahil), dokümanlar, PR | — |
+
+### Adım 1 — Şema ve sorgular
+
+- **Amaç:** okuma takibinin veritabanı tarafı: kitaplık satırına okuma alanları, kapanmış okumalar için
+  `reading_log`, servisin (adım 2) kullanacağı sorgular. Bu adımda hiçbir uç ve ekran değişmez.
+- **Neden ayrı bir adım:** migration canlıya kod çıkmadan **önce** uygulanır ve o an çalışan eski kodla
+  uyumlu olmalı. Bunu tek başına sınamak, "şema eski kodu bozdu mu" sorusunu ayrı cevaplar.
+- **Sonuç (2026-11-24):**
+  - `TestMigration0016AddsReadingColumns` (yeni): Faz 15'ten kalan "Şu an okuyorum" kaydı 0016'dan sonra
+    yerinde, okuma alanları boş, `version` 1; **eski kodun yazımı** (sqlc'nin ürettiği
+    `UpsertLibraryEntry`) hâlâ çalışıyor; `reading_log` bitişi başlangıçtan önce olan ve
+    FINISHED/ABANDONED dışı sonucu reddediyor; Down kolonları ve tabloyu kaldırıp kayıtları koruyor.
+  - `TestEveryForeignKeyHasIndex` yeşil. Kuralın gerçekten yakaladığı da denendi: `reading_log_book_idx`
+    geçici olarak silinince test `reading_log.book_id` için kırmızı oldu, dosya geri kondu.
+  - Yerel yükseltme sınaması (`scripts/upgrade-check.sh`, `release`'in şeması ve demo verisi üstüne):
+    0016 dolu tablolara uygulandı (şema sürümü 16). Betik commit'lenmemiş dosyayı "beklenmeyen" saydığı
+    için son satırda durdu; asıl sınama PR'da CI'ın **Yükseltme** işi.
+  - Bütün backend testleri (veritabanı ve Redis dahil), `go vet`, golangci-lint (0 sorun) temiz.
+  - sqlc'nin `RETURNING *`'ı üretim anında açık kolon listesine çevirdiği `internal/db/library.sql.go`'da
+    görüldü: eski kodun yeni kolonları hiç istememesinin nedeni bu (migration'daki not).
+  - pgx'in `date` ↔ `time.Time` dönüşümü kaynağında doğrulandı (`pgtype/date.go`: yazarken yalnız
+    yıl/ay/gün, okurken gece yarısı UTC); `sqlc.yaml`'a boş olabilen `date` → `*time.Time` kuralı eklendi.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`backend/migrations/0016_reading.sql`](../../backend/migrations/0016_reading.sql): başlıktaki geriye
+     uyum, tarih ve sürüm notları; yabancı anahtar index'leri neden kısmi.
+  2. [`backend/sql/queries/library.sql`](../../backend/sql/queries/library.sql) sonundaki "Raf" bölümü:
+     `LockShelf` neden `FOR UPDATE`, `SaveShelf` neden tek yazma yolu ve kitap yayında değilse ne olur,
+     `GetReadingEdition` baskıyı nasıl seçer. `ListLibrary`'ye üç kolon eklendi.
+  3. [`backend/sql/queries/reading_log.sql`](../../backend/sql/queries/reading_log.sql): her sorgu neden
+     `user_id` ile süzülüyor (IDOR), "Devam et" en son kaydı neden kilitliyor.
+  4. [`backend/sqlc.yaml`](../../backend/sqlc.yaml): `date` kuralı.
+  5. [`backend/internal/database/migrate_0016_integration_test.go`](../../backend/internal/database/migrate_0016_integration_test.go).
+  6. `backend/internal/db/*.go`: sqlc'nin ürettiği kod; okumana gerek yok.
+- **Elle deneme yok (kullanıcı kararı, 2026-11-24):** bu testler CI'ın Backend işinde gerçek bir
+  Postgres'le her PR'da koşar (`ci.yml`, `TEST_DATABASE_URL`); asistan da her adımda yerelde koşturup
+  sonucu buraya yazar. Kullanıcı yalnız okur.
+
 ## 🪜 17A — adımlar
 
 ### 1. Şema: `0016_reading.sql` (genişletme)

@@ -32,7 +32,10 @@ DELETE FROM library_entries WHERE user_id = $1 AND book_id = $2;
 WITH q AS MATERIALIZED (
     SELECT search_tsquery(search_fold(sqlc.narg('query')::text), '') AS tsq
 )
+-- Okuma alanları (Faz 17) kartlardaki ilerleme için; anlamları yalnız status = 'READING' iken var
+-- (0017'ye kadar başka durumda bayat kalabilirler, Go tarafı bakmaz).
 SELECT sqlc.embed(b), le.status, le.created_at AS added_at, r.score AS my_rating,
+       le.unit, le.progress, le.total_pages,
        (b.status = 'APPROVED')::boolean AS in_catalog,
        count(*) OVER () AS total
 FROM library_entries le
@@ -59,3 +62,47 @@ LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 -- name: ListLibraryStatuses :many
 SELECT book_id, status FROM library_entries
 WHERE user_id = sqlc.arg('user_id') AND book_id = ANY(sqlc.arg('book_ids')::bigint[]);
+
+-- ── Raf (Faz 17A-1): okuma takibinin durum makinesi (internal/library servisi) ──────────────────
+-- Her komut tek transaction: önce LockShelf satırı kilitler (yoksa "kitaplıkta değil"), servis yeni
+-- durumu hesaplar, SaveShelf yazar. Okuma alanlarının anlamı yalnız status = 'READING' iken var.
+
+-- Kitap sayfası için okuma (kilitsiz).
+-- name: GetShelf :one
+SELECT * FROM library_entries WHERE user_id = $1 AND book_id = $2;
+
+-- Aynı satır, transaction sonuna kadar kilitli: aynı kayda gelen ikinci komut ilki bitene kadar
+-- bekler, sonra güncel satırı görür (çift tık iki günlük satırı yazamaz).
+-- name: LockShelf :one
+SELECT * FROM library_entries WHERE user_id = $1 AND book_id = $2 FOR UPDATE;
+
+-- Rafın TEK yazma yolu: durum ve okuma alanları birlikte, version her yazımda artar. Kitap yayında
+-- değilse SELECT satır üretmez, hiçbir şey yazılmaz → pgx.ErrNoRows → 404 (UpsertLibraryEntry'nin
+-- kuralı). Satır yoksa (iki komut aynı anda "kitaplıkta değil" gördüyse) ikinci INSERT çakışır ve
+-- ilk transaction'ın bitmesini bekleyip güncellemeye döner.
+-- name: SaveShelf :one
+INSERT INTO library_entries (user_id, book_id, status, edition_id, unit, progress, total_pages, started_on)
+SELECT sqlc.arg('user_id')::bigint, b.id, sqlc.arg('status')::text, sqlc.narg('edition_id')::bigint,
+       sqlc.narg('unit')::text, sqlc.narg('progress')::integer, sqlc.narg('total_pages')::integer,
+       sqlc.narg('started_on')::date
+FROM books b
+WHERE b.id = sqlc.arg('book_id') AND b.status = 'APPROVED'
+ON CONFLICT (user_id, book_id)
+DO UPDATE SET status      = EXCLUDED.status,
+              edition_id  = EXCLUDED.edition_id,
+              unit        = EXCLUDED.unit,
+              progress    = EXCLUDED.progress,
+              total_pages = EXCLUDED.total_pages,
+              started_on  = EXCLUDED.started_on,
+              version     = library_entries.version + 1,
+              updated_at  = now()
+RETURNING *;
+
+-- Okumanın baskısı ve sayfa toplamının anlık görüntüsü (kavram 7). edition_id verilmişse o kitabın o
+-- baskısı (başka kitabın baskısı satır üretmez → servis 400 der), verilmemişse varsayılan baskı
+-- (varsayılanı olmayan kitapta satır yok → baskısız, toplamı bilinmeyen okuma).
+-- name: GetReadingEdition :one
+SELECT id, page_count FROM editions
+WHERE book_id = sqlc.arg('book_id')
+  AND CASE WHEN sqlc.narg('edition_id')::bigint IS NULL THEN is_primary
+           ELSE id = sqlc.narg('edition_id') END;
