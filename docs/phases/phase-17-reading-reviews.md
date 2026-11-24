@@ -131,7 +131,7 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 | 3 | API: komut uçları, reading PATCH, günlük uçları; eski `PUT {status}` servise | ✅ commit (2026-11-24) |
 | 4 | Arayüz veri katmanı: tipler, raf kancaları, yerel tarih yardımcısı | ✅ commit (2026-11-24) |
 | 5 | Arayüz: tek raf kontrolü, onaylar, 409 akışı, geçmiş | ✅ commit (2026-11-25) |
-| 6 | Kitaplığım kartlarında ilerleme | — |
+| 6 | Kitaplığım kartlarında ilerleme | ✅ commit (2026-11-25) |
 | 7 | Playwright (iki sekme 409 dahil), dokümanlar, PR | — |
 
 ### Adım 1 — Şema ve sorgular
@@ -384,6 +384,34 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
   4. [`frontend/src/components/ReadingHistory.tsx`](../../frontend/src/components/ReadingHistory.tsx).
   5. [`frontend/src/components/LibraryButton.test.tsx`](../../frontend/src/components/LibraryButton.test.tsx)
      "ilerleme ve 409" bölümü.
+
+### Adım 6 — Kitaplığım kartlarında ilerleme
+
+- **Amaç:** "Şu an okuyorum" kartlarında ilerleme (§ 5 "Kitaplığım"; yalnız gösterim, komutlar kitap
+  sayfasında, § Kararlar "Kitaplığım kartları").
+- **Parçalar:**
+  - `components/ReadingProgress.tsx` (yeni): çubuk + metin. Kitap sayfasındaki raf kontrolü de artık
+    bunu kullanıyor (adım 5'teki `ProgressLine` buraya taşındı): iki yerde aynı biçim, aynı metin
+    (`lib/shelf.ts`).
+  - `pages/Library.tsx`: kartta yalnız `status === "READING"` ise ilerleme. Çıkarma onayında
+    "okuma geçmişin silinmez" de yazıyor (katalogdan kalkmış ama okunan bir kitap çıkarılırken günlüğe
+    yazılabilir).
+- **Bu adımda verilen kararlar (asistan):**
+  - Kartta ilerleme girilmemişse **hiçbir şey** yazmaz (kitap sayfası "İlerlemeni henüz girmedin" der):
+    kartlar yalnız gösterim, yapılacak bir şey önermeyen bir satır ızgarada gürültü olurdu.
+  - Her kartta bir çubuk olduğu için çubuğun erişilebilir adı kitabı da söylüyor ("Dune: okuma
+    ilerlemen"); yoksa ekran okuyucu on iki aynı ad okurdu.
+  - İstemci de durumu denetliyor: sunucu alanları yalnız READING'de doldurur (adım 3), gelse bile başka
+    durumda gösterilmez.
+- **Sonuç (2026-11-25):**
+  - `Library.test.tsx`'e altı test: sayfa (toplamlı), yüzde, toplamsız sayfa (çubuk yok); girilmemiş
+    ilerleme, toplamsız 0 sayfa ve okunmayan kitapta kartta ilerleme yok (Doğrulama 8).
+  - **Testlerin gerçekten yakaladığı denendi:** durum koşulu kaldırılınca ve çubuğun adından kitap
+    çıkarılınca kırmızı (ikisi de, sonra geri alındı).
+  - Bütün frontend testleri (485), `typecheck` temiz.
+- **Bakılacak yerler:**
+  1. [`frontend/src/components/ReadingProgress.tsx`](../../frontend/src/components/ReadingProgress.tsx).
+  2. [`frontend/src/pages/Library.tsx`](../../frontend/src/pages/Library.tsx) kartın `extra`'sı.
 
 ## 🪜 17A — adımlar
 

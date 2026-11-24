@@ -5,14 +5,15 @@ import {
   useDeleteReadingLog, useShelf, useShelfCommand, useUpdateReading, useUpdateReadingLog,
 } from "../api/libraryQueries";
 import { useMyRating } from "../api/queries";
-import type { Edition, Reading, Shelf, ShelfCommand } from "../api/types";
+import type { Edition, Shelf, ShelfCommand } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { today } from "../lib/day";
 import { libraryStatusLabel } from "../lib/format";
 import {
-  abandonedText, closedReadingOf, commandToast, finishedText, hasProgress, progressPercent, progressText,
+  abandonedText, closedReadingOf, commandToast, finishedText, hasProgress, progressText,
 } from "../lib/shelf";
 import { ReadingHistory } from "./ReadingHistory";
+import { ReadingProgress } from "./ReadingProgress";
 import { ProgressForm, ReadingEditForm } from "./ShelfForms";
 import { useToast } from "./toast";
 import { Badge } from "./ui/badge";
@@ -142,7 +143,7 @@ export function ShelfControl({ bookId, editions, onRate }: { bookId: number; edi
   return (
     <div role="group" aria-label="Kitaplık" className="flex flex-col gap-3">
       {entry && <StatusLine shelf={shelf} closed={closed} busy={busy} onEditDates={setEditingLog} />}
-      {current && <ProgressLine reading={current} />}
+      {current && <ReadingProgress reading={current} label="Okuma ilerlemen" empty="İlerlemeni henüz girmedin" />}
 
       <div className="flex flex-wrap items-center gap-2">
         {entry ? (
@@ -253,33 +254,6 @@ function StatusLine({ shelf, closed, busy, onEditDates }: {
       </Badge>
       {detail}
     </p>
-  );
-}
-
-/**
- * Süren okumanın ilerlemesi. Oran biliniyorsa çubuk (role="progressbar", ekran okuyucu metni de okur);
- * girilmemişse yalnız bir cümle. Toplamı bilinmeyen sayfada çubuk yok: neyin yüzdesi olduğu bilinmiyor.
- */
-function ProgressLine({ reading }: { reading: Reading }) {
-  const text = progressText(reading);
-  const percent = progressPercent(reading);
-  return (
-    <div className="flex max-w-sm flex-col gap-1.5">
-      {percent !== null && (
-        <div
-          role="progressbar"
-          aria-label="Okuma ilerlemen"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-          aria-valuetext={text ?? undefined}
-          className="h-2 overflow-hidden rounded-full bg-muted"
-        >
-          <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${percent}%` }} />
-        </div>
-      )}
-      <p className="text-sm tabular-nums text-muted-foreground">{text ?? "İlerlemeni henüz girmedin"}</p>
-    </div>
   );
 }
 

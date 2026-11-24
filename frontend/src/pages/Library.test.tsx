@@ -160,6 +160,35 @@ describe("Library", () => {
     expect(card.textContent).toContain("Puanım: 8");
   });
 
+  // Faz 17A-1 adım 6: okunan kitabın kartında ilerleme; çubuğun adı kitabı da söyler (her kartta bir çubuk).
+  it.each([
+    ["sayfa, toplam biliniyor", { unit: "page", progress: 42, total_pages: 310 }, "42 / 310 sayfa", "14"],
+    ["yüzde", { unit: "percent", progress: 35, total_pages: null }, "%35", "35"],
+    ["sayfa, toplam bilinmiyor (çubuk yok)", { unit: "page", progress: 42, total_pages: null }, "42. sayfa", null],
+  ] as const)("okunan kartta ilerleme: %s", async (_name, progress, text, now) => {
+    reply = () => pageOf([itemOf(1, { status: "READING", ...progress })]);
+    const { el } = await render("/library");
+    const card = el.querySelector('[aria-label="Kitaplığım"] li')!;
+    expect(card.textContent).toContain(text);
+    const bar = card.querySelector("[role=progressbar]");
+    expect(bar?.getAttribute("aria-valuenow") ?? null).toBe(now);
+    if (bar) expect(bar.getAttribute("aria-label")).toBe("Kitap 1: okuma ilerlemen");
+  });
+
+  it.each([
+    // Faz 15'ten kalan "Şu an okuyorum" ve toplamı bilinmeyen 0 sayfa: kartta ilerleme yok, "0 sayfa" da yok.
+    ["girilmemiş ilerleme", "READING", { unit: null, progress: null, total_pages: null }],
+    ["toplamsız 0 sayfa", "READING", { unit: "page", progress: 0, total_pages: null }],
+    // Sunucu bu alanları yalnız READING'de doldurur; gelse bile başka durumda gösterilmez.
+    ["okunmayan kitap", "READ", { unit: "page", progress: 42, total_pages: 310 }],
+  ] as const)("kartta ilerleme yok: %s", async (_name, status, progress) => {
+    reply = () => pageOf([itemOf(1, { status, ...progress })]);
+    const { el } = await render("/library");
+    const card = el.querySelector('[aria-label="Kitaplığım"] li')!;
+    expect(card.querySelector("[role=progressbar]")).toBeNull();
+    expect(card.textContent).not.toMatch(/sayfa|%/);
+  });
+
   it("katalogdan kaldırılan kart: bağlantı yok, yalnız çıkar", async () => {
     reply = () => pageOf([itemOf(5, { in_catalog: false })]);
     const { el } = await render("/library");
@@ -188,7 +217,7 @@ describe("Library", () => {
     const { el, params } = await render("/library?offset=12");
     await click(buttonIn(el.querySelector('[aria-label="Kitaplığım"] li')!, "Çıkar"));
     const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
-    expect(dialog.textContent).toContain("Puanın ve yorumların silinmez");
+    expect(dialog.textContent).toContain("Puanın, yorumların ve okuma geçmişin silinmez");
     await click(buttonIn(dialog, "Çıkar"));
     expect(calls.removeFromLibrary).toEqual([[13]]);
     expect(params().has("offset")).toBe(false);
