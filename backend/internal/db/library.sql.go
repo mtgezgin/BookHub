@@ -10,6 +10,20 @@ import (
 	"time"
 )
 
+const bookIsApproved = `-- name: BookIsApproved :one
+SELECT EXISTS (SELECT 1 FROM books WHERE id = $1 AND status = 'APPROVED')
+`
+
+// Komutlar yalnız yayındaki kitapta çalışır (Faz 15 kuralı); "kitaplıktan çıkar" hariç. Hiçbir şey
+// yazmayan bir komut (ör. ikinci "Bitirdim") da yayında olmayan kitapta 404 dönsün diye ayrı sorgu:
+// SaveShelf'in kendi denetimi yalnız yazan komutları kapsar.
+func (q *Queries) BookIsApproved(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, bookIsApproved, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const deleteLibraryEntry = `-- name: DeleteLibraryEntry :exec
 DELETE FROM library_entries WHERE user_id = $1 AND book_id = $2
 `
@@ -271,6 +285,26 @@ func (q *Queries) LockShelf(ctx context.Context, arg LockShelfParams) (LibraryEn
 		&i.Version,
 	)
 	return i, err
+}
+
+const lockShelfKey = `-- name: LockShelfKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended(
+    'library_entries:' || $1::bigint || ':' || $2::bigint, 0))
+`
+
+type LockShelfKeyParams struct {
+	UserID int64 `json:"user_id"`
+	BookID int64 `json:"book_id"`
+}
+
+// Aynı (kullanıcı, kitap) çiftine gelen komutları SIRAYA sokar; transaction bitince kendiliğinden
+// bırakılır. NEDEN FOR UPDATE yetmiyor: kitap kitaplıkta yokken kilitlenecek satır da yoktur; iki
+// eşzamanlı "Zaten okudum" ikisi de "yok" görüp iki günlük satırı yazardı. Danışma kilidi (advisory
+// lock) bir satıra değil bir SAYIYA konur, satır olmadan da çalışır. Sayı anahtarın özetidir; iki farklı
+// çiftin özeti çakışırsa yalnız birbirini bekler, yanlış sonuç üretmez.
+func (q *Queries) LockShelfKey(ctx context.Context, arg LockShelfKeyParams) error {
+	_, err := q.db.Exec(ctx, lockShelfKey, arg.UserID, arg.BookID)
+	return err
 }
 
 const saveShelf = `-- name: SaveShelf :one

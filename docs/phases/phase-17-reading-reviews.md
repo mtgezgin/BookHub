@@ -127,7 +127,7 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 | --- | --- | --- |
 | 0 | Spec'in koda göre gözden geçirilmesi | ✅ PR #120 (2026-11-24) |
 | 1 | `0016_reading.sql` + sqlc sorguları + migration testi | ✅ commit (2026-11-24) |
-| 2 | `internal/library` servisi: durum makinesi, tablo testleri | — |
+| 2 | `internal/library` servisi: durum makinesi, tablo testleri | ✅ commit (2026-11-24) |
 | 3 | API: komut uçları, reading PATCH, günlük uçları; eski `PUT {status}` servise | — |
 | 4 | Arayüz veri katmanı: tipler, raf kancaları, yerel tarih yardımcısı | — |
 | 5 | Arayüz: tek raf kontrolü, onaylar, 409 akışı, geçmiş | — |
@@ -169,6 +169,45 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 - **Elle deneme yok (kullanıcı kararı, 2026-11-24):** bu testler CI'ın Backend işinde gerçek bir
   Postgres'le her PR'da koşar (`ci.yml`, `TEST_DATABASE_URL`); asistan da her adımda yerelde koşturup
   sonucu buraya yazar. Kullanıcı yalnız okur.
+
+### Adım 2 — Durum makinesi servisi
+
+- **Amaç:** kullanıcının niyet komutlarını (başla, bitir, yarım bırak, ertele, zaten okudum, çıkar) ve
+  okurken düzeltmeyi (ilerleme, birim, baskı, başlangıç günü) tek transaction'da uygulayan servis; geçmişte
+  tarih düzeltme ve silme. Bu adımda uç yok: servisi 3. adımdaki handler'lar çağıracak.
+- **İki parça:**
+  - `commands.go`: **saf** durum makinesi (`resolve`). Veritabanını bilmez; (durum, komut) → etki. Faz 4'ün
+    `moderation.Next`'iyle aynı fikir: kural tek yerde, bütün tablo testle gezilir. Dokuz komut × beş
+    durum, sekiz etkiye iner.
+  - `service.go`: etkiyi veritabanında uygular. Sıra her komutta aynı: kitap yayında mı → (kullanıcı,
+    kitap) kilidi → satır `FOR UPDATE` → `resolve` → yazım → güncel raf.
+- **Sonuç (2026-11-24):**
+  - `TestResolveExhaustive`: 45 çiftin tamamı beklenen etkide, hiçbiri hata dönmüyor.
+  - `TestShelfEveryPairRealDB` (Doğrulama 1): 45 çiftin her biri gerçek veritabanında **iki kez**
+    gönderiliyor. İlki beklenen duruma geçip beklenen sayıda günlük satırı yazıyor; ikincisi ne durumu ne
+    günlüğü ne sürümü değiştiriyor.
+  - Gerçek veritabanında ayrıca: başlarken toplamın görüntüsü (admin sayfa sayısını değiştirse de
+    okuma 300'de kalıyor), devam et / baştan başla (Doğrulama 6), bitiş günü kuralı (4), ertele ve
+    çıkarmada günlük (5), yayında olmayan kitapta 404 ama çıkarmak çalışıyor, sınır dışı ilerleme (2), eski
+    sürümle 409 (3'ün servis yarısı), Faz 15'ten kalan okumanın ilk ilerlemesi (8), başkasının günlük kaydı
+    404 (9), transaction ortasındaki hatada hiçbir şeyin değişmemesi (7).
+  - **Testlerin gerçekten yakaladığı denendi** (bilinçli bozma, sonra geri alındı): danışma kilidi
+    kaldırılınca eşzamanlı iki "Zaten okudum" günlüğe 2 satır yazdı ve test kırmızı oldu; "Devam et"in
+    günlük satırını silmesi kaldırılınca üç test kırmızı oldu.
+  - Bütün backend testleri, `go vet`, golangci-lint (0 sorun), sqlc kontrolü temiz.
+  - Uygulamada netleşen çiftler ve kilit kararı yukarıda, § 3'te.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`backend/internal/library/commands.go`](../../backend/internal/library/commands.go) `resolve`: makinenin
+     tamamı tek fonksiyonda; üstündeki çizim.
+  2. [`backend/internal/library/commands_test.go`](../../backend/internal/library/commands_test.go)
+     `TestResolveExhaustive`: beklenen tablo, spec'in tablosunun kod hâli.
+  3. [`backend/internal/library/service.go`](../../backend/internal/library/service.go): `Do` (sıra),
+     `writer.apply` (her etki ne yazar), `resume`, `snapshot` (baskı ve birim seçimi), `UpdateReading`
+     (404 ile 409'u neden kilitleyip ayırıyor), `withLog` (kilit sırası).
+  4. [`backend/sql/queries/library.sql`](../../backend/sql/queries/library.sql) sonu: `BookIsApproved` ve
+     `LockShelfKey` (danışma kilidi neden).
+  5. [`backend/internal/library/service_integration_test.go`](../../backend/internal/library/service_integration_test.go):
+     senaryolar, Doğrulama numaralarıyla.
 
 ## 🪜 17A — adımlar
 
@@ -254,6 +293,16 @@ Her komut tek transaction; satır `FOR UPDATE` ile kilitlenir, `version` her yaz
 - Tabloda olmayan (komut, durum) çiftleri hedef durumdaysa **hiçbir şey yapmaz** (çift tık, yeniden
   deneme), değilse en yakın tanımlı komuta çevrilir: READING'de `mark-read` = tarihsiz `finish`,
   READING'de `want` = `postpone`. Hiçbiri hata değildir.
+- **Uygulamada netleşen çiftler (2026-11-24, adım 2):** okumuyorken `finish` = `mark-read` (verilen bitiş
+  günüyle); READ ya da ABANDONED'dan `want`/`postpone` = yalnız durum (okuma zaten kapanmış); okumuyorken
+  `abandon` = yalnız durum (eski `PUT`'un davranışı); READ'den `start` = yeniden okuma. `mark-read`
+  gelen tarihi yok sayar. Tam tablo: `internal/library/commands_test.go` `TestResolveExhaustive`.
+- **Kilit (2026-11-24):** satır `FOR UPDATE` yetmiyor, çünkü kitap kitaplıkta yokken kilitlenecek satır
+  yok: iki eşzamanlı "Zaten okudum" ikisi de "yok" görüp günlüğe iki satır yazardı (testte görüldü).
+  Her komut önce (kullanıcı, kitap) için bir **danışma kilidi** (`pg_advisory_xact_lock`) alır; kilit
+  bir satıra değil bir sayıya konur, transaction bitince bırakılır. Günlük işlemleri de aynı sırayla
+  kilitler (raf → günlük), yoksa "Devam et" ile "geçmişten sil" birbirini bekleyip kilitlenirdi.
+- Yeni hata kodu: `invalid_edition` (400) — seçilen baskı bu kitabın değil.
 - `resume`'da geri alınacak kayıt yoksa (Faz 15'ten kalan ABANDONED) `restart` gibi davranır.
 - Kitap yayında değilse ekleyen/başlatan komutlar 404 (Faz 15 kuralı); `remove` her zaman çalışır.
 - Eski `PUT {status}`: WANT_TO_READ → `want`, READING → `start` (ABANDONED'dan `resume`), READ →

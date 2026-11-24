@@ -1,7 +1,9 @@
-// Package library, kişisel kitaplığın veri erişim katmanı (Faz 15).
+// Package library, kişisel kitaplık (Faz 15) ve okuma takibi (Faz 17A-1).
 //
-// Service katmanı yok: iş kuralları (yalnız yayındaki kitap eklenir, kayıt sahibine aittir)
-// SQL'de yaşıyor, Go'da yapılacak bir karar kalmıyor (GO_CONVENTIONS §4).
+// Faz 15'te yalnız bu repository vardı: iş kuralları (yalnız yayındaki kitap eklenir, kayıt sahibine
+// aittir) SQL'de yaşıyordu. Faz 17'de okuma takibiyle gerçek iş mantığı geldi (durum makinesi, günlük,
+// sürüm); yazımlar artık Service'te (service.go, commands.go), listeler ve rozetler burada kalır
+// (GO_CONVENTIONS §4: katman, mantık çıkınca eklenir).
 package library
 
 import (

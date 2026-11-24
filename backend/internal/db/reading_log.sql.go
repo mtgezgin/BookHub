@@ -28,6 +28,37 @@ func (q *Queries) DeleteReadingLog(ctx context.Context, arg DeleteReadingLogPara
 	return result.RowsAffected(), nil
 }
 
+const getReadingLog = `-- name: GetReadingLog :one
+SELECT id, user_id, book_id, edition_id, outcome, unit, progress, total_pages, started_on, ended_on, created_at FROM reading_log WHERE id = $1 AND user_id = $2
+`
+
+type GetReadingLogParams struct {
+	ID     int64 `json:"id"`
+	UserID int64 `json:"user_id"`
+}
+
+// Günlük kaydı hangi kitabın? Servis önce bunu kilitsiz okur, sonra o kitabın raf kilidini alır,
+// en son satırı kilitler: komutlarla AYNI kilit sırası (raf → günlük), yoksa "Devam et" ile
+// "geçmişten sil" birbirini bekleyip kilitlenebilirdi (deadlock).
+func (q *Queries) GetReadingLog(ctx context.Context, arg GetReadingLogParams) (ReadingLog, error) {
+	row := q.db.QueryRow(ctx, getReadingLog, arg.ID, arg.UserID)
+	var i ReadingLog
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.BookID,
+		&i.EditionID,
+		&i.Outcome,
+		&i.Unit,
+		&i.Progress,
+		&i.TotalPages,
+		&i.StartedOn,
+		&i.EndedOn,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertReadingLog = `-- name: InsertReadingLog :exec
 
 INSERT INTO reading_log (user_id, book_id, edition_id, outcome, unit, progress, total_pages, started_on, ended_on)

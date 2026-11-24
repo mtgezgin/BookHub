@@ -106,3 +106,18 @@ SELECT id, page_count FROM editions
 WHERE book_id = sqlc.arg('book_id')
   AND CASE WHEN sqlc.narg('edition_id')::bigint IS NULL THEN is_primary
            ELSE id = sqlc.narg('edition_id') END;
+
+-- Komutlar yalnız yayındaki kitapta çalışır (Faz 15 kuralı); "kitaplıktan çıkar" hariç. Hiçbir şey
+-- yazmayan bir komut (ör. ikinci "Bitirdim") da yayında olmayan kitapta 404 dönsün diye ayrı sorgu:
+-- SaveShelf'in kendi denetimi yalnız yazan komutları kapsar.
+-- name: BookIsApproved :one
+SELECT EXISTS (SELECT 1 FROM books WHERE id = $1 AND status = 'APPROVED');
+
+-- Aynı (kullanıcı, kitap) çiftine gelen komutları SIRAYA sokar; transaction bitince kendiliğinden
+-- bırakılır. NEDEN FOR UPDATE yetmiyor: kitap kitaplıkta yokken kilitlenecek satır da yoktur; iki
+-- eşzamanlı "Zaten okudum" ikisi de "yok" görüp iki günlük satırı yazardı. Danışma kilidi (advisory
+-- lock) bir satıra değil bir SAYIYA konur, satır olmadan da çalışır. Sayı anahtarın özetidir; iki farklı
+-- çiftin özeti çakışırsa yalnız birbirini bekler, yanlış sonuç üretmez.
+-- name: LockShelfKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended(
+    'library_entries:' || sqlc.arg('user_id')::bigint || ':' || sqlc.arg('book_id')::bigint, 0));

@@ -25,6 +25,12 @@ ORDER BY created_at DESC, id DESC
 LIMIT 1
 FOR UPDATE;
 
+-- Günlük kaydı hangi kitabın? Servis önce bunu kilitsiz okur, sonra o kitabın raf kilidini alır,
+-- en son satırı kilitler: komutlarla AYNI kilit sırası (raf → günlük), yoksa "Devam et" ile
+-- "geçmişten sil" birbirini bekleyip kilitlenebilirdi (deadlock).
+-- name: GetReadingLog :one
+SELECT * FROM reading_log WHERE id = $1 AND user_id = $2;
+
 -- Tarih düzeltmesi: servis kilitli satırın üstüne yalnız gönderilen alanları uygular.
 -- name: LockReadingLog :one
 SELECT * FROM reading_log WHERE id = $1 AND user_id = $2 FOR UPDATE;
