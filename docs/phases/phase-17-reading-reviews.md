@@ -129,7 +129,7 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 | 1 | `0016_reading.sql` + sqlc sorguları + migration testi | ✅ commit (2026-11-24) |
 | 2 | `internal/library` servisi: durum makinesi, tablo testleri | ✅ commit (2026-11-24) |
 | 3 | API: komut uçları, reading PATCH, günlük uçları; eski `PUT {status}` servise | ✅ commit (2026-11-24) |
-| 4 | Arayüz veri katmanı: tipler, raf kancaları, yerel tarih yardımcısı | — |
+| 4 | Arayüz veri katmanı: tipler, raf kancaları, yerel tarih yardımcısı | ✅ commit (2026-11-24) |
 | 5 | Arayüz: tek raf kontrolü, onaylar, 409 akışı, geçmiş | — |
 | 6 | Kitaplığım kartlarında ilerleme | — |
 | 7 | Playwright (iki sekme 409 dahil), dokümanlar, PR | — |
@@ -270,6 +270,63 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
   4. [`backend/internal/library/commands.go`](../../backend/internal/library/commands.go) `CommandForStatus`.
   5. [`backend/cmd/api/shelf_integration_test.go`](../../backend/cmd/api/shelf_integration_test.go):
      uçtan uca senaryo; [`shelf_test.go`](../../backend/cmd/api/shelf_test.go) birim testleri.
+
+### Adım 4 — Arayüz veri katmanı
+
+- **Amaç:** arayüzün rafla konuşacağı katman: tipler, API çağrıları, sorgu anahtarı, kancalar ve "bugün"
+  yardımcısı. Ekranda hiçbir şey değişmez: yeni kancaları 5. adımdaki raf kontrolü kullanacak; o gelene
+  kadar kitap sayfasındaki eski menü eski kancalarla çalışmaya devam ediyor.
+- **Parçalar:**
+  - `src/api/types.ts`: `Shelf`, `ShelfEntry`, `Reading`, `ReadingLogEntry`, `ReadingPatch`,
+    `ReadingLogDates`; `LibraryItem`'a `unit`, `progress`, `total_pages`. `ShelfCommand` komutu ve
+    gövdesini birlikte tanımlar: sunucunun "yalnız o komutun alanları" kuralı (adım 3) derleme anında da
+    geçerli (`finish`'e `mode` yazmak tip hatası).
+  - `src/api/client.ts`: beş çağrı (`shelf`, `shelfCommand`, `updateReading`, `updateReadingLog`,
+    `deleteReadingLog`). Gövdesiz komut ağa da gövdesiz gider.
+  - `src/api/queries.ts`: `queryKeys.shelf` = `["me", kullanıcı, "library", "shelf", kitap]`.
+  - `src/api/libraryQueries.ts`: `useShelf` ve dört değişiklik kancası; ortak kurallar tek yerde
+    (`useShelfMutation`).
+  - `src/lib/day.ts` (yeni): `today()` ve `formatDay()`.
+- **Kurallar (§ Kararlar "Veri katmanı" ve "409 cevabı"nın kodu):**
+  - Başarıda cevap rafa **doğrudan yazılır**; önce o rafın süren okuması iptal edilir ki komuttan önce
+    başlamış bir GET sonra gelip eski rafı yazmasın.
+  - Neyin eskidiği kancaya göre: komutlar Kitaplığım listesini ve rozetleri, ilerleme düzeltmesi yalnız
+    listeyi (durum değişmez) eskitir; geçmiş değişiklikleri hiçbir şeyi (kitaplık satırına dokunmazlar).
+    Başka kitapların rafları hiç eskimez.
+  - Hatada yalnız 409 `version_conflict` ve 404 rafı yeniden okutur, ve hata **raf geldikten sonra**
+    yayılır: 5. adımdaki "İlerlemen başka bir yerde güncellenmiş: sayfa 57" mesajı yeni veriden kurulur.
+    400 ve 500 hiçbir şeyi eskitmez.
+- **Bu adımda verilen kararlar (asistan):**
+  - 404 de rafı yeniden okutur (spec yalnız 409'u söylüyordu): okuma ya da geçmiş kaydı başka bir
+    sekmede kapanmış/silinmişse ekrandaki raf eskidir; aynı gerekçe.
+  - Öteki görünümler eskitilir ama **beklenmez** (Faz 15 kancaları bekliyordu): ekrandaki raf zaten
+    güncel, kontrol listenin yeniden gelmesini beklemeden açılır.
+  - `formatDay` da bu adımda: `new Date("2026-11-12")` UTC gece yarısıdır ve batıdaki saat dilimlerinde
+    "11 Kasım" yazardı; "bugün"ün ikiz tuzağı, aynı dosyada.
+- **Sonuç (2026-11-24):**
+  - `day.test.ts` (yeni): testler saat dilimini **değiştirerek** koşuyor ve her biri önce değişimin
+    gerçekten uygulandığını doğruluyor (yoksa makinenin kendi diliminde tuzağı görmeden yeşil kalırdı).
+    İstanbul'da 01:00'de `today()` o günü veriyor, `toISOString()` bir önceki günü (Doğrulama 4'ün
+    birim testi); New York'ta `formatDay("2026-11-12")` "12 Kasım 2026".
+  - `libraryQueries.test.tsx`'e raf testleri: girişsiz sorgu yok; her kancanın neyi yazıp neyi eskittiği;
+    cevap, cevabın söylediği kitabın rafına; 409 ve 404'te raf yeniden okunup hata ancak sonra yayılıyor;
+    400 ve 500 hiçbir şeyi eskitmiyor; komuttan önce başlamış GET komutun cevabını ezmiyor.
+  - `client.test.ts` uç tablosuna yedi satır (yöntem, yol, gövde) ve tip testi (yanlış gövde
+    `npm run typecheck`te kırmızı).
+  - **Testlerin gerçekten yakaladığı denendi** (bilinçli bozma, sonra geri alındı; yedisi de kırmızı):
+    iptal kaldırılınca, 409'da raf beklenmeyince, bütün kitaplık öneki eskitilince, `today()` UTC günü
+    verince, `formatDay` metni UTC okuyunca, `finish` `mode` kabul edince, gövdesiz komut `{}`
+    gönderince. İlk denemede "409'da raf beklenmeyince" **kaçtı**: sahte GET hemen çözüldüğü için
+    beklenmese de hata yayılmadan bitiyordu. Sahte GET bir zamanlayıcı turu geciktirildi, sonra yakaladı.
+  - Bütün frontend testleri (431), `typecheck` ve `bundle` temiz.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`frontend/src/api/libraryQueries.ts`](../../frontend/src/api/libraryQueries.ts) dosya sonu:
+     `useShelfMutation`'ın yorumu ve `onSuccess` / `onError`; ardından dört kanca (neyi eskittikleri).
+  2. [`frontend/src/api/types.ts`](../../frontend/src/api/types.ts) `ShelfCommand` ve raf tipleri.
+  3. [`frontend/src/lib/day.ts`](../../frontend/src/lib/day.ts) ve
+     [`day.test.ts`](../../frontend/src/lib/day.test.ts).
+  4. [`frontend/src/api/libraryQueries.test.tsx`](../../frontend/src/api/libraryQueries.test.tsx)
+     "raf" bölümü; özellikle son iki test (409 sırası ve yarış).
 
 ## 🪜 17A — adımlar
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetForTests, api, ApiError, refreshSession, request, subscribeSession } from "./client";
-import type { NewBook } from "./types";
+import type { NewBook, ShelfCommand } from "./types";
 
 // Faz 13: refresh token artık httpOnly ÇEREZTE. Testler onu göremez (jsdom + sahte fetch
 // zaten çerez taşımaz) — bu yüzden iddialar "hangi isteği attık, localStorage'a ne yazdık"
@@ -884,6 +884,31 @@ describe("api client — uç tablosu", () => {
     ["restoreBook", () => api.restoreBook(5), "POST", "/api/admin/books/5/restore", undefined],
     ["createGenre", () => api.createGenre("Roman"), "POST", "/api/admin/genres", { name: "Roman" }],
     ["deleteComment", () => api.deleteComment(9), "DELETE", "/api/admin/comments/9", undefined],
+    ["shelf", () => api.shelf(5), "GET", "/api/me/books/5/shelf", undefined],
+    // Gövdesiz komut gövdesiz gider: sunucu varsayılanları uygular (tek tık).
+    ["shelfCommand (gövdesiz)", () => api.shelfCommand(5, { command: "want" }), "POST", "/api/me/books/5/shelf/want", undefined],
+    ["shelfCommand mark-read", () => api.shelfCommand(5, { command: "mark-read" }), "POST", "/api/me/books/5/shelf/mark-read", undefined],
+    [
+      "shelfCommand start",
+      () => api.shelfCommand(5, { command: "start", body: { mode: "restart", started_on: "2026-11-24" } }),
+      "POST", "/api/me/books/5/shelf/start", { mode: "restart", started_on: "2026-11-24" },
+    ],
+    [
+      "shelfCommand finish",
+      () => api.shelfCommand(5, { command: "finish", body: { ended_on: "2026-11-24" } }),
+      "POST", "/api/me/books/5/shelf/finish", { ended_on: "2026-11-24" },
+    ],
+    [
+      "updateReading",
+      () => api.updateReading(5, { version: 3, progress: 42 }),
+      "PATCH", "/api/me/books/5/shelf/reading", { version: 3, progress: 42 },
+    ],
+    [
+      "updateReadingLog",
+      () => api.updateReadingLog(9, { ended_on: "2026-11-12" }),
+      "PATCH", "/api/me/reading-log/9", { ended_on: "2026-11-12" },
+    ],
+    ["deleteReadingLog", () => api.deleteReadingLog(9), "DELETE", "/api/me/reading-log/9", undefined],
   ])("%s", async (_name, call, method, path, body) => {
     await call();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -892,6 +917,20 @@ describe("api client — uç tablosu", () => {
     expect(init.method).toBe(method);
     expect(init.credentials).toBe("same-origin");
     expect(init.body === undefined ? undefined : JSON.parse(init.body as string)).toEqual(body);
+  });
+
+  // Sunucu her komutta yalnız o komutun alanlarını kabul eder (fazlası 400); tip aynısını derleme anında
+  // söyler. Bu test `npm run typecheck`te koşar: bir @ts-expect-error satırı hata VERMEZSE tsc kırmızıdır.
+  it("komut tipi yalnız o komutun gövde alanlarını kabul eder", () => {
+    const wrong: ShelfCommand[] = [
+      // @ts-expect-error finish'in mode alanı yok
+      { command: "finish", body: { mode: "resume" } },
+      // @ts-expect-error want gövde almaz
+      { command: "want", body: {} },
+      // @ts-expect-error start'ın ended_on alanı yok
+      { command: "start", body: { ended_on: "2026-11-24" } },
+    ];
+    expect(wrong).toHaveLength(3);
   });
 
   it("deleteComment 204'te undefined döner", async () => {

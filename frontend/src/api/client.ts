@@ -19,7 +19,7 @@
 
 import type {
   AdminBook, Book, BookDetail, BookStatus, Comment, Genre, LibraryEntry, LibraryItem, LibraryStatus, MyRating,
-  NewBook, Page, RatingSummary, Session, TopRated, User,
+  NewBook, Page, RatingSummary, ReadingLogDates, ReadingPatch, Session, Shelf, ShelfCommand, TopRated, User,
 } from "./types";
 
 /** HINT: "bu tarayıcıda oturum açık olmalı" ipucu. Sır DEĞİL (bkz. dosya başı). */
@@ -403,6 +403,15 @@ export const api = {
     request<{ statuses: Record<string, LibraryStatus> }>("GET", `/api/me/library/statuses${qs({ book_ids: ids.join(",") })}`),
   setLibraryStatus: (id: number, status: LibraryStatus) => request<LibraryEntry>("PUT", `/api/me/library/${id}`, { status }),
   removeFromLibrary: (id: number) => request<unknown>("DELETE", `/api/me/library/${id}`),
+
+  // Raf (Faz 17A-1): her uç güncel rafı döner. Gövdesiz komut GÖVDESİZ gider (sunucu varsayılanları
+  // uygular); `{}` göndermek de aynı sonucu verirdi, ama "tek tık" isteği böyle ağda da tek tık görünür.
+  shelf: (bookId: number) => request<Shelf>("GET", `/api/me/books/${bookId}/shelf`),
+  shelfCommand: (bookId: number, c: ShelfCommand) =>
+    request<Shelf>("POST", `/api/me/books/${bookId}/shelf/${c.command}`, "body" in c ? c.body : undefined),
+  updateReading: (bookId: number, p: ReadingPatch) => request<Shelf>("PATCH", `/api/me/books/${bookId}/shelf/reading`, p),
+  updateReadingLog: (logId: number, d: ReadingLogDates) => request<Shelf>("PATCH", `/api/me/reading-log/${logId}`, d),
+  deleteReadingLog: (logId: number) => request<Shelf>("DELETE", `/api/me/reading-log/${logId}`),
 
   // Admin
   adminBooks: (status: BookStatus, offset = 0) =>

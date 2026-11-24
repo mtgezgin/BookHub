@@ -9,8 +9,12 @@ vi.mock("./client", async (importOriginal) => ({
 }));
 
 import { api, ApiError } from "./client";
-import { useRemoveFromLibrary, useSetLibraryStatus } from "./libraryQueries";
+import {
+  useDeleteReadingLog, useRemoveFromLibrary, useSetLibraryStatus, useShelf, useShelfCommand, useUpdateReading,
+  useUpdateReadingLog,
+} from "./libraryQueries";
 import { queryKeys, useRateBook } from "./queries";
+import type { Shelf } from "./types";
 
 /*
  * Kitaplık değişikliklerinin ve puanın GEÇERSİZ KILMA kuralları (Faz 16d adım 7). Ekranda OLMAYAN
@@ -88,5 +92,159 @@ describe("puan ve kitaplık", () => {
     expect(invalidated(client, LIST)).toBe(true);
     expect(invalidated(client, BADGES)).toBe(false);
     expect(invalidated(client, OTHER_USER)).toBe(false);
+  });
+});
+
+/*
+ * RAF değişiklikleri (Faz 17A-1 adım 4): cevap rafa DOĞRUDAN yazılır, öteki görünümler komuta göre eskir,
+ * hatada yalnız "raf eskimiş" diyen cevaplar (409, 404) rafı yeniden okutur.
+ */
+const SHELF = queryKeys.shelf(7, 3);
+const OTHER_SHELF = queryKeys.shelf(7, 4);
+
+function shelfAt(version: number, progress = 10): Shelf {
+  return {
+    book_id: 3,
+    entry: {
+      status: "READING", version, added_at: "2026-11-01T10:00:00Z", updated_at: "2026-11-01T10:00:00Z",
+      reading: { edition_id: 1, unit: "page", progress, total_pages: 310, started_on: "2026-11-01" },
+    },
+    log: [],
+  };
+}
+
+function seededShelf() {
+  const client = seeded();
+  client.setQueryData(SHELF, shelfAt(1));
+  client.setQueryData(OTHER_SHELF, { ...shelfAt(1), book_id: 4 });
+  return client;
+}
+
+describe("raf", () => {
+  it("girişsiz kullanıcıda raf sorgusu hiç çalışmaz", async () => {
+    const shelf = vi.fn(async () => shelfAt(1));
+    stub({ shelf });
+    mountHook(() => useShelf(undefined, 3), testQueryClient());
+    await act(async () => {});
+    expect(shelf).not.toHaveBeenCalled();
+  });
+
+  it("komutun cevabı rafa doğrudan yazılır; liste ve rozetler eskir, raflar ve öteki kullanıcı eskimez", async () => {
+    const shelfCommand = vi.fn(async () => shelfAt(2));
+    stub({ shelfCommand });
+    const client = seededShelf();
+    const hook = mountHook(() => useShelfCommand(7, 3), client);
+    await act(async () => {
+      await hook.current!.mutateAsync({ command: "finish", body: { ended_on: "2026-11-24" } });
+    });
+    expect(shelfCommand).toHaveBeenCalledWith(3, { command: "finish", body: { ended_on: "2026-11-24" } });
+    expect(client.getQueryData(SHELF)).toEqual(shelfAt(2));
+    expect(invalidated(client, SHELF)).toBe(false); // yeniden sorulmaz: değeri biliyoruz
+    expect(invalidated(client, OTHER_SHELF)).toBe(false);
+    expect(invalidated(client, LIST)).toBe(true);
+    expect(invalidated(client, BADGES)).toBe(true);
+    expect(invalidated(client, OTHER_USER)).toBe(false);
+    expect(invalidated(client, CATALOG)).toBe(false);
+  });
+
+  it("ilerleme düzeltmesi yalnız Kitaplığım listesini eskitir (durum değişmez, rozetler aynı)", async () => {
+    stub({ updateReading: async () => shelfAt(2, 42) });
+    const client = seededShelf();
+    const hook = mountHook(() => useUpdateReading(7, 3), client);
+    await act(async () => {
+      await hook.current!.mutateAsync({ version: 1, progress: 42 });
+    });
+    expect(client.getQueryData<Shelf>(SHELF)!.entry!.reading!.progress).toBe(42);
+    expect(invalidated(client, LIST)).toBe(true);
+    expect(invalidated(client, BADGES)).toBe(false);
+  });
+
+  it("geçmiş değişiklikleri yalnız rafı yazar; liste ve rozetler eskimez", async () => {
+    const withLog = { ...shelfAt(1), log: [] };
+    stub({ updateReadingLog: async () => withLog, deleteReadingLog: async () => withLog });
+    const client = seededShelf();
+    const hook = mountHook(() => ({ dates: useUpdateReadingLog(7, 3), del: useDeleteReadingLog(7, 3) }), client);
+    await act(async () => {
+      await hook.current!.dates.mutateAsync({ logId: 9, dates: { ended_on: "2026-11-12" } });
+      await hook.current!.del.mutateAsync(9);
+    });
+    expect(client.getQueryData(SHELF)).toEqual(withLog);
+    expect(invalidated(client, LIST)).toBe(false);
+    expect(invalidated(client, BADGES)).toBe(false);
+  });
+
+  it("cevap, cevabın söylediği kitabın rafına yazılır", async () => {
+    stub({ deleteReadingLog: async () => ({ ...shelfAt(5), book_id: 4 }) });
+    const client = seededShelf();
+    const hook = mountHook(() => useDeleteReadingLog(7, 4), client);
+    await act(async () => {
+      await hook.current!.mutateAsync(9);
+    });
+    expect(client.getQueryData<Shelf>(OTHER_SHELF)!.entry!.version).toBe(5);
+    expect(client.getQueryData<Shelf>(SHELF)!.entry!.version).toBe(1);
+  });
+
+  // Spec § Kararlar "409 cevabı": gövdede güncel raf yok, istemci bir kez GET yapar. Arayüz hatayı
+  // gördüğünde raf zaten yeni olmalı ki mesajı ("sayfa 57") yeni veriden kursun.
+  it.each([
+    [409, "version_conflict"],
+    [404, "not_found"],
+  ])("%i %s: raf yeniden okunur ve hata ancak raf geldikten sonra yayılır", async (status, code) => {
+    // İkinci GET bir zamanlayıcı turu sonra döner: hemen çözülseydi, kanca onu beklemese de hata
+    // yayılmadan biterdi ve test beklemeyi kanıtlamazdı (bozma denemesinde öyle oldu).
+    const shelf = vi.fn()
+      .mockResolvedValueOnce(shelfAt(1))
+      .mockImplementationOnce(() => new Promise<Shelf>((r) => setTimeout(() => r(shelfAt(2, 57)), 0)));
+    stub({ shelf, updateReading: async () => { throw new ApiError(status, code, "x"); } });
+    const client = testQueryClient();
+    const hook = mountHook(() => ({ shelf: useShelf(7, 3), patch: useUpdateReading(7, 3) }), client);
+    await act(async () => {});
+    expect(hook.current!.shelf.data?.entry?.version).toBe(1);
+
+    let seenAtError: Shelf | undefined;
+    await act(async () => {
+      await hook.current!.patch.mutateAsync({ version: 1, progress: 10 }).catch(() => {
+        seenAtError = client.getQueryData<Shelf>(SHELF);
+      });
+    });
+    expect(shelf).toHaveBeenCalledTimes(2);
+    expect(seenAtError?.entry?.reading?.progress).toBe(57);
+    expect(hook.current!.patch.error).toMatchObject({ code });
+  });
+
+  it.each([
+    [400, "invalid_progress"],
+    [500, "internal"],
+  ])("%i %s rafı ve öteki görünümleri eskitmez", async (status, code) => {
+    stub({ updateReading: async () => { throw new ApiError(status, code, "x"); } });
+    const client = seededShelf();
+    const hook = mountHook(() => useUpdateReading(7, 3), client);
+    await act(async () => {
+      await hook.current!.mutateAsync({ version: 1, progress: -1 }).catch(() => {});
+    });
+    expect(invalidated(client, SHELF)).toBe(false);
+    expect(invalidated(client, LIST)).toBe(false);
+    expect(client.getQueryData(SHELF)).toEqual(shelfAt(1));
+  });
+
+  // Komuttan ÖNCE başlamış bir GET (ör. pencereye dönünce tazeleme) komuttan SONRA dönerse eski rafı
+  // yazmamalı: kanca yazmadan önce süren okumayı iptal eder.
+  it("komuttan önce başlamış raf okuması komutun cevabını ezmez", async () => {
+    let finishOld: (s: Shelf) => void = () => {};
+    const shelf = vi.fn()
+      .mockResolvedValueOnce(shelfAt(1))
+      .mockImplementationOnce(() => new Promise<Shelf>((r) => (finishOld = r)));
+    stub({ shelf, shelfCommand: async () => shelfAt(3) });
+    const client = testQueryClient();
+    const hook = mountHook(() => ({ shelf: useShelf(7, 3), cmd: useShelfCommand(7, 3) }), client);
+    await act(async () => {});
+
+    await act(async () => {
+      void client.refetchQueries({ queryKey: SHELF });
+      await hook.current!.cmd.mutateAsync({ command: "start" });
+    });
+    await act(async () => finishOld(shelfAt(2)));
+    expect(shelf).toHaveBeenCalledTimes(2);
+    expect(client.getQueryData<Shelf>(SHELF)!.entry!.version).toBe(3);
   });
 });

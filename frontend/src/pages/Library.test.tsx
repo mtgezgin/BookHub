@@ -33,7 +33,8 @@ const bookOf = (id: number): Book => ({
   created_at: "", updated_at: "",
 });
 const itemOf = (id: number, extra: Partial<LibraryItem> = {}): LibraryItem => ({
-  book: bookOf(id), status: "READ" as LibraryStatus, added_at: "", my_rating: null, in_catalog: true, ...extra,
+  book: bookOf(id), status: "READ" as LibraryStatus, added_at: "", my_rating: null, in_catalog: true,
+  unit: null, progress: null, total_pages: null, ...extra,
 });
 const pageOf = (items: LibraryItem[], total = items.length, offset = 0): Page<LibraryItem> => ({ items, total, limit: 12, offset });
 

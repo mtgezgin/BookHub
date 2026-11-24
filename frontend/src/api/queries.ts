@@ -35,6 +35,9 @@ export const queryKeys = {
   library: (userId: number, params: LibraryParams) => ["me", userId, "library", "list", params] as const,
   // ids: sıralı ve tekrarsız kimlikler ("3,4,9"); aynı kitaplar başka sırayla gelince aynı kayıt kullanılır.
   libraryStatuses: (userId: number, ids: string) => ["me", userId, "library", "statuses", ids] as const,
+  // Raf (Faz 17A-1): kitap sayfasının tek raf kontrolü. Kitaplık önekinin ALTINDA: çıkışta temizlik ve
+  // eski kancaların "kitaplığı eskit"i onu kendiliğinden kapsar (spec § Kararlar "Veri katmanı").
+  shelf: (userId: number, bookId: number) => ["me", userId, "library", "shelf", bookId] as const,
 };
 
 /**
