@@ -10,7 +10,7 @@ vi.mock("./client", async (importOriginal) => ({
 
 import { api, ApiError } from "./client";
 import {
-  useDeleteReadingLog, useRemoveFromLibrary, useSetLibraryStatus, useShelf, useShelfCommand, useUpdateReading,
+  useDeleteReadingLog, useRemoveFromLibrary, useShelf, useShelfCommand, useUpdateReading,
   useUpdateReadingLog,
 } from "./libraryQueries";
 import { queryKeys, useRateBook } from "./queries";
@@ -43,20 +43,7 @@ const invalidated = (client: QueryClient, key: readonly unknown[]) => client.get
 const stub = (impls: Record<string, unknown>) => Object.assign(api as unknown as Record<string, unknown>, impls);
 
 describe("kitaplık değişiklikleri", () => {
-  it("rafa ekleme bu kullanıcının bütün kitaplık kayıtlarını eskitir; başka kullanıcınınkini ve kataloğu değil", async () => {
-    stub({ setLibraryStatus: async () => ({}) });
-    const client = seeded();
-    const hook = mountHook(() => useSetLibraryStatus(7), client);
-    await act(async () => {
-      await hook.current!.mutateAsync({ bookId: 3, status: "READ" });
-    });
-    expect(invalidated(client, LIST)).toBe(true);
-    expect(invalidated(client, BADGES)).toBe(true);
-    expect(invalidated(client, OTHER_USER)).toBe(false);
-    expect(invalidated(client, CATALOG)).toBe(false);
-  });
-
-  it("çıkarma da aynı kayıtları eskitir", async () => {
+  it("çıkarma bu kullanıcının bütün kitaplık kayıtlarını eskitir; başka kullanıcınınkini ve kataloğu değil", async () => {
     stub({ removeFromLibrary: async () => undefined });
     const client = seeded();
     const hook = mountHook(() => useRemoveFromLibrary(7), client);
@@ -66,14 +53,15 @@ describe("kitaplık değişiklikleri", () => {
     expect(invalidated(client, LIST)).toBe(true);
     expect(invalidated(client, BADGES)).toBe(true);
     expect(invalidated(client, OTHER_USER)).toBe(false);
+    expect(invalidated(client, CATALOG)).toBe(false);
   });
 
-  it("başarısız değişiklik hiçbir şeyi eskitmez", async () => {
-    stub({ setLibraryStatus: async () => { throw new ApiError(500, "internal", "x"); } });
+  it("başarısız çıkarma hiçbir şeyi eskitmez", async () => {
+    stub({ removeFromLibrary: async () => { throw new ApiError(500, "internal", "x"); } });
     const client = seeded();
-    const hook = mountHook(() => useSetLibraryStatus(7), client);
+    const hook = mountHook(() => useRemoveFromLibrary(7), client);
     await act(async () => {
-      await hook.current!.mutateAsync({ bookId: 3, status: "READ" }).catch(() => {});
+      await hook.current!.mutateAsync(3).catch(() => {});
     });
     expect(invalidated(client, LIST)).toBe(false);
     expect(invalidated(client, BADGES)).toBe(false);

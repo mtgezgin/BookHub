@@ -1,14 +1,18 @@
 import { lazy, Suspense } from "react";
 import { Link, useLocation } from "react-router-dom";
+import type { Edition } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { Button, buttonVariants } from "./ui/button";
 
-// Menü ve onay diyaloğu (Radix) yalnız giriş yapmış okura gerekiyor: ayrı bir parçada yüklenir,
-// anonim ziyaretçinin ana paketine girmez (Faz 14'ün Moderasyon kararıyla aynı gerekçe).
-const LibraryMenu = lazy(() => import("./LibraryMenu").then((m) => ({ default: m.LibraryMenu })));
+// Raf kontrolü (menü, diyaloglar, formlar, geçmiş) yalnız giriş yapmış okura gerekiyor: ayrı bir parçada
+// yüklenir, anonim ziyaretçinin ana paketine girmez (Faz 14'ün Moderasyon kararıyla aynı gerekçe).
+const ShelfControl = lazy(() => import("./ShelfControl").then((m) => ({ default: m.ShelfControl })));
 
-/** Kitap sayfasındaki kitaplık kontrolü: giriş yoksa giriş bağlantısı (dönüş bu kitaba), varsa menü. */
-export function LibraryButton({ bookId }: { bookId: number }) {
+/**
+ * Kitap sayfasındaki kitaplık kontrolü: giriş yoksa giriş bağlantısı (dönüş bu kitaba), varsa raf kontrolü.
+ * onRate: bitirince gösterilen "Puan ver" davetinin yapacağı (kitap sayfası puan seçiciye götürür).
+ */
+export function LibraryButton({ bookId, editions, onRate }: { bookId: number; editions: Edition[]; onRate?: () => void }) {
   const { user } = useAuth();
   const location = useLocation();
   if (!user) {
@@ -20,7 +24,7 @@ export function LibraryButton({ bookId }: { bookId: number }) {
   }
   return (
     <Suspense fallback={<Button disabled>Okumak istiyorum</Button>}>
-      <LibraryMenu bookId={bookId} />
+      <ShelfControl bookId={bookId} editions={editions} onRate={onRate} />
     </Suspense>
   );
 }

@@ -130,7 +130,7 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 | 2 | `internal/library` servisi: durum makinesi, tablo testleri | ✅ commit (2026-11-24) |
 | 3 | API: komut uçları, reading PATCH, günlük uçları; eski `PUT {status}` servise | ✅ commit (2026-11-24) |
 | 4 | Arayüz veri katmanı: tipler, raf kancaları, yerel tarih yardımcısı | ✅ commit (2026-11-24) |
-| 5 | Arayüz: tek raf kontrolü, onaylar, 409 akışı, geçmiş | — |
+| 5 | Arayüz: tek raf kontrolü, onaylar, 409 akışı, geçmiş | ✅ commit (2026-11-25) |
 | 6 | Kitaplığım kartlarında ilerleme | — |
 | 7 | Playwright (iki sekme 409 dahil), dokümanlar, PR | — |
 
@@ -328,6 +328,63 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
   4. [`frontend/src/api/libraryQueries.test.tsx`](../../frontend/src/api/libraryQueries.test.tsx)
      "raf" bölümü; özellikle son iki test (409 sırası ve yarış).
 
+### Adım 5 — Tek raf kontrolü
+
+- **Amaç:** kitap sayfasında Faz 15'in durum menüsü yerine raf kontrolü (§ 5): bulunduğun durum, oradan
+  yapılabilecek komutlar, okurken ilerleme, yan etkili geçişlerde onay, 409 akışı ve okuma geçmişi.
+- **Parçalar:**
+  - `components/ShelfControl.tsx` (yeni, tembel parça): durum → ana eylem + "Diğer seçenekler" menüsü
+    (dosyanın başındaki tablo § 5'tekiyle aynı), durum satırı, ilerleme çubuğu, onay diyaloğu, "Puan
+    ver" daveti.
+  - `components/ShelfForms.tsx` (yeni): ilerleme formu ve "Okumayı düzenle"; ikisinin ortak 409 akışı
+    `useReadingSave`'de.
+  - `components/ReadingHistory.tsx` (yeni): geçmiş satırları, günleri düzelt, sil (onaylı).
+  - `lib/shelf.ts` (yeni): bütün metinler saf fonksiyon (ilerleme, durum satırları, gün aralığı, baskı
+    adı, bildirim); adım 6'daki kartlar da aynı ilerleme metnini kullanacak.
+  - `pages/BookDetail.tsx`: kontrol kendi ızgara alanında; "Puan ver" puan seçiciye götürür.
+  - Kaldırılanlar: `LibraryMenu.tsx`, Faz 15'in durum kancaları (`useLibraryStatus`,
+    `useSetLibraryStatus`), istemcideki `setLibraryStatus` ve `LibraryEntry` tipi. Sunucudaki eski
+    `PUT {status}` **kalıyor** (yayın penceresindeki eski arayüz için, § Kararlar).
+  - `e2e/library.spec.ts`: yeni kontrole göre (durum değişikliği artık "Zaten okudum" komutu).
+- **Kararlar:** § 5'in sonundaki "Adım 5'te verilen kararlar" listesinde. Biri daha: ilerleme formunda
+  tarayıcının kendi doğrulaması kapalı (`noValidate`). Tarayıcı `max=310`'u aşan değerde formu bizim
+  denetimimizden önce durduruyor, kendi dilinde bir balon gösteriyordu; sınırı artık kod denetliyor,
+  mesaj Türkçe ve `role="alert"` ile ekran okuyucuya ulaşıyor (test bunu yakaladı).
+- **Sonuç (2026-11-25):**
+  - `LibraryButton.test.tsx` baştan yazıldı (29 test). Her test bir raftan başlıyor; hangi komutun
+    hangi gövdeyle gittiğine ve ekranda ne kaldığına bakıyor:
+    - beş durumun her birinde menü ve ana eylem; "Okumaya başla" ve "Bitirdim" bugünün yerel gününü,
+      "Zaten okudum" tarihsiz, "Devam et" günsüz (sunucu eskisini getirir) gönderiyor;
+    - Faz 15'ten kalan birimsiz okuma ve toplamı bilinmeyen 0 sayfa: çubuk ve "0 sayfa" yok,
+      "İlerlemeni gir" var (Doğrulama 8);
+    - ilerleme varken Ertele ve Çıkar sorar, yokken Ertele sormaz; çıkarılan kitabın geçmişi görünür
+      kalıyor (5);
+    - **409:** öteki sekmenin değeri (80) görünüyor, girilen (57) korunuyor, "Benimkini kaydet" yeni
+      sürümle gönderiyor; Vazgeç öteki sekmenin değerini bırakıyor (3'ün arayüz yarısı);
+    - "Okumayı düzenle" yalnız değişeni gönderiyor, baskı değişince sıfırlanacağını söylüyor;
+    - geçmiş: satır metni, ters günlerde istek gitmiyor, silme onaylı;
+    - "Puan ver" yalnız bitirince; komut sürerken her şey pasif; raf okunamazsa tekrar dene;
+      komuttan sonra aynı sayfadaki rozet de güncelleniyor.
+  - `lib/shelf.test.ts` (yeni, 31 test): metinlerin tablosu.
+  - **Testlerin gerçekten yakaladığı denendi** (bilinçli bozma, sonra geri alındı; onu da kırmızı):
+    Devam et gün gönderince, ilerleme varken Ertele sormayınca, çıkarma onayı ilerlemeyi söylemeyince,
+    davet her Okudum'da çıkınca, komut sürerken kontroller açık kalınca, 409 mesajı gösterilmeyince,
+    düzenle formu değişmeyeni de gönderince, ters günler sunucuya gidince, toplamsız 0 sayfa
+    yazılınca, ilerleme toplamı aşabilince.
+  - Bütün frontend testleri, `typecheck` ve `bundle` temiz. Raf kontrolü ayrı parçada kaldı
+    (`ShelfControl` 22,8 kB gzip; ana paket 121,6 → 121,8 kB).
+  - Playwright yerel yığında (`make e2e`, canlı değil): 20 senaryonun 20'si yeşil; güncellenen
+    `library.spec.ts` dahil, 360 px genişlikte kitap sayfası ve Kitaplığım yatay taşmıyor.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`frontend/src/components/ShelfControl.tsx`](../../frontend/src/components/ShelfControl.tsx):
+     baştaki tablo, sonra `switch (entry?.status)` (hangi durumda hangi komut) ve onay diyaloğu.
+  2. [`frontend/src/components/ShelfForms.tsx`](../../frontend/src/components/ShelfForms.tsx)
+     `useReadingSave` (409 akışı).
+  3. [`frontend/src/lib/shelf.ts`](../../frontend/src/lib/shelf.ts): ekranda yazan her cümle.
+  4. [`frontend/src/components/ReadingHistory.tsx`](../../frontend/src/components/ReadingHistory.tsx).
+  5. [`frontend/src/components/LibraryButton.test.tsx`](../../frontend/src/components/LibraryButton.test.tsx)
+     "ilerleme ve 409" bölümü.
+
 ## 🪜 17A — adımlar
 
 ### 1. Şema: `0016_reading.sql` (genişletme)
@@ -484,6 +541,17 @@ durumu ve oradan yapılabilecekleri gösterir:
 - **Kitaplığım:** "Şu an okuyorum" kartlarında ilerleme (yalnız gösterim; menü kapsam dışı).
 - Kart rozetleri (`/api/me/library/statuses`) değişmez; kitap sayfası artık rozet ucunu değil raf
   ucunu okur. Raf kontrolü bugünkü `LibraryMenu`'nün yerini alır (aynı tembel yükleme).
+- **Adım 5'te verilen kararlar (asistan, 2026-11-24):**
+  - Kontrol kitap sayfasında **kendi alanında** (`shelf`): ilerleme, formlar ve geçmişle başlığa
+    sığmıyor. Dar ekranda kapak ve başlığın altında tam genişlik, genişte başlığın altında.
+  - Menüdeki "Baskı/birim değiştir" → **"Okumayı düzenle"**: baskı, birim ve başlangıç günü tek
+    formda (üçü de aynı PATCH).
+  - Metinler sayıya ek getirmez ("Sayfa 42'de", "2025'te" sayının okunuşuna göre değişir):
+    "Bitirdin · 12 Kasım 2026", "Yarım bıraktın · 42 / 310 sayfa", onayda "Okuman (42 / 310 sayfa)
+    geçmişine … kaydedilecek".
+  - Çıkarma, ilerleme olmasa da **her zaman sorar** (Faz 15'teki gibi; yalnız metni değişir).
+  - "Puan ver" daveti yalnız bu ekranda bitirilince ve puan yoksa; tıklanınca puan seçiciye gider.
+  - 409 akışı "Okumayı düzenle"de de aynı ("Yine de kaydet").
 
 ## 🪜 17B — adımlar
 

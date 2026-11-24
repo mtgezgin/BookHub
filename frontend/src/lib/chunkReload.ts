@@ -1,5 +1,5 @@
 // Yeni bir yayın eski parçaları (assets/*-<hash>.js) siler. Yayından önce açılmış bir sekme tembel
-// bir parçayı (LibraryMenu, Kitaplığım, Moderasyon) istediğinde dosya artık yok, import düşer ve
+// bir parçayı (ShelfControl, Kitaplığım, Moderasyon) istediğinde dosya artık yok, import düşer ve
 // uygulama boş ekranla çökerdi. Sayfayı yeniden yüklemek yeni index.html'i, onunla yeni adları getirir.
 // Döngüye girmemek için en çok 10 sn'de bir kez; depolama okunamıyorsa hiç yeniden yüklenmez.
 

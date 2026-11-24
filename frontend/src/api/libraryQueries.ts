@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
 import { keepPreviousOwnData, type LibraryParams, queryKeys } from "./queries";
-import type { LibraryStatus, ReadingLogDates, ReadingPatch, Shelf, ShelfCommand } from "./types";
+import type { ReadingLogDates, ReadingPatch, Shelf, ShelfCommand } from "./types";
 
 /*
  * Kitaplık ekranlarının kancaları (Faz 16d adım 7). AYRI dosyada çünkü yalnız tembel yüklenen iki parça
- * kullanıyor: Kitaplığım sayfası ve kitap sayfasındaki kitaplık menüsü (LibraryMenu). Burada dursalar her
+ * kullanıyor: Kitaplığım sayfası ve kitap sayfasındaki raf kontrolü (ShelfControl). Burada dursalar her
  * ziyaretçinin indirdiği ana pakete girmezler (adminQueries.ts ile aynı gerekçe). Katalogdaki rozetlerin
  * kancası (components/useLibraryStatuses.tsx) ana pakette, çünkü Home onu her açılışta kullanıyor.
  */
@@ -25,48 +25,15 @@ export function useLibrary(userId: number | undefined, params: LibraryParams) {
 }
 
 /**
- * Kitap sayfasındaki menü için TEK kitabın durumu; kitaplıkta değilse null. Katalog rozetleriyle aynı uç ve
- * aynı anahtar biçimi (kimlik listesi yalnız "12"): önbellekte cevabın tamamı durur, `select` bileşene
- * yalnız bu kitabın durumunu verir.
+ * Kitaplıktan ÇIKARMA, Kitaplığım'daki "Çıkar" için (katalogdan kalkmış kitap; Faz 15'in DELETE ucu, artık
+ * servisten geçiyor). Başarıda bu kullanıcının BÜTÜN kitaplık kayıtları geçersiz olur (["me", kullanıcı,
+ * "library"] öneki): ekrandaki liste hemen, katalog rozetleri ve öteki listeler açılınca yeniden çekilir.
+ * Değişiklik bir bileşende, etkilediği veri başka bileşenlerde; ortak noktaları yalnız anahtar (Faz 16d
+ * adım 7'nin dersi).
+ *
+ * onSuccess Promise döndürür: liste yenilenene kadar değişiklik sürüyor sayılır (isPending). Çıkarma
+ * sunucuda tekrarlanabilir (kayıt yoksa da başarılı döner), hatada tazeleme gerekmiyor.
  */
-export function useLibraryStatus(userId: number | undefined, bookId: number) {
-  return useQuery({
-    queryKey: queryKeys.libraryStatuses(userId ?? 0, String(bookId)),
-    queryFn: () => api.libraryStatuses([bookId]),
-    select: (r) => r.statuses[String(bookId)] ?? null,
-    enabled: userId !== undefined,
-  });
-}
-
-/*
- * Kitaplık DEĞİŞİKLİKLERİ: rafa ekleme / durum değiştirme ve çıkarma. Başarıda bu kullanıcının BÜTÜN
- * kitaplık kayıtları geçersiz olur (["me", kullanıcı, "library"] öneki):
- *  - ekrandakiler hemen yeniden çekilir: kitap sayfasındaki düğme, Kitaplığım'daki liste;
- *  - ötekiler açılınca: katalog kartlarındaki rozetler, öteki filtrelerin ve sayfaların listeleri.
- * Adımın asıl dersi bu: değişiklik bir bileşende (menü), etkilediği veri başka bileşenlerde (rozet, liste).
- * Aralarında hiçbir bağlantı yok; ortak noktaları yalnız anahtar.
- *
- * NEDEN cevabı önbelleğe doğrudan yazmıyoruz (puandaki setQueryData gibi): bir kitabın durumu tek bir
- * kayıtta durmuyor, ekranda görünen her kimlik listesinin kaydında var. Hepsini bulup düzeltmek yerine
- * sunucuya yeniden sormak: bir küçük istek, karşılığında tek bir kural.
- *
- * Geçersiz kılma, o sırada süren bir okumayı (ör. pencereye dönünce başlayan tazeleme) iptal edip yeniden
- * başlatır (invalidateQueries → refetchQueries, cancelRefetch varsayılanı true). Değişiklikten ÖNCE başlamış
- * bir okumanın eski durumu ekrana yazması böylece önlenir.
- *
- * onSuccess Promise döndürür: ekrandaki kayıtlar yenilenene kadar değişiklik sürüyor sayılır (isPending),
- * menü pasif kalır. Hata olursa hiçbir şey geçersiz kılınmaz: değişiklik olmadıysa veri de değişmemiştir.
- * Çıkarma sunucuda tekrarlanabilir (kayıt yoksa da başarılı döner), o yüzden yorum silmedeki gibi hatada
- * tazeleme gerekmiyor.
- */
-export function useSetLibraryStatus(userId: number | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ bookId, status }: { bookId: number; status: LibraryStatus }) => api.setLibraryStatus(bookId, status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["me", userId, "library"] }),
-  });
-}
-
 export function useRemoveFromLibrary(userId: number | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -77,8 +44,8 @@ export function useRemoveFromLibrary(userId: number | undefined) {
 
 /*
  * RAF (Faz 17A-1): kitap sayfasındaki tek raf kontrolünün verisi. Kitap sayfası artık rozet ucunu değil
- * bunu okur; eski iki kanca (useLibraryStatus, useSetLibraryStatus) raf kontrolü gelene kadar (adım 5)
- * LibraryMenu için duruyor.
+ * bunu okur; Faz 15'in durum kancaları (useLibraryStatus, useSetLibraryStatus) raf kontrolüyle kalktı
+ * (adım 5).
  */
 
 /** Bir kitabın rafı: durum, süren okuma, sürüm ve geçmiş. Girişsiz kullanıcıda sorgu hiç çalışmaz. */

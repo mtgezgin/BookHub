@@ -154,6 +154,14 @@ function BookDetailView() {
     deleteComment.mutate(commentId, { onSuccess: () => toast("Yorum silindi") });
   };
 
+  // "Puan ver" daveti (raf kontrolü, bitirince): puan seçiciye kaydırır ve ilk yıldıza odaklanır. Puan
+  // seçici bu sayfanın, o yüzden davet ne yapacağını bilmez; yalnız bunu çağırır.
+  const focusRating = () => {
+    const first = document.querySelector<HTMLButtonElement>('[aria-labelledby="my-score-label"] button');
+    first?.scrollIntoView({ block: "center", behavior: "smooth" });
+    first?.focus({ preventScroll: true });
+  };
+
   if (!book) {
     const loadError = bookQuery.error;
     if (loadError instanceof ApiError && loadError.status === 404) {
@@ -179,7 +187,7 @@ function BookDetailView() {
           md+'da solda kapak ve onun altında puan kartı, sağda başlık ve gövde. */}
       <article
         aria-labelledby="book-title"
-        className="mx-auto grid max-w-5xl grid-cols-[6.5rem_minmax(0,1fr)] gap-x-5 gap-y-8 [grid-template-areas:'cover_header'_'rating_rating'_'body_body'] sm:grid-cols-[9rem_minmax(0,1fr)] md:grid-cols-[16rem_minmax(0,1fr)] md:grid-rows-[auto_auto_1fr] md:gap-x-10 md:[grid-template-areas:'cover_header'_'cover_body'_'rating_body']"
+        className="mx-auto grid max-w-5xl grid-cols-[6.5rem_minmax(0,1fr)] gap-x-5 gap-y-8 [grid-template-areas:'cover_header'_'shelf_shelf'_'rating_rating'_'body_body'] sm:grid-cols-[9rem_minmax(0,1fr)] md:grid-cols-[16rem_minmax(0,1fr)] md:grid-rows-[auto_auto_auto_1fr] md:gap-x-10 md:[grid-template-areas:'cover_header'_'cover_shelf'_'cover_body'_'rating_body']"
       >
         <div className="self-start [grid-area:cover]">
           <BookCover title={book.title} author={book.author} src={book.cover_url} />
@@ -198,10 +206,13 @@ function BookDetailView() {
               ))}
             </div>
           )}
-          <div>
-            <LibraryButton bookId={book.id} />
-          </div>
         </header>
+
+        {/* Raf kontrolü kendi alanında (Faz 17A-1): ilerleme, formlar ve geçmişle birlikte başlığa sığmıyor;
+            dar ekranda kapak ve başlığın altında tam genişlik. */}
+        <section aria-label="Kitaplığın" className="min-w-0 [grid-area:shelf]">
+          <LibraryButton bookId={book.id} editions={book.editions} onRate={focusRating} />
+        </section>
 
         <section aria-labelledby="rating-heading" className="self-start [grid-area:rating]">
           <Card className="p-5">
