@@ -9,7 +9,7 @@ Teknik hata ve güvenlik bulguları ayrı tutulur: [REVIEW_FEEDBACK.md](REVIEW_F
 
 ## Durum özeti (17 Ekim 2026)
 
-Kodla karşılaştırma (origin/main, Faz 14 sonrası). 34 maddenin hiçbiri tam değil: **7'si kısmen var,
+Kodla karşılaştırma (origin/main, Faz 14 sonrası). O günkü 34 maddenin hiçbiri tam değil: **7'si kısmen var,
 27'si yok**. Hangi sırayla ele alınacakları: [ROADMAP.md](ROADMAP.md) (Faz 15 = Paket A).
 
 | ID | Durum | Var olan | Eksik |
@@ -45,6 +45,13 @@ canlıda (PR [#89](https://github.com/mtgezgin/BookHub/pull/89), 18 Kasım): Tü
 "İnce Memed"i bulur) ve yazarken arama (en az 3 harf, 300 ms). Madde "kısmen" kalıyor: dil ve sayfa
 aralığı süzgeci, başlığa göre sıralama ve aktif süzgeç etiketleri yok.
 
+**Güncelleme (23 Kasım 2026):** altı yeni madde "Önerildi" olarak eklendi (kullanıcı kararı; öneri
+asistandan): [READ-04](#read-04--kişisel-notlar-ve-alıntılar) notlar ve alıntılar,
+[CAT-04](#cat-04--kitap-serileri) seriler, [DISC-05](#disc-05--yazarın-diğer-kitapları) yazarın diğer
+kitapları, [SOC-04](#soc-04--kitap-bağlantısı-önizlemesi) bağlantı önizlemesi,
+[DATA-03](#data-03--başka-sitelerden-içe-aktarma) içe aktarma, [UX-03](#ux-03--telefona-kurulabilir-site-pwa-ilk-adım)
+kurulabilir site. READ-04 ve DATA-03 önce § 18'de ertelenmişti. Sıraları [ROADMAP](ROADMAP.md)'te.
+
 ## 1. Ürün yönü ve temel ihtiyaç
 
 **Ürün sözü:** Okumak istediğin kitapları bul, okumalarını takip et ve düşüncelerini paylaş.
@@ -71,17 +78,17 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 | Kategori | Özellik ID'leri | Cevaplanan kullanıcı sorusu |
 |---|---|---|
 | Kişisel kitaplık ve raflar | LIB-01–03 | Kitaplarımı nerede düzenleyeceğim? |
-| Okuma oturumları ve ilerleme | READ-01–03 | Ne okuyorum, ne kadar ilerledim? |
+| Okuma oturumları ve ilerleme | READ-01–04 | Ne okuyorum, ne kadar ilerledim? |
 | Okuma hedefi ve kişisel özet | STATS-01–02 | Okuma alışkanlığım nasıl değişiyor? |
-| Kitap detayı ve katalog kimliği | CAT-01–03 | Bu kitap bana uygun mu, doğru baskı mı? |
+| Kitap detayı ve katalog kimliği | CAT-01–04 | Bu kitap bana uygun mu, doğru baskı mı? |
 | İncelemeler ve değerlendirmeler | REV-01–03 | Okuyanlar ne düşünüyor? |
 | Kullanıcı katkısı ve moderasyon | MOD-01–04 | Katkıma ne oldu, hatayı nasıl düzeltebilirim? |
-| Arama, keşif ve öneriler | DISC-01–04 | Sırada ne okuyabilirim? |
-| Profil, görünürlük ve sosyal akış | SOC-01–03 | Kimlerle neyi paylaşacağım? |
+| Arama, keşif ve öneriler | DISC-01–05 | Sırada ne okuyabilirim? |
+| Profil, görünürlük ve sosyal akış | SOC-01–04 | Kimlerle neyi paylaşacağım? |
 | Hesap erişimi ve oturum kontrolü | ACC-01–05 | Hesabımı nasıl korur ve yönetirim? |
-| Veri sahipliği ve taşınabilirlik | DATA-01–02 | Verimi alabilir veya hesabımı silebilir miyim? |
+| Veri sahipliği ve taşınabilirlik | DATA-01–03 | Verimi alabilir veya hesabımı silebilir miyim? |
 | Uygulama içi bildirimler | NOTIF-01 | Katkımın sonucunu nasıl öğrenirim? |
-| Ortak kullanıcı deneyimi | UX-01–02 | İşlemler anlaşılır ve erişilebilir mi? |
+| Ortak kullanıcı deneyimi | UX-01–03 | İşlemler anlaşılır ve erişilebilir mi? |
 
 ## 4. Kişisel kitaplık ve raflar
 
@@ -145,6 +152,16 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **Kabul kriterleri:** İki tamamlanmış okuma ayrı tarihlerle görünür; kişisel kitaplıkta kitap tek görünür. İstatistiklerde tekrar okuma kuralı açıkça uygulanır.
 - **Bağımlılık:** READ-02. Veri modeli ilk sürümde bu genişlemeyi engellememeli.
 
+### READ-04 — Kişisel notlar ve alıntılar
+
+- [ ] **P1 · Önerildi** (2026-11-23; önce § 18'de ertelenmişti)
+- **Kullanıcı ihtiyacı:** Okurken beğendiğim cümleyi ve aklıma geleni kitabın yanında saklamak.
+- **Ekran/akış:** Kitap detayı → Notlarım → not ya da alıntı ekle (isteğe bağlı sayfa numarası) → listede düzenle / sil.
+- **İlk kapsam:** Kitap başına birden çok kısa not ve alıntı; tür (not / alıntı), metin, sayfa; en yeni önce liste. Yalnız sahibi görür.
+- **İş kuralları:** Özeldir: herkese açık uç, sayaç ya da önizleme yok (SOC-02 kuralı); bu yüzden moderasyon gerektirmez. Kitaplıktan çıkarmak notları silmez (Faz 15 ve 17'deki "çıkarmak silmez" ile aynı). Hesap silinince silinir. Metin sınırı ve yazma hız sınırı vardır.
+- **Kabul kriterleri:** Başkasının notu hiçbir uçtan okunamaz (404). Türkçe karakter ve satır sonu korunur. DATA-01 dışa aktarımı notları kapsar.
+- **Bağımlılıklar:** LIB-01. İlk sürüm dışında: notların paylaşılması, alıntı kartı görseli, notlarda arama.
+
 ## 6. Okuma hedefi ve kişisel özet
 
 ### STATS-01 — Aylık ve yıllık okuma özeti
@@ -194,6 +211,16 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **İş kuralları:** Dış sonuç doğrudan yayınlanmaz. Bulunan mevcut baskı için tekrar oluşturmak yerine mevcut kayda yönlendirilir. Sağlayıcı kesintisi manuel girişi engellemez.
 - **Kabul kriterleri:** Aynı ISBN için mükerrer baskı üretilmez. Eksik veya hatalı metadata düzeltilebilir. Kaynak ve alınma zamanı izlenebilir.
 - **Bağımlılıklar:** CAT-02, MOD-01–02. Sağlayıcı seçimi, kullanım şartları, görsel kullanım hakları ve kota ayrıca araştırılır; bu belge sağlayıcı taahhüdü içermez.
+
+### CAT-04 — Kitap serileri
+
+- [ ] **P2 · Önerildi** (2026-11-23)
+- **Kullanıcı ihtiyacı:** Bir serinin kaçıncı kitabındayım, sıradaki hangisi?
+- **Ekran/akış:** Kitap detayı → "Vakıf serisi, 2/7" → seri sayfası (sıralı kitaplar, kendi durumum) → sıradaki kitap.
+- **İlk kapsam:** Seri adı; eserin seri içindeki sırası; seri sayfası; detayda önceki / sonraki kitap. Seriyi yalnız admin tanımlar.
+- **İş kuralları:** Seri **eser** düzeyindedir (baskı değil; CAT-02). Bir eser ilk sürümde en fazla bir seridedir. Sıra boşluklu olabilir (1, 2, 4); sıra numarası uydurulmaz. Yayında olmayan kitaplar seri sayfasında görünmez.
+- **Kabul kriterleri:** Aynı seride aynı sıra iki kez kullanılamaz. Seriden çıkarılan kitap sayfadan kalkar. Kullanıcının kitaplık durumu seri sayfasında doğru görünür.
+- **Bağımlılıklar:** CAT-02; kullanıcının seri önermesi MOD-01–02 ile.
 
 ## 8. İncelemeler ve değerlendirmeler
 
@@ -292,6 +319,16 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **Kabul kriterleri:** Yeni kullanıcı boş öneri ekranında kalmaz. Her sonuç anlaşılır gerekçeye sahiptir. Tercih değişimi sonucu etkiler; gizli profil verisi başka kullanıcılara açılmaz.
 - **Bağımlılıklar:** LIB-01, kişisel puanlar, DISC-02–03. İlk sürüm dışında: benzer kullanıcı modeli ve AI önerileri.
 
+### DISC-05 — Yazarın diğer kitapları
+
+- [ ] **P1 · Önerildi** (2026-11-23)
+- **Kullanıcı ihtiyacı:** Sevdiğim yazarın başka ne yazdığını görmek.
+- **Ekran/akış:** Kitap detayında yazar adı bir bağlantı → katalog o yazarın kitaplarıyla açılır (süzgeç URL'de) → süzgeç etiketiyle kaldırılır.
+- **İlk kapsam:** Katalogda yazar süzgeci; detayda "Yazarın diğer kitapları" şeridi (en çok birkaç kitap, "tümü" bağlantısı).
+- **İş kuralları:** Yazar bugün eserde düz metin (`books.author`); eşleşme `search_fold` ile yapılır, büyük/küçük harf ve Türkçe harfler sorun olmaz (Faz 16b kuralı; `lower()`/`ILIKE` yok). Ortak yazarlı ve farklı yazılmış adlar ilk sürümde ayrı yazardır; yazar kimliği (ayrı tablo) ayrı karardır. Yayında olmayan kitaplar dışlanır.
+- **Kabul kriterleri:** "orhan kemal" ile "Orhan Kemal" aynı listeyi verir. Paylaşılan URL aynı süzgeci açar. Sorgu 500 bin kitaplık deney verisinde ölçülür ve index kullanır (Faz 16c yöntemi).
+- **Bağımlılıklar:** DISC-01; yazar kimliği gelirse DISC-02'nin "yazar benzerliği" de buna dayanır.
+
 ## 11. Profil, görünürlük ve sosyal akış
 
 ### SOC-01 — Profil sayfası ve kişisel ana sayfa
@@ -318,6 +355,16 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **Kabul kriterleri:** Tek olay tekrar tekrar görünmez. Takip bırakma sonrası kişinin akışı artık dahil edilmez. Gizli faaliyet veri, sayaç veya önizleme üzerinden sızmaz.
 - **Bağımlılıklar:** SOC-01–02, REV-01, READ-02; sosyal yayına çıkmadan engelleme/kötüye kullanım politikası da belirlenir.
 - **İlk sürüm dışında:** Mesajlaşma, algoritmik akış, gruplar ve okuma kulüpleri.
+
+### SOC-04 — Kitap bağlantısı önizlemesi
+
+- [ ] **P1 · Önerildi** (2026-11-23)
+- **Kullanıcı ihtiyacı:** Bir kitabın bağlantısını mesajla attığımda karşı taraf kapağı ve başlığı görsün.
+- **Ekran/akış:** Kullanıcı `/books/{id}` adresini paylaşır → mesajlaşma uygulaması sayfayı okur → kapak, başlık, yazar ve kısa açıklama kartı.
+- **İlk kapsam:** Kitap sayfaları için Open Graph ve Twitter kartı etiketleri (`og:title`, `og:description`, `og:image`, `og:url`); diğer sayfalarda bugünkü genel açıklama.
+- **İş kuralları:** Site tek sayfa uygulaması: bugün her adres aynı `index.html`'i döner ve önizleme okuyucuları JavaScript çalıştırmaz, bu yüzden etiketler sunucuda üretilmeli. Tasarım araştırılır; sınırlar: API private ve iki servis sınırı (yeni servis yok), kitap verisi HTML'e **kaçışlanarak** yazılır (kullanıcı önerisinden gelen metin XSS taşıyabilir), yalnız yayındaki kitaplar, CSP gevşetilmez, kişisel veri (kendi puanı, kitaplık durumu) etikete girmez.
+- **Kabul kriterleri:** Yayındaki bir kitabın bağlantısı bir önizleme denetleyicisinde kapak ve başlıkla görünür. Yayında olmayan ya da olmayan kitap genel önizleme verir, varlığını sızdırmaz. `<script>` içeren bir başlık sayfada metin olarak kalır (test).
+- **Bağımlılıklar:** CAT-01. Kapak adresleri F37 (#104) kuralına uyar.
 
 ## 12. Hesap erişimi ve oturum kontrolü
 
@@ -386,7 +433,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **İlk kapsam:** CSV veya JSON olarak kitaplık, okuma durumu/tarihleri, kişisel puan ve kendi incelemeleri. Format sürümü ve dışa aktarım zamanı.
 - **İş kuralları:** Yalnız kullanıcının verisi çıkarılır. CSV kullanılıyorsa formül enjeksiyonuna karşı hücreler güvenli üretilir. UTF-8 ve kararlı alan adları kullanılır; token/e-posta gibi gereksiz hesap verisi eklenmez.
 - **Kabul kriterleri:** Türkçe karakter, satır sonu ve tırnak içeren içerik bozulmaz. Gizli kitaplık sahibine aktarılabilir; başkasına aktarılamaz. Çıktıdaki kayıt sayısı kapsamla eşleşir.
-- **Bağımlılıklar:** LIB/READ/REV alan modelleri. CSV içe aktarma ayrı P2 işidir; ilk sürüme dahil değildir.
+- **Bağımlılıklar:** LIB/READ/REV alan modelleri. CSV içe aktarma ayrı P2 işidir: [DATA-03](#data-03--başka-sitelerden-içe-aktarma).
 
 ### DATA-02 — Hesap silme ve bağlı verilerin akıbeti
 
@@ -396,6 +443,16 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **İş kuralları:** Oturumlar iptal edilir. Puan kaldırılıyorsa kitap istatistikleri güncellenir. İlişkili kayıtlar üzerinde kısmi silme hatası oluşmaması ve işlemin tekrar denenebilmesi tasarlanır.
 - **Kabul kriterleri:** Eski hesap erişim sağlayamaz; özel kayıtlar erişilemez. Kamusal içerik seçilen politikaya uyar. Puan özetleri tutarlıdır; başka kullanıcı veya ortak katalog verisi yanlışlıkla silinmez.
 - **Bağımlılıklar:** F01/F06, veri ilişkilerinin envanteri; sonradan eklenen her özellik silme politikasına dahil edilir.
+
+### DATA-03 — Başka sitelerden içe aktarma
+
+- [ ] **P2 · Önerildi** (2026-11-23; önce § 18'de ertelenmişti)
+- **Kullanıcı ihtiyacı:** Yıllardır başka bir sitede tuttuğum kitaplığımı yeniden girmeden getirmek.
+- **Ekran/akış:** Hesap → İçe aktar → CSV dosyası yükle → eşleşme önizlemesi (bulundu / bulunamadı / emin değil) → onayla → özet.
+- **İlk kapsam:** Yaygın bir kitap sitesinin dışa aktarma CSV'si ve DATA-01'in kendi biçimi; kitaplık durumu, okuma tarihleri ve kişisel puan. Eşleşme önce ISBN, sonra başlık + yazar (`search_fold`).
+- **İş kuralları:** Önizlemesiz yazım yok; kullanıcı onaylamadan hiçbir kayıt oluşmaz. Eşleşmeyen kitap kataloğa kendiliğinden eklenmez (isteğe bağlı olarak öneri akışına gider; MOD kuralları). Var olan kayıt sessizce ezilmez. Dosya boyutu ve satır sayısı sınırlı; dosya diske ve loga yazılmaz; işlem hız sınırlı. Aynı dosyayı iki kez yüklemek kopya üretmez.
+- **Kabul kriterleri:** Türkçe karakterli ve tırnaklı satırlar doğru okunur. Hatalı satır bütün işlemi düşürmez, raporda görünür. Özetteki sayılar yazılanlarla aynıdır.
+- **Bağımlılıklar:** READ-02 (tarihler), CAT-03 (ISBN ile eşleşme kalitesi), DATA-01. Gerçek kullanıcıya açılma kararıyla değerlendirilir.
 
 ## 14. Bildirimler ve ortak kullanıcı deneyimi
 
@@ -421,6 +478,16 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **İlk kapsam:** Dar ekranda navigasyon, filtreler, kartlar ve form düzeni; anlamlı etiketler; klavye odağı; seçili durum ve işlem sonucunun erişilebilir bildirimi.
 - **Kabul kriterleri:** 320/360/390 px genişliklerde yatay taşma yoktur. Temel akışlar klavyeyle tamamlanır. Dialog kapanınca odak başlatan kontrole döner. Puan, raf durumu ve hata yalnız renkle anlatılmaz.
 - **Bağımlılık:** F13. Ayrı bir son rötuş olarak ertelenmez; her yeni ekranın kabul koşuludur.
+
+### UX-03 — Telefona kurulabilir site (PWA, ilk adım)
+
+- [ ] **P2 · Önerildi** (2026-11-23)
+- **Kullanıcı ihtiyacı:** Kitabın yanında telefondan sayfa numarasını hızlıca girmek.
+- **Ekran/akış:** Telefonda tarayıcının "Ana ekrana ekle"si → BookHub simgesiyle tam ekran açılır → kitaplığım / şu an okuduklarım.
+- **İlk kapsam:** Web uygulaması bildirimi (manifest: ad, simgeler, renk, başlangıç adresi), kurulabilirlik. Çevrimdışı çalışma ilk adımda **yok**.
+- **İş kuralları:** Bir service worker eklenirse API yanıtlarını önbelleğe almaz (kişisel veri; çıkışta temizlik Faz 16d'de istemci tarafında) ve yeni sürüm yayınlanınca eski kodu sunmaya devam etmez. CSP'nin `default-src 'self'`'i aynı kökenden manifest ve worker'a zaten izin verir; gevşetilmez.
+- **Kabul kriterleri:** Android Chrome'da kurulabilir. Kurulu uygulamada giriş, çıkış ve yenileme çerezi akışı tarayıcıdakiyle aynı çalışır. Yeni yayından sonra kurulu uygulama yeni sürümü açar.
+- **Bağımlılıklar:** UX-02 (mobil düzen), SOC-01'in hızlı ilerleme alanı.
 
 ## 15. Teslimat paketleri
 
@@ -451,12 +518,15 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - MOD-01–02, ACC-01–03, DATA-02.
 - Bunların tamamlanması genel kullanıma açılma kapısıdır; yalnız geliştirme sıralamasında C yazması güvenlik/hak sahipliği özelliklerini erteleme gerekçesi değildir.
 - NOTIF-01, MOD-03, ACC-04 ve DATA-01 takip eden küçük teslimatlar olabilir.
+- Gerçek kullanıcıya açılma kararıyla birlikte değerlendirilir (2026-11-23): CAT-04, DATA-03, UX-03.
 
 ### Paket D — Keşif ve okuma özeti
 
 **Çıktı:** Kullanıcı uygun yeni kitap bulur ve geçmiş okumalarını anlamlandırır.
 
 - DISC-01–03, STATS-01, READ-03, REV-03.
+- 2026-11-23 eklenenler: SOC-01'in kişisel ana sayfa yarısı ("Şu an okuyorum" ve hızlı ilerleme),
+  DISC-05, SOC-04, READ-04. Sıra: Faz 17'nin hemen ardından ([ROADMAP](ROADMAP.md)).
 - Metadata ve kullanıcı verisi yeterliliği doğrulanır.
 
 ### Paket E — Sosyal ve kişiselleştirilmiş deneyim
@@ -503,7 +573,7 @@ Başlangıçta sayısal başarı hedefleri uydurulmaz; önce küçük bir kullan
 - Rozet, seri ve liderlik tablosu: Temel okuma deneyimi yeterli olmadan aktiviteyi yanlış teşvik edebilir.
 - Karmaşık makine öğrenmesi önerileri: Az veriyle anlamlı avantajı gösterilmeden eklenmez.
 - Tam sosyal ağ, gelişmiş editör ve kapsamlı baskı kataloğunu aynı sürümde kurma: İlk ürün paketini gereksiz büyütür.
-- Özel notlar, alıntılar ve CSV içe aktarma: Değerli genişlemelerdir; ayrı gereksinim, gizlilik ve veri eşleme tasarımıyla sonraki backlog'a alınabilir.
+- ~~Özel notlar, alıntılar ve CSV içe aktarma~~: 2026-11-23'te backlog'a alındı — READ-04 ve DATA-03.
 
 ## 19. Özellik bazında uygulama kaydı
 
