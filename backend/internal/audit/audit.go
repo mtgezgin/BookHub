@@ -14,6 +14,7 @@ import (
 const (
 	EntityBook    = "book"
 	EntityComment = "comment"
+	EntityReview  = "review"
 )
 
 // Write, bir denetim satırı ekler. details JSON'a çevrilir (jsonb kolonu).

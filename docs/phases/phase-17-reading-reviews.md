@@ -808,7 +808,7 @@ baştan düşük karmaşıklıkla yazılır.
 | Adım | İçerik | Durum |
 | --- | --- | --- |
 | 1 | `0018_reviews.sql` + sqlc sorguları + migration testi | ✅ commit (2026-11-25) |
-| 2 | `internal/reviews` servisi: yaz/düzenle (sürümlü), sil, gizle/geri aç (audit) | — |
+| 2 | `internal/reviews` servisi: yaz/düzenle (sürümlü), sil, gizle/geri aç (audit) | ✅ commit (2026-11-25) |
 | 3 | API: inceleme uçları, admin uçları, `review` rate limit | — |
 | 4 | Arayüz veri katmanı: tipler, istemci, kancalar | — |
 | 5 | Arayüz: İncelemeler bölümü, kendi incelemem, spoiler, admin gizleme | — |
@@ -856,6 +856,64 @@ baştan düşük karmaşıklıkla yazılır.
   - [`0018_reviews.sql`](../../backend/migrations/0018_reviews.sql): baştaki açıklama;
   - [`reviews.sql`](../../backend/sql/queries/reviews.sql): her sorgunun üstündeki not;
   - [`migrate_0018_integration_test.go`](../../backend/internal/database/migrate_0018_integration_test.go).
+
+### 17B adım 2 — Servis
+
+- **Amaç:** incelemenin iş kuralları tek yerde. Bu adımda uç ve ekran değişmez.
+- **Parçalar:**
+  - `backend/internal/reviews/service.go`:
+    - `List`, `Mine`: kitap yayında değilse "kitap yok".
+    - `Save`: yaz ya da düzenle, tek transaction. Kitap yayında mı → incelemem kilitli okunur → yoksa
+      ilk yazım, varsa düzenleme.
+    - `Delete`: puanı silmez.
+    - `Hide`, `Unhide`: satır kilitli okunur; yazım ve audit aynı transaction'da.
+  - `internal/audit`: yeni varlık tipi `review`.
+  - `backend/internal/reviews/service_integration_test.go`: gerçek Postgres'le yedi test.
+- **Bu adımda verilen kararlar (asistan):**
+  - **Sürüm iki yönlü karşılaştırılır.** İnceleme varken sürümsüz yazım 409: başka bir sekme az önce
+    yazmıştır. İnceleme yokken sürümlü yazım da 409: başka bir sekme silmiştir. Böylece hiçbir yazım
+    haberi olmadan ezilmez ve silinen inceleme sessizce geri gelmez.
+  - **Aynı anda iki ilk yazım:** ikincisi `UNIQUE`'te birincinin bitmesini bekler, satır döndürmez;
+    servis satırı yeniden okur ve 409 verir. Birincinin metni kalır.
+  - **Değişiklik yoksa yazılmaz:** metin ve spoiler bayrağı aynıysa sürüm artmaz, "düzenlendi"
+    görünmez. Kaydet'e iki kez basmak düzenleme değildir.
+  - **Gizleme ve geri açma tekrarlanınca hiçbir şey yazılmaz:** zaten gizli incelemenin gerekçesi
+    değişmez, audit'e ikinci satır düşmez. İki yönetici aynı anda gizlerse de tek satır (kilit).
+  - **Audit gerekçeyi saklar:** gizlemede verilen gerekçe; geri açmada satırdan silinen gerekçe. Geri
+    açılan incelemenin neden gizlendiğinin tek izi audit.
+  - **Silmek için kitabın yayında olması aranmaz:** okur kendi verisini her zaman silebilir (Faz 15'te
+    kitaplıktan çıkarmak gibi). Yazmak, düzenlemek, okumak ve listelemek yayında olmayan kitapta 404.
+  - **Yönetici gizlemesi kitabın durumuna bakmaz:** yayından kalkmış kitaptaki inceleme de gizlenebilir.
+  - **Uzunluk handler'da doğrulanır** (adım 3; yorumlardaki gibi): metin 1–5000, gerekçe 1–500
+    karakter. Sınırlar serviste sabit (`MaxBodyLen`, `MaxReasonLen`); veritabanı CHECK'leri son güvence.
+- **Sonuç (2026-11-25):**
+  - Yedi test, gerçek Postgres'le yeşil:
+    - yazım ve düzenleme adımları (Doğrulama 12);
+    - yayında olmayan kitap;
+    - silme (Doğrulama 13, 14);
+    - liste;
+    - gizleme (Doğrulama 15);
+    - olmayan incelemeyi gizleme;
+    - aynı anda iki ilk yazım: birinci yazım commit edilmeden ikincinin onu beklediği
+      `pg_blocking_pids` ile görülür, sonra commit edilir.
+  - Bütün backend testleri yeşil; golangci-lint 0 sorun.
+  - Bilinçli bozmayla denendi; on birin on biri kırmızı (derlenen hâlleriyle; derlenmeyen iki ilk deneme
+    sayılmadı):
+    - düzenlemede ya da ilk yazımda sürüm denetimi kaldırılınca;
+    - yarışı kaybeden ilk yazım 404 alınca;
+    - değişmeyen kayıt da yazılınca;
+    - gizleme tekrarı yeniden yazınca;
+    - geri açma audit'ine boş gerekçe yazılınca;
+    - audit hiç yazılmayınca;
+    - silmede 0 satır başarı sayılınca;
+    - `Save`, `Mine` ya da `List` kitabın yayında olduğuna bakmayınca.
+  - **Testsiz kalan tek dal:** ilk yazımla "kitap yayında mı" denetimi arasında kitap yayından kalkarsa
+    `Save` "kitap yok" döner. Bu yarışı testte kurmanın güvenilir bir yolu yok (iki sorgu arasındaki
+    anlık durum); dal üç satır ve gerekçesi kodda yazılı.
+- **Bakılacak yerler:**
+  - [`service.go`](../../backend/internal/reviews/service.go): `Save` → `create` / `edit`, `lostInsert`,
+    `moderate`;
+  - [`service_integration_test.go`](../../backend/internal/reviews/service_integration_test.go).
 
 ## 🪜 17B — adımlar
 
