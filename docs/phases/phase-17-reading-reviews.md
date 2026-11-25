@@ -518,7 +518,7 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 | Adım | İçerik | Durum |
 | --- | --- | --- |
 | 1 | `0017_reading_checks.sql` + migration testi; kısıtla çakışan iki servis testi | ✅ commit (2026-11-25) |
-| 2 | Canlıda sayım, dokümanlar, PR | sayım yapıldı (aşağıda); dokümanlar ve PR adım 1'den sonra |
+| 2 | Canlıda sayım, dokümanlar, PR | ✅ commit (2026-11-25); PR açıldı |
 
 **Canlıda sayım (2026-11-25, kullanıcı Supabase SQL Editor'da; yalnız okuyan, yalnız sayı döndüren
 sorgu, metni PR'da):** `library_entries` toplam **0** satır, temizlenecek **0**, kural dışı ilerleme
