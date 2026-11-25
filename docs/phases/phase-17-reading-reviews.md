@@ -809,7 +809,7 @@ baştan düşük karmaşıklıkla yazılır.
 | --- | --- | --- |
 | 1 | `0018_reviews.sql` + sqlc sorguları + migration testi | ✅ commit (2026-11-25) |
 | 2 | `internal/reviews` servisi: yaz/düzenle (sürümlü), sil, gizle/geri aç (audit) | ✅ commit (2026-11-25) |
-| 3 | API: inceleme uçları, admin uçları, `review` rate limit | — |
+| 3 | API: inceleme uçları, admin uçları, `review` rate limit | ✅ commit (2026-11-25) |
 | 4 | Arayüz veri katmanı: tipler, istemci, kancalar | — |
 | 5 | Arayüz: İncelemeler bölümü, kendi incelemem, spoiler, admin gizleme | — |
 | 6 | Playwright (axe dahil), dokümanlar, PR | — |
@@ -914,6 +914,71 @@ baştan düşük karmaşıklıkla yazılır.
   - [`service.go`](../../backend/internal/reviews/service.go): `Save` → `create` / `edit`, `lostInsert`,
     `moderate`;
   - [`service_integration_test.go`](../../backend/internal/reviews/service_integration_test.go).
+
+### 17B adım 3 — API
+
+- **Amaç:** servisi HTTP'ye açmak. Ekran bu adımda değişmez.
+- **Uçlar** (§ 2'deki gibi):
+
+  ```text
+  GET    /api/books/{id}/reviews          herkese açık, sayfalı (limit, offset)
+  GET    /api/books/{id}/review           benim incelemem; yoksa 404 no_review
+  PUT    /api/books/{id}/review           {body, has_spoiler, version?}  yeni 201, düzenleme 200
+  DELETE /api/books/{id}/review           204
+  POST   /api/admin/reviews/{id}/hide     {reason}  200
+  POST   /api/admin/reviews/{id}/unhide   gövdesiz  200
+  ```
+
+- **Parçalar:**
+  - `backend/cmd/api/reviews.go`: handler'lar, DTO'lar, hata haritası.
+  - `router.go`: rotalar; `main.go`: servis bağlandı; `middleware_test.go`: iki yeni admin rotası
+    korunan rotalar listesinde (401/403 testi).
+  - `reviews_test.go`: sahte servisle uç testleri; `reviews_integration_test.go`: gerçek servisle
+    uçtan uca.
+  - `AUTH_RATE_LIMIT_PER_MIN`'in açıklaması: `config.go`, `.env.example`, DEPLOYMENT.md.
+- **Bu adımda verilen kararlar (asistan):**
+  - **Cevaplar:**
+    - Herkese açık liste: `id`, `author` (`id`, `display_name`), `author_score` (puan yoksa null),
+      `body`, `has_spoiler`, `created_at`, `edited_at`. Sürüm ve gizleme alanları yok; e-posta yok.
+      `author` yorumlardakiyle aynı biçim.
+    - Benim incelemem (yönetici uçları da bunu döner): `id`, `book_id`, `body`, `has_spoiler`,
+      `version`, `created_at`, `edited_at`, `hidden` (görünürse null, gizliyse `at` ve `reason`).
+      **Gizleyen yöneticinin kimliği cevapta yok**; yalnız veritabanında ve audit'te.
+  - **Hata kodları:** incelemem yoksa `404 no_review` (kitap yoksa `404 not_found`; arayüz ikisini
+    ayırıp boş düzenleyici gösterir, puandaki `not_rated` gibi). Sürüm uyuşmazsa `409 version_conflict`.
+    Yönetici uçlarında olmayan inceleme `404 not_found`.
+  - **PUT'un durum kodu istekten bilinir:** sürümsüz istek ancak ilk yazımsa başarılı olur (servis
+    inceleme varken sürümsüz yazımı 409 yapar). Bu yüzden sürümsüz başarı 201, sürümlü başarı 200.
+  - **Doğrulama:** metin ve gerekçe kırpılır; metin 1–5000, gerekçe 1–500 karakter; sürüm gönderilirse
+    en az 1. NUL ve bilinmeyen alan (`user_id` gibi) `readJSON`'da `400 invalid_json`.
+  - **İstek sınırı:** yalnız PUT, IP başına ayrı `review` kovası, önce kimlik sonra sınır (parola
+    değiştirmedeki sıra). Sınır değeri yeni bir ayar değil, mevcut `AUTH_RATE_LIMIT_PER_MIN` (varsayılan
+    dakikada 10); parola kovası da onu kullanıyordu. Adı tarihî kaldı, açıklaması üç yerde güncellendi.
+    NGINX'e ayrı bölge eklenmedi: uç zaten kimlik istiyor ve API'deki sınır Redis'te bütün örnekler
+    arasında paylaşılıyor.
+- **Sonuç (2026-11-25):**
+  - Uç testleri yeşil: PUT için 13 senaryo, okuma ve silme 10, yönetici 9; servise gidenler (kullanıcı
+    token'dan, kitap adresten, kırpılmış metin); cevap sözleşmeleri; istek sınırı (kimliksiz istek
+    kotayı yemez, okuma ve silme sınırsız).
+  - Uçtan uca test gerçek Postgres'le yeşil: yaz → sürümsüz ikinci yazım 409 → düzenle → yönetici gizler
+    (listede yok) → sahibi düzenler (gizli kalır) → geri açılır (listede) → başkasının silmesi Alice'in
+    incelemesine dokunmaz.
+  - Bütün backend testleri yeşil; golangci-lint 0 sorun; `scripts/checks.sh range` yalnız yerelde
+    `sqlc` kurulu olmadığını söylüyor (CI'da var; bu adımda sorgu değişmedi).
+  - Bilinçli bozmayla denendi; on ikinin on ikisi kırmızı (hepsi derlendi):
+    - metin kırpılmayınca; metin ya da gerekçe uzunluğu denetlenmeyince; sürüm alt sınırı kalkınca;
+      gerekçe zorunlu olmayınca;
+    - düzenleme de 201 dönünce; 409 eşlemesi kalkınca; `no_review` yerine `not_found` dönünce;
+    - gizleme bilgisi cevaptan düşünce;
+    - PUT'tan istek sınırı kalkınca; sınır bütün gruba (okuma, silme) konunca;
+    - gizleme rotası admin grubunun dışına çıkınca.
+  - Ara düzeltme: handler'a önce `v.text` (NUL denetimi) koymuştum; `readJSON` bunu zaten bütün metin
+    alanları için yapıyor, kaldırıldı.
+- **Bakılacak yerler:**
+  - [`reviews.go`](../../backend/cmd/api/reviews.go): DTO'lar ve `handleSaveReview`;
+  - [`router.go`](../../backend/cmd/api/router.go): "İncelemeler (Faz 17B)" bloğu ve admin rotaları;
+  - [`reviews_test.go`](../../backend/cmd/api/reviews_test.go),
+    [`reviews_integration_test.go`](../../backend/cmd/api/reviews_integration_test.go).
 
 ## 🪜 17B — adımlar
 

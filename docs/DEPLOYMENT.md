@@ -60,7 +60,7 @@ imaja girer). `web` servisinin env değişkeni yok.
 | `JWT_ACCESS_TTL` · `JWT_REFRESH_TTL` · `JWT_SESSION_MAX_AGE` | varsayılanlar (15m · 168h · 720h) | `JWT_SESSION_MAX_AGE`, `JWT_REFRESH_TTL`'den kısa olamaz (açılışta doğrulanır) |
 | `DB_MAX_CONNS` | (varsayılan `6`) | Havuzun en çok bağlantısı. 2 × değer + 1 (yayın sırasında iki örnek + migration), Supabase oturum havuzunun sınırını (varsayılan 15) aşmamalı. Adrese `pool_max_conns` yazılmaz |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` · `OTEL_EXPORTER_OTLP_HEADERS` (**sır**) · `OTEL_EXPORTER_OTLP_PROTOCOL` · `OTEL_TRACES_SAMPLER` · `OTEL_TRACES_SAMPLER_ARG` · `OTEL_RESOURCE_ATTRIBUTES` | Kurulum: aşağıda §2a. Hiçbiri yokken telemetri **kapalı** | OpenTelemetry iz ve metrikleri Grafana Cloud'a gider ([#96](https://github.com/mtgezgin/BookHub/issues/96)). İlk değişkeni uygulama da doğrular; diğerlerini SDK okur |
-| `RATING_MIN_VOTES` · `AUTH_RATE_LIMIT_PER_MIN` | varsayılanlar | Ağırlıklı puanın `m`'i · IP başına dakikalık kimlik isteği kotası |
+| `RATING_MIN_VOTES` · `AUTH_RATE_LIMIT_PER_MIN` | varsayılanlar | Ağırlıklı puanın `m`'i · IP başına dakikalık istek kotası (login, register, parola, inceleme yazımı; her biri ayrı) |
 
 Deploy iş akışı için GitHub secret'ı: `PROD_DATABASE_URL` (yukarıdaki `DATABASE_URL` ile aynı
 değer). Yalnız yeni bir migration dosyası geldiğinde kullanılır. Repo seviyesinde bir sır: yazma

@@ -65,7 +65,8 @@ type Config struct {
 	// Redis'siz de doğru çalışır. Doluysa açılışta PING atılır (fail-fast).
 	RedisURL string
 
-	// AuthRateLimit: login ve register için IP başına dakikada en çok istek (ayrı ayrı).
+	// AuthRateLimit: IP başına dakikada en çok istek; her kova ayrı sayılır: login, register, parola
+	// değiştirme ve (Faz 17B'den beri) inceleme yazımı. Adı tarihî: ilk kovalar kimlik uçlarıydı.
 	AuthRateLimit int
 
 	// LogFormat: "text" (dev, okunur) ya da "json" (konteyner/prod, makine-okur).
