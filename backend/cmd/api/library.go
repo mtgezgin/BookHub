@@ -42,8 +42,8 @@ type libraryItemResponse struct {
 	AddedAt   time.Time    `json:"added_at"`
 	MyRating  *int         `json:"my_rating"` // null = puanım yok
 	InCatalog bool         `json:"in_catalog"`
-	// Kartlardaki ilerleme (Faz 17A-1): yalnız READING'de dolu, başka durumda hep null (0017'ye kadar
-	// satırda bayat değer kalabilir). Unit null = ilerleme henüz girilmedi.
+	// Kartlardaki ilerleme (Faz 17A-1): yalnız READING'de dolu, başka durumda null (0017'den beri
+	// veritabanı kısıtı). Unit null = ilerleme henüz girilmedi.
 	Unit       *string `json:"unit"`
 	Progress   *int32  `json:"progress"`
 	TotalPages *int32  `json:"total_pages"`

@@ -3,6 +3,8 @@ package library_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -276,14 +278,6 @@ func TestShelfReadingRealDB(t *testing.T) {
 			t.Errorf("çıkarmak çalışmalı: %+v %v", s, err)
 		}
 	})
-
-	t.Run("bayat okuma alanları gösterilmez (0017'den önce)", func(t *testing.T) {
-		f := newFixture(t, pool)
-		testdb.Exec(t, pool, `INSERT INTO library_entries (user_id, book_id, status, unit, progress) VALUES ($1, $2, 'READ', 'page', 9)`, f.user, f.book)
-		if s, err := svc.Get(ctx, f.user, f.book); err != nil || s.Entry.Unit != nil || s.Entry.Progress != nil {
-			t.Errorf("READ satırının bayat alanları boş dönmeli: %+v %v", s.Entry, err)
-		}
-	})
 }
 
 func TestShelfUpdateReadingRealDB(t *testing.T) {
@@ -364,26 +358,55 @@ func TestShelfUpdateReadingRealDB(t *testing.T) {
 }
 
 // TestShelfAtomicityRealDB (Doğrulama 7): transaction ortasında hata olursa ne satır ne günlük değişir.
-// Hata gerçek: 0017'den önce library_entries'te kısıt yok, kural dışı bir ilerleme (-5) yazılabilir;
-// "Bitirdim" önce satırı READ yapar, sonra günlük satırını yazarken reading_log'un CHECK'ine çarpar.
+// Hata gerçek bir veritabanı hatası: yalnız bu testin kullanıcısı için günlük yazımını reddeden geçici bir
+// tetikleyici. "Bitirdim" önce satırı READ yapar, sonra günlük satırını yazarken düşer; satır geri alınmalı.
+// (0017'ye kadar hata kural dışı bir ilerlemeyle, -5, üretiliyordu; artık veritabanı onu baştan reddediyor.)
 func TestShelfAtomicityRealDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	svc := library.NewService(pool)
 	f := newFixture(t, pool)
-	testdb.Exec(t, pool, `INSERT INTO library_entries (user_id, book_id, status, unit, progress) VALUES ($1, $2, 'READING', 'page', -5)`, f.user, f.book)
+	putState(t, pool, f, library.StatusReading)
+	failLogWrites(t, pool, f.user)
 
-	if _, err := svc.Do(context.Background(), f.user, f.book, library.CommandInput{Command: library.CmdFinish}); err == nil {
-		t.Fatal("günlük kısıtı hatası bekleniyordu")
+	// Hata satır yazıldıktan SONRA, günlük yazımında gelmeli; yoksa geri alınacak bir şey yoktur.
+	if _, err := svc.Do(context.Background(), f.user, f.book, library.CommandInput{Command: library.CmdFinish}); err == nil ||
+		!strings.Contains(err.Error(), "(satır değişmişti)") {
+		t.Fatalf("günlük yazımı hatası bekleniyordu: %v", err)
 	}
 	var st string
 	var version int
-	if err := pool.QueryRow(context.Background(), `SELECT status, version FROM library_entries WHERE user_id = $1 AND book_id = $2`,
-		f.user, f.book).Scan(&st, &version); err != nil || st != library.StatusReading || version != 1 {
-		t.Errorf("satır geri alınmalı: %s v%d %v", st, version, err)
+	var progress *int32
+	if err := pool.QueryRow(context.Background(), `SELECT status, version, progress FROM library_entries WHERE user_id = $1 AND book_id = $2`,
+		f.user, f.book).Scan(&st, &version, &progress); err != nil || st != library.StatusReading || version != 1 || progress == nil || *progress != 42 {
+		t.Errorf("satır geri alınmalı: %s v%d %v %v", st, version, progress, err)
 	}
 	if n := logCount(t, pool, f.user, f.book); n != 0 {
 		t.Errorf("günlük boş kalmalı: %d", n)
 	}
+}
+
+// failLogWrites, bu kullanıcının reading_log'a her yazımını reddeden geçici bir tetikleyici kurar; test
+// bitince kaldırılır. Test veritabanı paylaşıldığı için koşul kullanıcıya bağlı (öteki testler etkilenmez).
+// Kimlik sayı olduğu için DDL'e biçimlendirilerek girer (DDL parametre almaz).
+//
+// Hata mesajı, aynı transaction'da kitaplık satırının o an hâlâ "okuyor" olup olmadığını söyler. Böylece
+// test, hatanın satır YAZILDIKTAN sonra geldiğini görebilir (yazılmadan gelirse geri alınacak bir şey yok).
+func failLogWrites(t *testing.T, pool *pgxpool.Pool, user int64) {
+	t.Helper()
+	name := fmt.Sprintf("test_fail_log_%d", user)
+	testdb.Exec(t, pool, fmt.Sprintf(`CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN
+			IF EXISTS (SELECT 1 FROM library_entries
+			           WHERE user_id = NEW.user_id AND book_id = NEW.book_id AND status = 'READING') THEN
+				RAISE EXCEPTION 'deneme: günlük yazımı reddedildi (satır değişmemişti)';
+			END IF;
+			RAISE EXCEPTION 'deneme: günlük yazımı reddedildi (satır değişmişti)';
+		END $$`, name))
+	testdb.Exec(t, pool, fmt.Sprintf(`CREATE TRIGGER %[1]s BEFORE INSERT ON reading_log
+		FOR EACH ROW WHEN (NEW.user_id = %[2]d) EXECUTE FUNCTION %[1]s()`, name, user))
+	t.Cleanup(func() {
+		testdb.Exec(t, pool, fmt.Sprintf(`DROP TRIGGER %[1]s ON reading_log; DROP FUNCTION %[1]s()`, name))
+	})
 }
 
 // TestShelfConcurrentRealDB: aynı anda gelen iki "Zaten okudum" (iki sekme, çift tık) — kitap kitaplıkta

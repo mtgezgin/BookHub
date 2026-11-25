@@ -4,7 +4,7 @@
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
 **Son güncelleme (2026-11-25):** Faz 1–16d canlıda · repo public (MIT) · canlı veritabanının şifreli
-yedeği canlıda · **Faz 17A-1 (okuma takibi) canlıda**; sırada 17A-2 ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
+yedeği canlıda · **Faz 17A-1 (okuma takibi) canlıda**; 17A-2 (kısıtlar) PR'da ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React, CI/CD, NGINX, Kubernetes) + oturum
 sertleştirme (Faz 13) + ürün fazları 14–16d.
 
@@ -216,8 +216,8 @@ Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
    raf kontrolü, Kitaplığım'da ilerleme) **canlıda** (PR #121, 2026-11-25). Deploy `0016`'dan önce şifreli
    döküm aldı (#100 kriter 3) ve canlı akış tarayıcıyla doğrulandı
    ([spec](phases/phase-17-reading-reviews.md#-17a-1-yayın-ve-canlı-doğrulama-2026-11-25)). Sonar'ın
-   kodla düzeltilmeyen 12 bulgusu panelde "Accepted" işaretlenecek (kullanıcı, sonra). Sırada 17A-2
-   (`0017`, kısıtlar) ve 17B. Ardından (ROADMAP,
+   kodla düzeltilmeyen 12 bulgusu panelde "Accepted" işaretlenecek (kullanıcı, sonra). **17A-2**
+   (`0017`, okuma kısıtları) `feat/80-okuma-kisitlari` PR'ında; canlı sayım 0 satır. Sonra 17B. Ardından (ROADMAP,
    2026-11-23): okuma özeti ve kişisel ana sayfa → yazarın diğer kitapları → bağlantı önizlemesi →
    notlar ve alıntılar.
 3. **Kullanıcı adımları:** Northflank sağlık kontrolleri (panel), Grafana Cloud hesabı (#96). Sırlar

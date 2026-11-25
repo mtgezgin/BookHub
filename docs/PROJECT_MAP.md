@@ -184,6 +184,7 @@ bağlanmaz, sır kullanmaz; adres `BOOKHUB_API_URL` (varsayılan `http://localho
 | `0014` | arama (Faz 16b, canlı 2026-11-18): `search_fold` (Türkçe duyarlı katlama) ve `search_tsquery`, kitap başına bir satırlık `book_search` belgesi (GIN index), onu `books` ve `editions` yazımlarında güncelleyen iki tetikleyici, ilk doldurma; Up başında `und-x-icu` koruması ve `lock_timeout` ([phase-16b](phases/phase-16b-search.md)) |
 | `0015` | index düzeltmeleri (F28): index'siz üç yabancı anahtara index, liste index'lerinin sadeleştirilmesi; yalnız index değişir. Kural bir testte: `internal/database/schema_integration_test.go` |
 | `0016` | okuma takibi, genişletme (Faz 17A-1): `library_entries`'e okuma alanları ve `version`, kapanmış okumalar için `reading_log`; kısıtsız kolonlar, CHECK'ler 0017'de ([phase-17](phases/phase-17-reading-reviews.md)) |
+| `0017` | okuma kısıtları, daraltma (Faz 17A-2): okunmayan kitapta kalan okuma alanlarını boşaltır; `library_reading_only_when_reading` ve `library_progress_valid` CHECK'leri (NULL'a dayanıklı `CASE`). Test: `internal/database/migrate_0017_integration_test.go` |
 
 `sql/queries/*.sql` = sqlc girdisi (el yazması SQL); `migrations/embed.go` migration'ları binary'ye gömer.
 

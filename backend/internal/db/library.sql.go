@@ -165,8 +165,8 @@ type ListLibraryRow struct {
 // Arama katalogla aynı kuralla eşleşir (search_fold ve book_search; 0014_book_search.sql): Türkçe
 // harf, aksan ve kelime sırası fark etmez, son kelime önek sayılır. q tek satırlık ve MATERIALIZED:
 // arama ifadesi bir kez kurulur, kitaplıktaki her kayıt için yeniden hesaplanmaz.
-// Okuma alanları (Faz 17) kartlardaki ilerleme için; anlamları yalnız status = 'READING' iken var
-// (0017'ye kadar başka durumda bayat kalabilirler, Go tarafı bakmaz).
+// Okuma alanları (Faz 17) kartlardaki ilerleme için; yalnız status = 'READING' iken dolu
+// (0017'den beri veritabanı kısıtı: library_reading_only_when_reading).
 func (q *Queries) ListLibrary(ctx context.Context, arg ListLibraryParams) ([]ListLibraryRow, error) {
 	rows, err := q.db.Query(ctx, listLibrary,
 		arg.UserID,

@@ -20,8 +20,8 @@ DELETE FROM library_entries WHERE user_id = $1 AND book_id = $2;
 WITH q AS MATERIALIZED (
     SELECT search_tsquery(search_fold(sqlc.narg('query')::text), '') AS tsq
 )
--- Okuma alanları (Faz 17) kartlardaki ilerleme için; anlamları yalnız status = 'READING' iken var
--- (0017'ye kadar başka durumda bayat kalabilirler, Go tarafı bakmaz).
+-- Okuma alanları (Faz 17) kartlardaki ilerleme için; yalnız status = 'READING' iken dolu
+-- (0017'den beri veritabanı kısıtı: library_reading_only_when_reading).
 SELECT sqlc.embed(b), le.status, le.created_at AS added_at, r.score AS my_rating,
        le.unit, le.progress, le.total_pages,
        (b.status = 'APPROVED')::boolean AS in_catalog,

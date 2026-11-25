@@ -510,6 +510,82 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 - **Sırada:** 17A-2 (`0017`, kısıtlar; öncesinde canlıda kural dışı satır sayımı), sonra 17B. #80 açık
   kalır.
 
+## 🧭 17A-2 — kısıtlar (`0017`)
+
+17A-1 gibi: asistan yazar, kullanıcı okur, "tamam" deyince commit; dal `feat/80-okuma-kisitlari`, ayrı PR
+(CLAUDE.md: daraltma, genişletme yayını canlıda doğrulandıktan sonra ayrı PR'dır).
+
+| Adım | İçerik | Durum |
+| --- | --- | --- |
+| 1 | `0017_reading_checks.sql` + migration testi; kısıtla çakışan iki servis testi | ✅ commit (2026-11-25) |
+| 2 | Canlıda sayım, dokümanlar, PR | ✅ commit (2026-11-25); PR açıldı |
+
+**Canlıda sayım (2026-11-25, kullanıcı Supabase SQL Editor'da; yalnız okuyan, yalnız sayı döndüren
+sorgu, metni PR'da):** `library_entries` toplam **0** satır, temizlenecek **0**, kural dışı ilerleme
+**0**. Beklenen: demo tohum verisi kitaplık kaydı oluşturmuyor (yalnız puan yazıyor) ve 17A-1'in canlı
+doğrulamasında kullanılan kayıt sonunda çıkarıldı. `0017` canlıda hiçbir satırı değiştirmeyecek;
+kısıtlar boş tabloya eklenecek.
+
+### 17A-2 adım 1 — Migration ve testler
+
+- **Amaç:** okuma kuralları veritabanında da zorlansın (spec Doğrulama 11). Servis aynı kuralları Go'da
+  zaten denetliyor (`validProgress`, okumuyorken boş alanlar); kısıt, servisi atlayan bir yazımı
+  (elle SQL, ileride başka bir kod yolu) durdurur.
+- **Parçalar:**
+  - `backend/migrations/0017_reading_checks.sql`:
+    - önce temizlik: okunmayan kitapta kalmış okuma alanları boşaltılır (yayın penceresinin bayat
+      alanları, § 1);
+    - sonra iki kısıt: `library_reading_only_when_reading` ve `library_progress_valid`.
+    - Kural dışı **ilerleme** temizlenmez: varsa `ADD CONSTRAINT` düşer, transaction geri alınır ve
+      Deploy durur (`release` ilerlemez). Sessizce silmek yerine nedenini görmek için; yeni kod böyle
+      satır yazamaz, eski kod ilerleme hiç yazmazdı. Canlı sayım adım 2'de.
+    - `Down` kısıtları kaldırır; temizlik geri gelmez (boşaltılan alanlar anlamsızdı).
+  - `internal/database/migrate_0017_integration_test.go`: veritabanı `0016`'ya kadar kurulur, bayat bir
+    "okudum" satırı ve üç geçerli okuma yazılır. `0017`'den sonra:
+    - bayat alanlar temizlenmiş, geçerli okumalar olduğu gibi;
+    - 5 geçerli yazım kabul, 11 kural dışı yazım ret;
+    - `Down`'dan sonra kısıt yok.
+  - Servis testleri, 17A-1'in bütün senaryoları kısıtlar altında yeniden koştu. İkisi `0017`'nin
+    yasakladığı satırı elle yazıyordu ve kırıldı. Kısıt tam yapması gerekeni yaptı:
+    - "bayat okuma alanları gösterilmez (0017'den önce)" kaldırıldı. O satır artık yazılamıyor;
+      temizliği ve reddi migration testi sınıyor.
+    - `TestShelfAtomicityRealDB` transaction ortasındaki hatayı kural dışı bir ilerlemeyle (−5)
+      üretiyordu. Artık yalnız o testin kullanıcısının günlük yazımını reddeden geçici bir tetikleyiciyle
+      üretiyor. Tetikleyici, aynı transaction'da satırın o an değişip değişmediğini hata mesajına yazıyor.
+      Test, hatanın satır yazıldıktan **sonra** geldiğini ve satırın geri alındığını görüyor.
+  - Yorumlar: "0017'ye kadar bayat kalabilir" diyen dört yer (servis, API, sorgu, sqlc'nin ürettiği
+    dosya) güncellendi.
+- **Bu adımda verilen kararlar (asistan):**
+  - **Spec'teki taslak düzeltildi** (§ 2 "Uygulamada değişen"): NULL tuzağı ve `total_pages > 0`.
+  - **Kural dışı ilerleme temizlenmiyor, Deploy duruyor:** yukarıda; sayım bunu önceden gösterecek.
+  - `NOT VALID` + `VALIDATE` ayrımı yok: tablo küçük, kısa bir kilit yeterli (`lock_timeout` 5 sn, 0016
+    gibi).
+- **Sonuç (2026-11-25):**
+  - Bütün backend testleri gerçek Postgres + Redis'le yeşil; golangci-lint 0 sorun; sqlc `diff` temiz.
+  - Testlerin gerçekten yakaladığı bilinçli bozmayla denendi:
+    - kısıt spec'teki taslağa çevrilince 4 kural dışı yazım geçiyor (birimsiz ilerleme, ilerlemesiz
+      sayfa, ilerlemesiz yüzde, sıfır sayfa toplamı) → test kırmızı;
+    - yalnız `total_pages > 0` kaldırılınca 1 → kırmızı;
+    - temizlik `UPDATE`'i kaldırılınca migration bayat satırda düşüyor → kırmızı;
+    - atomiklik testinde tetikleyici kaldırılınca → kırmızı;
+    - "Bitirdim" önce günlüğü sonra satırı yazacak biçimde çevrilince → kırmızı. Bu bozmayı ilk
+      tetikleyici yakalayamamıştı (hata satırdan önce geldiği için geri alınacak bir şey yoktu); hata
+      mesajına satırın durumu bu yüzden eklendi.
+- **Bakılacak yerler:**
+  - [`0017_reading_checks.sql`](../../backend/migrations/0017_reading_checks.sql): baştaki açıklama ve
+    "NULL TUZAĞI";
+  - [`migrate_0017_integration_test.go`](../../backend/internal/database/migrate_0017_integration_test.go):
+    durum tablosu;
+  - `service_integration_test.go`: `TestShelfAtomicityRealDB` ve `failLogWrites`.
+- **PR #123'te SonarCloud (2026-11-25):** tek bulgu, migration testinin bilişsel karmaşıklığı (19 > 15).
+  Düzeltildi:
+  - yardımcılar (`readingDB`: `must`, `read`, `tryEntry`) paket düzeyine alındı;
+  - dört satır kontrolü tek bir beklenti tablosu oldu;
+  - kabul/ret tek koşul oldu.
+
+  Sınanan şeyler aynı. Spec taslağına ve temizliksiz migration'a karşı bozmalar yine kırmızı. Kural
+  (kullanıcı, 2026-11-25): Sonar bulguları her zaman düzeltilir; düzeltilmeyecekse gerekçesi yazılır.
+
 ## 🪜 17A — adımlar
 
 ### 1. Şema: `0016_reading.sql` (genişletme)
@@ -568,12 +644,22 @@ ALTER TABLE library_entries
         status = 'READING' OR (edition_id IS NULL AND unit IS NULL AND progress IS NULL
                                AND total_pages IS NULL AND started_on IS NULL)),
     ADD CONSTRAINT library_progress_valid CHECK (
-        (unit IS NULL AND progress IS NULL AND total_pages IS NULL)
-        OR (unit = 'percent' AND progress BETWEEN 0 AND 100 AND total_pages IS NULL)
-        OR (unit = 'page' AND progress >= 0 AND (total_pages IS NULL OR progress <= total_pages)));
+        CASE
+            WHEN unit IS NULL THEN progress IS NULL AND total_pages IS NULL
+            WHEN unit = 'percent' THEN progress IS NOT NULL AND progress BETWEEN 0 AND 100
+                                       AND total_pages IS NULL
+            WHEN unit = 'page' THEN progress IS NOT NULL AND progress >= 0
+                                    AND (total_pages IS NULL OR (total_pages > 0 AND progress <= total_pages))
+            ELSE false
+        END);
 ```
 
 - Önce canlıda sayım: temizlenecek satır var mı, kural dışı ilerleme var mı (PR'da yazılır).
+- **Uygulamada değişen (2026-11-25, 17A-2):** ilk taslak `(unit = 'percent' AND …) OR (unit = 'page' AND …)`
+  biçimindeydi. CHECK ifadesi NULL dönerse Postgres satırı **kabul eder**. Bu yüzden taslak, birimi boş
+  ama ilerlemesi 5 olan satırı ya da birimi `page` ama ilerlemesi boş olan satırı geçiriyordu. `CASE`'in
+  her dalı yalnız true/false döner. Ayrıca bilinen sayfa toplamı 0'dan büyük olmalı (`reading_log` ile
+  aynı kural; `editions.page_count` kısıtsız).
 
 ### 3. Servis: `internal/library` (durum makinesi)
 

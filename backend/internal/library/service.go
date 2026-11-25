@@ -32,8 +32,8 @@ type Shelf struct {
 	// BookID, rafın kitabı. Günlük uçları kitabı adresten değil kayıttan bulur; kayıt da kitaplık satırı
 	// da kalmamışsa (son geçmiş satırı silindi) cevap yine hangi kitabın rafı olduğunu söyler.
 	BookID int64
-	// Entry nil = kitaplıkta değil. Okuma alanları yalnız Status READING iken dolu döner (0017'ye kadar
-	// başka durumda bayat kalabilirler; spec 17A § 1).
+	// Entry nil = kitaplıkta değil. Okuma alanları yalnız Status READING iken dolu (0017'den beri
+	// veritabanı kısıtı: library_reading_only_when_reading).
 	Entry *db.LibraryEntry
 	// Log, kapanmış okumalar, en yeni önce. Kitap kitaplıktan çıkarılsa da kalır.
 	Log []db.ReadingLog
@@ -407,12 +407,12 @@ func snapshot(ctx context.Context, q *db.Queries, bookID int64, in CommandInput)
 	zero := int32(0)
 	r.Unit, r.Progress = &unit, &zero
 	if unit == UnitPage {
-		r.TotalPages = pages // yüzdede toplam tutulmaz (0017'nin kuralı)
+		r.TotalPages = pages // yüzdede toplam tutulmaz (0017'deki library_progress_valid)
 	}
 	return r, nil
 }
 
-// validProgress, 0017'nin library_progress_valid kısıtının Go karşılığı: istemci 500 değil 400 görsün.
+// validProgress, 0017'deki library_progress_valid kısıtının Go karşılığı: istemci 500 değil 400 görsün.
 func validProgress(r reading) error {
 	switch {
 	case r.Unit == nil:
