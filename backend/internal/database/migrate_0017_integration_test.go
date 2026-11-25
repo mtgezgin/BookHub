@@ -22,7 +22,7 @@ func TestMigration0017ReadingChecks(t *testing.T) {
 	defer cancel()
 
 	conn, provider := migratedTo(ctx, t, "bookhub_m0017", 16)
-	db := readingDB{ctx: ctx, t: t, conn: conn}
+	db := readingDB{schemaDB{ctx: ctx, t: t, conn: conn}}
 
 	db.must(`INSERT INTO users (email, display_name, password_hash) VALUES ('okur@example.test', 'Okur', 'x')`)
 	db.must(`INSERT INTO books (title, slug, author, language, status)
@@ -100,18 +100,7 @@ type readingRow struct {
 }
 
 // readingDB, 0017 testinin veritabanı yardımcıları; test fonksiyonu yalnız senaryoyu anlatsın.
-type readingDB struct {
-	ctx  context.Context
-	t    *testing.T
-	conn *sql.DB
-}
-
-func (d readingDB) must(q string, args ...any) {
-	d.t.Helper()
-	if _, err := d.conn.ExecContext(d.ctx, q, args...); err != nil {
-		d.t.Fatalf("%s: %v", q, err)
-	}
-}
+type readingDB struct{ schemaDB }
 
 func (d readingDB) read(slug string) readingRow {
 	d.t.Helper()

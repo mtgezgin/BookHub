@@ -798,6 +798,65 @@ durumu ve oradan yapılabilecekleri gösterir:
   - "Puan ver" daveti yalnız bu ekranda bitirilince ve puan yoksa; tıklanınca puan seçiciye gider.
   - 409 akışı "Okumayı düzenle"de de aynı ("Yine de kaydet").
 
+## 🧭 17B nasıl takip edilecek
+
+17A-1 gibi: asistan bir adımı yazar, kullanıcı okur, "tamam" deyince commit; dal `feat/80-inceleme`, tek PR.
+`0018` yalnız yeni tablo eklediği için genişletme/daraltma ayrımı yok: canlıdaki kod tabloya hiç dokunmaz.
+Kural (2026-11-25): Sonar'ın her bulgusu birleşmeden önce düzeltilir ya da gerekçesi yazılır; testler
+baştan düşük karmaşıklıkla yazılır.
+
+| Adım | İçerik | Durum |
+| --- | --- | --- |
+| 1 | `0018_reviews.sql` + sqlc sorguları + migration testi | ✅ commit (2026-11-25) |
+| 2 | `internal/reviews` servisi: yaz/düzenle (sürümlü), sil, gizle/geri aç (audit) | — |
+| 3 | API: inceleme uçları, admin uçları, `review` rate limit | — |
+| 4 | Arayüz veri katmanı: tipler, istemci, kancalar | — |
+| 5 | Arayüz: İncelemeler bölümü, kendi incelemem, spoiler, admin gizleme | — |
+| 6 | Playwright (axe dahil), dokümanlar, PR | — |
+
+### 17B adım 1 — Şema ve sorgular
+
+- **Amaç:** incelemenin veritabanı tarafı. Bu adımda uç ve ekran değişmez.
+- **Parçalar:**
+  - `backend/migrations/0018_reviews.sql`: `reviews` tablosu (§ 1). Taslaktan farklar § 1'de, gerekçeleriyle
+    dosyanın başında.
+  - `backend/sql/queries/reviews.sql`, servisin (adım 2) kullanacağı sorgular:
+    - herkese açık liste ve sayısı: gizlenenler yok; yazarın adı `users`'tan, puanı `ratings`'ten;
+    - kendi incelemem ve kilitli hâli;
+    - ilk yazım: yalnız yayındaki kitaba; aynı anda iki ilk yazımda ikincisi satır döndürmez, servis
+      kilitleyip sürüm kuralına göre karar verir;
+    - düzenleme: `edited_at` dolar, `version` artar, gizleme kolonlarına dokunmaz;
+    - silme;
+    - yönetici için kilitli okuma, gizleme ve geri açma.
+  - `internal/db`: sqlc'nin ürettiği kod.
+  - `internal/database/migrate_0018_integration_test.go`: veritabanı `0017`'ye kadar kurulur, `0018`
+    uygulanır. Sınananlar:
+    - kullanıcı başına kitapta tek inceleme;
+    - metin 1–5000 karakter, gerekçe en çok 500;
+    - gizleme kuralı iki yönlü;
+    - silmeler: puan silinince inceleme kalır, yönetici silinince gizleme kalır ve gizleyen boşalır,
+      kitap ve yazar silinince inceleme gider;
+    - `Down` tabloyu kaldırır.
+  - `migrate_integration_test.go`: migration testlerinin ortak yardımcısı `schemaDB` (`must`, `try`,
+    `count`). 0017 testinin `must`'ı buraya taşındı; Sonar tekrar saymasın.
+- **Bu adımda verilen kararlar (asistan):**
+  - Gizlemek `version`'ı artırmıyor: sahibinin açık düzenleyicisi yönetici yüzünden 409 almasın.
+  - Sorgular bu adımda yalnız sqlc'nin şemaya karşı doğrulamasından geçti (`generate`, `diff`).
+    Davranışları servis testleriyle adım 2'de sınanacak (17A-1 adım 1'deki gibi).
+- **Sonuç (2026-11-25):**
+  - Bütün backend testleri gerçek Postgres + Redis'le yeşil; golangci-lint 0 sorun; sqlc `diff` temiz.
+  - Yabancı anahtar index denetimi (`TestEveryForeignKeyHasIndex`) `reviews`'i de kapsıyor ve geçiyor.
+  - Testlerin gerçekten yakaladığı bilinçli bozmayla denendi; beşinin beşi kırmızı:
+    - `UNIQUE` kaldırılınca;
+    - gizleme kuralı spec taslağındaki tek yönlü hâline çevrilince;
+    - `hidden_by`'ın `ON DELETE SET NULL`'ı kaldırılınca;
+    - `hidden_by` index'i kaldırılınca (FK denetimi);
+    - 500 sınırı kaldırılınca.
+- **Bakılacak yerler:**
+  - [`0018_reviews.sql`](../../backend/migrations/0018_reviews.sql): baştaki açıklama;
+  - [`reviews.sql`](../../backend/sql/queries/reviews.sql): her sorgunun üstündeki not;
+  - [`migrate_0018_integration_test.go`](../../backend/internal/database/migrate_0018_integration_test.go).
+
 ## 🪜 17B — adımlar
 
 ### 1. Şema: `0018_reviews.sql`
@@ -814,13 +873,20 @@ CREATE TABLE reviews (
     edited_at     timestamptz,                        -- NULL = hiç düzenlenmedi
     hidden_at     timestamptz,                        -- NULL = görünür
     hidden_by     bigint REFERENCES users (id) ON DELETE SET NULL,
-    hidden_reason text NOT NULL DEFAULT '',
+    hidden_reason text NOT NULL DEFAULT '' CHECK (char_length(hidden_reason) <= 500),
     UNIQUE (user_id, book_id),
-    CHECK (hidden_at IS NULL OR hidden_reason <> '')
+    CONSTRAINT reviews_hidden_has_reason CHECK ((hidden_at IS NULL) = (hidden_reason = ''))
 );
-CREATE INDEX reviews_book_created_idx ON reviews (book_id, created_at DESC);
+CREATE INDEX reviews_book_created_idx ON reviews (book_id, created_at DESC, id DESC);
 CREATE INDEX reviews_hidden_by_idx ON reviews (hidden_by) WHERE hidden_by IS NOT NULL;
 ```
+
+- **Uygulamada değişen (2026-11-25, 17B adım 1):**
+  - Liste index'ine `id DESC` eklendi. Liste kararlı sayfalama için `id`'yi ikinci sıralama anahtarı
+    yapıyor; index'te yoksa sıralamanın tamamını veremez (0005'in dersi).
+  - Gizleme kuralı iki yönlü oldu: gizliyse gerekçe dolu, görünürse boş. Geri açılan incelemede eski
+    gerekçe kalmasın.
+  - Gerekçe en çok 500 karakter; moderasyondaki ret gerekçesiyle aynı sınır.
 
 - **2026-11-23 düzeltmesi:** ilk taslakta liste index'i kısmiydi (`WHERE hidden_at IS NULL`). Böyle bir
   index yabancı anahtar denetimine sayılmaz (yorumlarda 0015'te düzeltilen sorunun aynısı), bu yüzden

@@ -84,6 +84,38 @@ func freshDatabase(ctx context.Context, t *testing.T, prefix string) string {
 	return u.String()
 }
 
+// schemaDB, migration testlerinin ortak SQL yardımcıları: kurulum (must), kısıt denemesi (try) ve sayım
+// (count). Test fonksiyonu yalnız senaryoyu anlatsın; her kontrol tek satırda kalsın.
+type schemaDB struct {
+	ctx  context.Context
+	t    *testing.T
+	conn *sql.DB
+}
+
+// must, kurulum sorgusu; hata testi durdurur.
+func (d schemaDB) must(q string, args ...any) {
+	d.t.Helper()
+	if _, err := d.conn.ExecContext(d.ctx, q, args...); err != nil {
+		d.t.Fatalf("%s: %v", q, err)
+	}
+}
+
+// try, kısıtın kabul ya da reddettiği bir yazımı dener; hatayı döndürür.
+func (d schemaDB) try(q string, args ...any) error {
+	_, err := d.conn.ExecContext(d.ctx, q, args...)
+	return err
+}
+
+// count, tek sayı döndüren sorgu.
+func (d schemaDB) count(q string, args ...any) int {
+	d.t.Helper()
+	var n int
+	if err := d.conn.QueryRowContext(d.ctx, q, args...).Scan(&n); err != nil {
+		d.t.Fatalf("%s: %v", q, err)
+	}
+	return n
+}
+
 // migratedTo, geçici bir veritabanını (freshDatabase) verilen sürüme kadar kurar; tek bir
 // migration'ın taşımasını sınayan testler eski şemaya veri yazıp sonrakini provider'la uygular.
 func migratedTo(ctx context.Context, t *testing.T, prefix string, version int64) (*sql.DB, *goose.Provider) {

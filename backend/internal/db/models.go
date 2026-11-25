@@ -162,6 +162,20 @@ type RefreshTokenFamily struct {
 	RevokedAt         *time.Time `json:"revoked_at"`
 }
 
+type Review struct {
+	ID           int64      `json:"id"`
+	UserID       int64      `json:"user_id"`
+	BookID       int64      `json:"book_id"`
+	Body         string     `json:"body"`
+	HasSpoiler   bool       `json:"has_spoiler"`
+	Version      int32      `json:"version"`
+	CreatedAt    time.Time  `json:"created_at"`
+	EditedAt     *time.Time `json:"edited_at"`
+	HiddenAt     *time.Time `json:"hidden_at"`
+	HiddenBy     *int64     `json:"hidden_by"`
+	HiddenReason string     `json:"hidden_reason"`
+}
+
 type User struct {
 	ID           int64     `json:"id"`
 	Email        string    `json:"email"`
