@@ -61,6 +61,9 @@ beforeEach(() => {
     myRating: notRated,
     books: async () => ({ items: [], total: 0, limit: 7, offset: 0 }),
     libraryStatuses: async () => ({ statuses: {} }),
+    // İncelemeler bölümü (Faz 17B); kendi testleri components/ReviewSection.test.tsx'te.
+    reviews: async () => ({ items: [], total: 0, limit: 20, offset: 0 }),
+    myReview: () => Promise.reject(new ApiError(404, "no_review", "bu kitaba henüz inceleme yazmadın")),
   });
 });
 

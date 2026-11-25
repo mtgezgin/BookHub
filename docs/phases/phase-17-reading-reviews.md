@@ -811,7 +811,7 @@ baştan düşük karmaşıklıkla yazılır.
 | 2 | `internal/reviews` servisi: yaz/düzenle (sürümlü), sil, gizle/geri aç (audit) | ✅ commit (2026-11-25) |
 | 3 | API: inceleme uçları, admin uçları, `review` rate limit | ✅ commit (2026-11-25) |
 | 4 | Arayüz veri katmanı: tipler, istemci, kancalar | ✅ commit (2026-11-25) |
-| 5 | Arayüz: İncelemeler bölümü, kendi incelemem, spoiler, admin gizleme | — |
+| 5 | Arayüz: İncelemeler bölümü, kendi incelemem, spoiler, admin gizleme | ✅ commit (2026-11-25) |
 | 6 | Playwright (axe dahil), dokümanlar, PR | — |
 
 ### 17B adım 1 — Şema ve sorgular
@@ -1025,6 +1025,59 @@ baştan düşük karmaşıklıkla yazılır.
   - [`reviewQueries.ts`](../../frontend/src/api/reviewQueries.ts): kancaların başındaki notlar;
   - [`reviewQueries.test.tsx`](../../frontend/src/api/reviewQueries.test.tsx);
   - [`types.ts`](../../frontend/src/api/types.ts): `PublicReview`, `Review`, `ReviewDraft`.
+
+### 17B adım 5 — Arayüz
+
+- **Amaç:** kitap sayfasında incelemeler (§ 3).
+- **Parçalar:**
+  - `components/ReviewSection.tsx` (yeni): bölüm, liste ve sayfalama, inceleme kartı (spoiler düğmesi),
+    yöneticinin gizleme diyaloğu ve "Geri aç".
+  - `components/MyReview.tsx` (yeni): okurun kendi incelemesi; yazma ve düzenleme formu, 409 notu,
+    silme onayı.
+  - `pages/BookDetail.tsx`: bölüm yorumların üstünde, tembel yüklenir.
+  - `ReviewSection.test.tsx` (yeni, 14 test); `BookDetail.test.tsx`: sahte API'ye inceleme uçları eklendi
+    (yoksa bölüm hata kutusu çiziyor ve sayfanın "hata yok" testleri kırılıyordu).
+- **Ekranda:**
+  - Başlık "İncelemeler (toplam)". Girişsiz ziyaretçiye "İnceleme yazmak için giriş yap".
+  - Okurun incelemesi yoksa "İnceleme yaz"; varsa "Senin incelemen" kutusu: metin, tarih,
+    "düzenlendi", spoiler işareti, Düzenle ve Sil. Gizlenmişse kutuda "Bu inceleme yönetici tarafından
+    gizlendi: <gerekçe>. Başkaları göremiyor."
+  - Form: metin alanı, karakter sayacı (`/5000`), "Spoiler içeriyor" onay kutusu, Kaydet ve Vazgeç.
+  - Silme onayı: "İncelemen silinsin mi? Puanın silinmez."
+  - Listedeki kart: yazar, puanı (varsa), zaman, "düzenlendi". Spoiler'lı kartta "Spoiler içeriyor" ve
+    `Spoiler'ı göster` düğmesi.
+  - Yöneticiye her kartta "gizle"; diyalogda zorunlu gerekçe (`/500`).
+- **Bu adımda verilen kararlar (asistan):**
+  - **Kendi incelemen listede ikinci kez görünmez:** üstteki kutuda durur. Başlıktaki toplam sunucunun
+    sayısıdır, onu da sayar.
+  - **Spoiler (kavram 8):** metin açılana kadar DOM'da hiç yok. Düğme `aria-expanded` taşır;
+    `aria-controls` yalnız metin varken (olmayan bir kimliği göstermesin). Kendi incelemende metin hep
+    açık; yalnız işaretli olduğu yazılır.
+  - **409 akışı (raf formlarıyla aynı):** form açık kalır, yazdığın metin korunur. Üstte ne olduğu yazar:
+    başka yerde değişmişse şimdiki metin, silinmişse "silinmiş". Düğme "Benimkini kaydet" olur ve güncel
+    sürümle (silinmişse sürümsüz, yeni inceleme olarak) gönderir.
+  - **Yöneticinin geri açması:** gizlenenler ekranı kapsam dışı (spec § Kapsam dışı). Yine de yanlış
+    gizleme aynı ziyarette geri alınabilsin diye gizledikten sonra listenin üstünde "<yazar> tarafından
+    yazılan inceleme gizlendi · Geri aç" kalır. Canlı doğrulamanın (Doğrulama 17) "geri aç" adımı da
+    böylece arayüzden yapılabilir.
+  - **Tembel yükleme:** bölüm ayrı bir parça (`ReviewSection`, 10 kB). Rollup ana paketle bu parçanın
+    ortak modüllerini ayrı bir parçaya (`toast-…js`, 87,5 kB) aldı; ana paket 387 kB'tan 300 kB'a indi.
+    Toplam aynı, açılışta ikisi de yükleniyor; fark bir istek fazlası.
+  - Metin alanının sınırı tarayıcının `maxLength`'i (UTF-16 birimi); sunucu karakter sayar. Emojili
+    metinde arayüz sınırı biraz erken keser, tersi olmaz.
+- **Sonuç (2026-11-25):**
+  - Bileşen testleri 14/14; bütün arayüz testleri 519/519; `typecheck` ve `vite build` temiz.
+  - Bilinçli bozmayla denendi; on beşin on beşi kırmızı:
+    - spoiler metni hep DOM'da; `aria-expanded` yok; `aria-controls` hep var;
+    - kendi incelemen listede de; herkes "gizle" görür; girişsizde de "benim incelemem" sorulur;
+    - gerekçe kırpılmaz; gerekçesiz gizlenir; gizledikten sonra "Geri aç" notu çıkmaz;
+    - gizleme gerekçesi kutuda gösterilmez; metin kırpılmaz; boş metin gönderilir; ilk yazımda sürüm
+      gider; 409 notunda şimdiki metin yok; silme onayı puanı söylemez.
+  - Erişilebilirlik (axe) ve klavyeyle kullanım Playwright'ta (adım 6) sınanacak.
+- **Bakılacak yerler:**
+  - [`ReviewSection.tsx`](../../frontend/src/components/ReviewSection.tsx): `ReviewCard` ve `HideDialog`;
+  - [`MyReview.tsx`](../../frontend/src/components/MyReview.tsx): `ReviewEditor` ve 409 notu;
+  - [`ReviewSection.test.tsx`](../../frontend/src/components/ReviewSection.test.tsx).
 
 ## 🪜 17B — adımlar
 

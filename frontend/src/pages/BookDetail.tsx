@@ -1,5 +1,5 @@
 import { Star } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import {
@@ -22,6 +22,10 @@ import { Skeleton } from "../components/ui/skeleton";
 import { Pager, usePageView } from "../components/usePaged";
 import { formatDate, initialOf, languageName, timeAgo } from "../lib/format";
 import { cn } from "../lib/utils";
+
+// İncelemeler (Faz 17B) ayrı bir parçada: düzenleyici, diyaloglar ve kancaları kataloğu gezen ziyaretçinin
+// ana paketine girmez; kitap sayfası açılınca kitapla birlikte yüklenir.
+const ReviewSection = lazy(() => import("../components/ReviewSection").then((m) => ({ default: m.ReviewSection })));
 
 const SCORES = Array.from({ length: 10 }, (_, i) => i + 1);
 const MAX_COMMENT = 2000;
@@ -254,6 +258,11 @@ function BookDetailView() {
           {book.description && <p className="text-lg leading-relaxed whitespace-pre-wrap">{book.description}</p>}
           <EditionStrip editions={book.editions} author={book.author} />
           <ErrorBox error={shownError} className="mt-6" />
+
+          {/* Yorumların üstünde (spec 17B § 3). Hataları kendi içinde; sayfanın hata kutusuna karışmaz. */}
+          <Suspense fallback={<Skeleton role="status" aria-label="İncelemeler yükleniyor" className="mt-10 h-24 w-full" />}>
+            <ReviewSection bookId={book.id} />
+          </Suspense>
 
           <section aria-labelledby="comments-heading" className="mt-10">
             <h2 id="comments-heading" className="text-2xl font-semibold">Yorumlar {comments.page ? `(${comments.page.total})` : ""}</h2>
