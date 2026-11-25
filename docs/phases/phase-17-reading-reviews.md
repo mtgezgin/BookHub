@@ -577,6 +577,14 @@ kısıtlar boş tabloya eklenecek.
   - [`migrate_0017_integration_test.go`](../../backend/internal/database/migrate_0017_integration_test.go):
     durum tablosu;
   - `service_integration_test.go`: `TestShelfAtomicityRealDB` ve `failLogWrites`.
+- **PR #123'te SonarCloud (2026-11-25):** tek bulgu, migration testinin bilişsel karmaşıklığı (19 > 15).
+  Düzeltildi:
+  - yardımcılar (`readingDB`: `must`, `read`, `tryEntry`) paket düzeyine alındı;
+  - dört satır kontrolü tek bir beklenti tablosu oldu;
+  - kabul/ret tek koşul oldu.
+
+  Sınanan şeyler aynı. Spec taslağına ve temizliksiz migration'a karşı bozmalar yine kırmızı. Kural
+  (kullanıcı, 2026-11-25): Sonar bulguları her zaman düzeltilir; düzeltilmeyecekse gerekçesi yazılır.
 
 ## 🪜 17A — adımlar
 
