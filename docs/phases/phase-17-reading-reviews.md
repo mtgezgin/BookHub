@@ -812,7 +812,7 @@ baştan düşük karmaşıklıkla yazılır.
 | 3 | API: inceleme uçları, admin uçları, `review` rate limit | ✅ commit (2026-11-25) |
 | 4 | Arayüz veri katmanı: tipler, istemci, kancalar | ✅ commit (2026-11-25) |
 | 5 | Arayüz: İncelemeler bölümü, kendi incelemem, spoiler, admin gizleme | ✅ commit (2026-11-25) |
-| 6 | Playwright (axe dahil), dokümanlar, PR | — |
+| 6 | Playwright (axe dahil), dokümanlar, PR | ✅ commit (2026-11-25); PR açık |
 
 ### 17B adım 1 — Şema ve sorgular
 
@@ -1078,6 +1078,55 @@ baştan düşük karmaşıklıkla yazılır.
   - [`ReviewSection.tsx`](../../frontend/src/components/ReviewSection.tsx): `ReviewCard` ve `HideDialog`;
   - [`MyReview.tsx`](../../frontend/src/components/MyReview.tsx): `ReviewEditor` ve 409 notu;
   - [`ReviewSection.test.tsx`](../../frontend/src/components/ReviewSection.test.tsx).
+
+### 17B adım 6 — Uçtan uca test, dokümanlar, PR
+
+- **Amaç:** Doğrulama 12, 14, 15 ve 16'nın tarayıcıdaki karşılığı; dokümanlar; PR.
+- **Parçalar:**
+  - `frontend/e2e/rating-comment.spec.ts`: ikinci senaryo **inceleme**. Dosya artık iki senaryoyu tek
+    girişle koşuyor (`describe.serial`, `beforeAll`'da tek giriş; `library.spec`'teki kalıp).
+  - `frontend/e2e/helpers.ts`: giriş bütçesi tablosunda satırın açıklaması. **Bütçe değişmedi (10).**
+  - `frontend/package.json`: geliştirme bağımlılığı `@axe-core/playwright` 4.14.0.
+  - PROJECT_MAP (`reviews.go`, `internal/reviews`, `0018`, `reviewQueries.ts`, `ReviewSection` +
+    `MyReview`), STATUS, ROADMAP.
+- **Senaryo** (okur arayüzden; yönetici doğrudan API'den):
+  1. Yeniden deneme için ikisinin de incelemesi baştan silinir.
+  2. Yönetici bu kitaba spoiler'lı bir inceleme yazar.
+  3. **Spoiler (Doğrulama 16):** metin sayfanın HTML'inde yok; düğme `aria-expanded="false"`. axe temiz.
+     Düğmeye odaklanıp Enter: metin görünür, `aria-expanded="true"`. axe yine temiz.
+  4. **Yazma ve düzenleme (Doğrulama 12):** "İnceleme yaz", metin, spoiler kutusu klavyeyle (Space);
+     düzenleyici açıkken axe temiz. Kaydet; sonra Düzenle → kaydet: "düzenlendi".
+  5. **İki sekmede 409:** ikinci sekme kaydeder; birinci sekmede kaydet → "İncelemen başka bir yerde
+    değişmiş" ve öteki sekmenin metni, yazılan metin alanda duruyor; "Benimkini kaydet" yazar.
+  6. **Gizleme (Doğrulama 15):** yönetici gizler → okur sayfayı yenileyince gerekçeyi görür; düzenleyince
+     "gizli kalmaya devam ediyor"; yönetici geri açınca not kalkar.
+  7. **Silme (Doğrulama 14):** onayda "Puanın silinmez."; silince "İnceleme yaz" döner, puan yerinde.
+- **Bu adımda verilen kararlar (asistan):**
+  - **Yeni giriş yok:** ayrı bir dosya kendi girişini yapar ve bütçeyi tavana (11) dayardı. İnceleme,
+    konusu en yakın dosyaya (puan ve yorum) ikinci senaryo olarak eklendi.
+  - **Yönetici tarafı doğrudan API'den:** öteki okurun incelemesini yazmak, gizlemek ve geri açmak
+    NGINX'i atlayan isteklerle yapılıyor (global-setup'taki yol; sınırlı kovayı harcamaz). Gizleme
+    diyaloğunun kendisi bileşen testinde (adım 5) ve canlı doğrulamada (Doğrulama 17) sınanıyor.
+  - **axe yalnız İncelemeler bölümünde,** WCAG 2.0/2.1 A ve AA kuralları. Sayfanın geri kalanı bu fazın
+    işi değil; tam sayfa taraması ayrı bir iş olabilir.
+  - **Bağımlılık yaşı:** `@axe-core/playwright` 4.14.0, 2026-10-15'te yayımlandı. Bağımlı olduğu
+    `axe-core`'un en yeni yaması (4.14.1) 9 günlüktü; kurulum `--before 2026-11-11` ile yapıldı, kilit
+    dosyasında `axe-core` 4.14.0 (2026-10-05). Lisans MPL-2.0; yalnız testte, pakete girmez.
+- **Sonuç (2026-11-25):**
+  - `scripts/e2e.sh e2e/rating-comment.spec.ts`: iki senaryo da yeşil (inceleme 4,5 sn).
+  - İlk koşuda senaryo arama kutusunu bulamadı: önceki senaryo sayfayı kitapta bırakıyor. Kataloğa üst
+    çubuktan dönülüyor.
+  - Bir koşu tarayıcı 180 sn'de açılamadığı için düştü (kodla ilgisiz); `afterAll` artık sayfa hiç
+    açılmamışsa da hata vermiyor.
+  - axe'ın gerçekten yakaladığı denendi: bölüme adı olmayan bir düğme konunca senaryo `button-name`
+    ihlaliyle kırmızı.
+  - Bütün arayüz testleri 519/519; `typecheck` temiz.
+  - **Tam E2E paketi yerelde tamamlanamadı:** makinenin belleği azalınca koşu durduruldu; durmadan önce
+    birçok senaryo 100 ms altında düşmüştü (tarayıcı açılamıyor). Sonuç geçersiz sayıldı; tam paket PR'ın
+    CI'ında koşacak.
+- **Bakılacak yerler:**
+  - [`rating-comment.spec.ts`](../../frontend/e2e/rating-comment.spec.ts): ikinci senaryo ve yardımcıları;
+  - [`helpers.ts`](../../frontend/e2e/helpers.ts): bütçe tablosu.
 
 ## 🪜 17B — adımlar
 

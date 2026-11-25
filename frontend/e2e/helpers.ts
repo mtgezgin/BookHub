@@ -31,7 +31,7 @@
 //   cross-origin.spec                     | 0  (yalnız /api/auth/refresh)
 //   cache-headers.spec                    | 0  (statik dosyalar)
 //   resilience.spec                       | 0  (hatalar tarayıcıda taklit edilir; 1 çerezsiz /refresh)
-//   rating-comment.spec                   | 1
+//   rating-comment.spec (puan + inceleme) | 1  (iki senaryo tek girişi paylaşır; yönetici doğrudan API'den)
 //   moderation.spec                       | 2  (okur + admin)
 //   library.spec (kitaplık + okuma)       | 1  (iki senaryo tek girişi paylaşır; ikinci sekme çerezle)
 //   -------------------------------------|-----------------------------
