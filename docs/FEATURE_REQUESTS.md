@@ -45,6 +45,17 @@ canlıda (PR [#89](https://github.com/mtgezgin/BookHub/pull/89), 18 Kasım): Tü
 "İnce Memed"i bulur) ve yazarken arama (en az 3 harf, 300 ms). Madde "kısmen" kalıyor: dil ve sayfa
 aralığı süzgeci, başlığa göre sıralama ve aktif süzgeç etiketleri yok.
 
+**Güncelleme (25 Kasım 2026, Faz 17A-1 — [#80](https://github.com/mtgezgin/BookHub/issues/80)):** READ-01 ve READ-02
+canlıda (PR [#121](https://github.com/mtgezgin/BookHub/pull/121), canlı doğrulama 25 Kasım):
+- okumaya başlama, sayfa ya da yüzde ilerleme;
+- bitirme, yarım bırakma, devam etme;
+- tarihleri düzeltilebilen okuma geçmişi;
+- eski ekrandan yazım 409 alıyor (sessizce ezilmiyor).
+
+Kuralların veritabanında da zorlanması (CHECK kısıtları) 17A-2'de. Aynı kitabı yeniden okumanın temeli
+(her okuma ayrı geçmiş satırı) bu fazda geldi; READ-03'ün geçmiş okumaları listeleme ekranı ayrıca
+değerlendirilecek.
+
 **Güncelleme (23 Kasım 2026):** altı yeni madde "Önerildi" olarak eklendi (kullanıcı kararı; öneri
 asistandan): [READ-04](#read-04--kişisel-notlar-ve-alıntılar) notlar ve alıntılar,
 [CAT-04](#cat-04--kitap-serileri) seriler, [DISC-05](#disc-05--yazarın-diğer-kitapları) yazarın diğer
@@ -126,7 +137,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### READ-01 — Okuma başlatma ve ilerleme güncelleme
 
-- [ ] **P0 · Önerildi**
+- [x] **P0 · Tamamlandı** (Faz 17A-1, [#80](https://github.com/mtgezgin/BookHub/issues/80); canlıda doğrulandı 2026-11-25; veritabanı kısıtları 17A-2'de)
 - **Kullanıcı ihtiyacı:** Kitapta nerede kaldığımı kaydetmek.
 - **Ekran/akış:** Kitap detayı/Kitaplığım → Okumaya başla → sayfa veya yüzde gir → ilerlemeyi güncelle.
 - **İlk kapsam:** Aktif okuma kaydı, başlama tarihi, ilerleme birimi ve değeri. Toplam sayfa bilinmiyorsa yüzde kullanılabilir.
@@ -136,7 +147,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### READ-02 — Bitirme, yarım bırakma ve okuma geçmişi
 
-- [ ] **P0 · Önerildi**
+- [x] **P0 · Tamamlandı** (Faz 17A-1, [#80](https://github.com/mtgezgin/BookHub/issues/80); canlıda doğrulandı 2026-11-25; veritabanı kısıtları 17A-2'de)
 - **Kullanıcı ihtiyacı:** Ne zaman başlayıp bitirdiğimi ve yarım bıraktığımı hatırlamak.
 - **İlk kapsam:** Bitirdim/Yarım bıraktım eylemleri; başlangıç/bitiş tarihini düzeltme; kitap bazında geçmiş kaydı. Önceden okunmuş kitap, tarih bilinmeden Okudum olarak eklenebilir.
 - **İş kuralları:** Kitaplık durumu ve aktif okuma kaydı tutarlı güncellenir. Bilinen bitiş başlangıçtan önce olamaz. Bilinmeyen tarihler uydurulmaz. Bitirme sonrası puan/inceleme daveti isteğe bağlıdır.
