@@ -132,7 +132,7 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 | 4 | Arayüz veri katmanı: tipler, raf kancaları, yerel tarih yardımcısı | ✅ commit (2026-11-24) |
 | 5 | Arayüz: tek raf kontrolü, onaylar, 409 akışı, geçmiş | ✅ commit (2026-11-25) |
 | 6 | Kitaplığım kartlarında ilerleme | ✅ commit (2026-11-25) |
-| 7 | Playwright (iki sekme 409 dahil), dokümanlar, PR | ✅ commit (2026-11-25); PR açıldı |
+| 7 | Playwright (iki sekme 409 dahil), dokümanlar, PR | ✅ PR [#121](https://github.com/mtgezgin/BookHub/pull/121) birleşti, canlıda doğrulandı (2026-11-25) |
 
 ### Adım 1 — Şema ve sorgular
 
@@ -445,7 +445,7 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
   başındaki açıklama ve "Okuma (Faz 17A-1)" bölümü.
 - **PR'dan sonra, birleşmeden önce: SonarCloud'un 27 bulgusu (2026-11-25).** Kalite kapısı geçti;
   bulgular kontrol kaydının GitHub notlarından okundu (Sonar'ın anonim API'si PR analizini vermiyor).
-  - **Düzeltilen 14:**
+  - **Düzeltilen 15:**
     - 11 bileşende prop'lar `Readonly<…>` (S6759; örnek `BookDetail.tsx` `StarPicker`);
     - `ReadingEditForm`'da "Baskı" ile `<select>` arasındaki belirsiz boşluk (S6772);
     - ilerleme çubuğu elle ARIA'lı `<div role="progressbar">` yerine yerleşik `<progress>` (S6819). Rol,
@@ -458,15 +458,57 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
       - Davranış değişmedi: aynı testler yeşil.
   - **Testlerin kırıldığı denendi:** çubuğun değeri ya da metni bozulunca arayüz testleri kırmızı;
     `applyPatch`'te ilk giriş ya da `resolveAbandon`'da bir dal bozulunca servis testleri kırmızı.
-  - **Kodla düzeltilmeyen 13:**
-    - 6 tanesi `library.sql`'de "tekrarlanan metni sabite çevir" (S1192). Tekrarlanan metinler sqlc
+  - **Kodla düzeltilmeyen 12:**
+    - 5 tanesi `library.sql`'de "tekrarlanan metni sabite çevir" (S1192). Tekrarlanan metinler sqlc
       parametre adları (`'user_id'`, `'status'`) ve `'APPROVED'`; SQL sorgu dosyasında sabit yok;
     - 6 tanesi test fonksiyonlarında karmaşıklık. Bunlar senaryo testleri: alt testler sırayla aynı
       durumu paylaşıyor. Bölmek okunurluğu artırmaz;
     - 1 tanesi raf kontrolünün `role="group"`'u (fieldset önerisi). Grubun içinde form denetimleri
       değil, durum satırı, çubuk, düğmeler ve paneller var. Uygulamadaki dokuz grup da aynı biçimde.
-  - `.sonarcloud.properties` bulgu yoksaymayı (`sonar.issue.ignore.*`) desteklemiyor. Bu 13 bulgu Sonar
-    panelinde gerekçesiyle "Accepted" işaretlenir (kullanıcı kararı).
+  - `.sonarcloud.properties` bulgu yoksaymayı (`sonar.issue.ignore.*`) desteklemiyor. Bu 12 bulgu Sonar
+    panelinde gerekçesiyle "Accepted" işaretlenir (kullanıcı kararı; henüz yapılmadı).
+  - Not: `e799e7f`'in commit mesajı "14 düzeltildi, 13 kaldı" diyor. Doğrusu 15 ve 12: `library.sql`'deki
+    bulgular 6 değil 5. Düzeltmeden sonraki Sonar analizi açıkta tam 12 bulgu gösterdi. Push edilmiş
+    commit değiştirilmedi.
+
+## 🌐 17A-1 yayın ve canlı doğrulama (2026-11-25)
+
+- **Birleşme:** PR [#121](https://github.com/mtgezgin/BookHub/pull/121) (`3accf7d`), sekiz kontrolün
+  sekizi yeşil.
+- **Deploy** ([koşu 45561911429](https://github.com/mtgezgin/BookHub/actions/runs/45561911429)):
+  - Plan adımı yeni migration olarak yalnız `0016_reading.sql`'i buldu.
+  - Migration'dan **önce** şifreli döküm alındı: `bookhub-migration-oncesi-3accf7d.dump.age`, 57 143 bayt.
+  - Döküm `bookhub-yedek-migration-oncesi-45561911429` artefaktı olarak yüklendi; 90 gün, 2027-02-23'e
+    kadar saklanıyor.
+  - Bu, yedek düzeneğinin gerçek bir migration öncesindeki ilk koşusu
+    ([#100](https://github.com/mtgezgin/BookHub/issues/100) kabul kriteri 3).
+  - Sonra `manage migrate` "migration'lar güncel" dedi ve `release` `3accf7d`'ye ilerledi.
+  - Yayın kontrolü:
+    - canlı site raf kontrolünü içeren yeni paketi sunuyor;
+    - `GET /api/me/books/1/shelf` girişsiz 401 dönüyor, yani uç var (eski sürümde 404 olurdu).
+- **Canlıda tarayıcıyla (spec Doğrulama 10):** Chrome'da kullanıcının kendi hesabıyla, kitaplığı boşken,
+  Martin Eden (480 sayfa) üzerinde. Demo hesaplarıyla giriş yapılamıyor: tohum verisi onları parolasız
+  açıyor (`password_hash '!'`).
+
+  | Adım | Sonuç |
+  |---|---|
+  | Okumaya başla | ✅ "Şu an okuyorum", çubuk "0 / 480 sayfa" |
+  | İlerleme 120 | ✅ "120 / 480 sayfa", çubuk %25; sayfa yenilenince korunuyor |
+  | Yarım bıraktım | ✅ "Yarım bıraktın · 120 / 480 sayfa"; geçmişte "25 Kasım 2026 – 25 Kasım 2026" (yerel gün) |
+  | Devam et | ✅ yine 120. sayfa, geçmiş satırı kalktı |
+  | Kitaplığım | ✅ kartta "Şu an okuyorum" rozeti ve "120 / 480 sayfa" çubuğu |
+  | Bitirdim | ✅ "Okudum · Bugün bitirdin", "Puan ver" daveti, geçmişte "Bitirdin · 25 Kasım 2026" |
+  | Temizlik | ✅ geçmiş satırı silindi (`DELETE …/reading-log/2` 200), kitap çıkarıldı (`POST …/shelf/remove` 200); hesapta iz yok |
+
+- **Doğrulanmayan:**
+  - Ağ izlemesi yalnız temizlik adımlarında açıktı: başla, ilerle, yarım bırak, devam et ve bitir
+    adımlarının durum kodları kaydedilmedi. Her adımda arayüz başarı bildirimi gösterdi ve sunucunun
+    cevabını çizdi.
+  - API loglarında 5xx'e bakılmadı.
+  - İki sekme 409 senaryosu canlıda denenmedi; yerelde ve CI'da Playwright'la sınanıyor.
+  - Firefox'ta `<progress>` görünümü.
+- **Sırada:** 17A-2 (`0017`, kısıtlar; öncesinde canlıda kural dışı satır sayımı), sonra 17B. #80 açık
+  kalır.
 
 ## 🪜 17A — adımlar
 

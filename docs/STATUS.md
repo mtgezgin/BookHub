@@ -4,7 +4,7 @@
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
 **Son güncelleme (2026-11-25):** Faz 1–16d canlıda · repo public (MIT) · canlı veritabanının şifreli
-yedeği canlıda · **Faz 17A-1 (okuma takibi) PR'da, yayın bekliyor** ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
+yedeği canlıda · **Faz 17A-1 (okuma takibi) canlıda**; sırada 17A-2 ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React, CI/CD, NGINX, Kubernetes) + oturum
 sertleştirme (Faz 13) + ürün fazları 14–16d.
 
@@ -213,9 +213,11 @@ Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
 2. **Şimdi — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02;
    [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylı).
    Migration'ları `0016`–`0018`. **17A-1** (migration `0016`, raf servisi ve uçları, kitap sayfasında tek
-   raf kontrolü, Kitaplığım'da ilerleme) yedi adımda yazıldı, kullanıcı her adımı commit'ten önce okudu;
-   `feat/80-okuma-takibi` PR'ı yayın bekliyor. Yayından sonra: Deploy'un `0016` öncesi şifreli dökümü
-   (#100), canlı doğrulama (spec Doğrulama 10), sonra 17A-2 (`0017`, kısıtlar) ve 17B. Ardından (ROADMAP,
+   raf kontrolü, Kitaplığım'da ilerleme) **canlıda** (PR #121, 2026-11-25). Deploy `0016`'dan önce şifreli
+   döküm aldı (#100 kriter 3) ve canlı akış tarayıcıyla doğrulandı
+   ([spec](phases/phase-17-reading-reviews.md#-17a-1-yayın-ve-canlı-doğrulama-2026-11-25)). Sonar'ın
+   kodla düzeltilmeyen 12 bulgusu panelde "Accepted" işaretlenecek (kullanıcı, sonra). Sırada 17A-2
+   (`0017`, kısıtlar) ve 17B. Ardından (ROADMAP,
    2026-11-23): okuma özeti ve kişisel ana sayfa → yazarın diğer kitapları → bağlantı önizlemesi →
    notlar ve alıntılar.
 3. **Kullanıcı adımları:** Northflank sağlık kontrolleri (panel), Grafana Cloud hesabı (#96). Sırlar
