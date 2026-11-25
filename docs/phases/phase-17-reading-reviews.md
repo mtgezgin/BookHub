@@ -115,6 +115,359 @@ doğrulanır.
 - **17B — inceleme:** migration `0018_reviews`, `internal/reviews`, inceleme uçları ve admin gizleme,
   kitap sayfasında İncelemeler bölümü, spoiler gösterimi, bitirince inceleme daveti.
 
+## 🧭 17A-1 nasıl takip edilecek
+
+Faz 16d'deki gibi: asistan bir adımı yazar, **commit etmez**; o adımın kaydını aşağıya yazar (amaç,
+sonuç, bakılacak yerler). Testleri asistan koşturur, CI her PR'da yeniden koşar; kullanıcıdan elle
+deneme beklenmez (2026-11-24). Kullanıcı VS Code'da okur (*Source Control* → dosyaya tıkla:
+önce/sonra yan yana); "tamam" deyince adım commit edilir. Bütün adımlar `feat/80-okuma-takibi` dalında
+birikir ve tek PR olur. Her adım testleri yeşil bırakır.
+
+| Adım | İçerik | Durum |
+| --- | --- | --- |
+| 0 | Spec'in koda göre gözden geçirilmesi | ✅ PR #120 (2026-11-24) |
+| 1 | `0016_reading.sql` + sqlc sorguları + migration testi | ✅ commit (2026-11-24) |
+| 2 | `internal/library` servisi: durum makinesi, tablo testleri | ✅ commit (2026-11-24) |
+| 3 | API: komut uçları, reading PATCH, günlük uçları; eski `PUT {status}` servise | ✅ commit (2026-11-24) |
+| 4 | Arayüz veri katmanı: tipler, raf kancaları, yerel tarih yardımcısı | ✅ commit (2026-11-24) |
+| 5 | Arayüz: tek raf kontrolü, onaylar, 409 akışı, geçmiş | ✅ commit (2026-11-25) |
+| 6 | Kitaplığım kartlarında ilerleme | ✅ commit (2026-11-25) |
+| 7 | Playwright (iki sekme 409 dahil), dokümanlar, PR | ✅ commit (2026-11-25); PR açıldı |
+
+### Adım 1 — Şema ve sorgular
+
+- **Amaç:** okuma takibinin veritabanı tarafı: kitaplık satırına okuma alanları, kapanmış okumalar için
+  `reading_log`, servisin (adım 2) kullanacağı sorgular. Bu adımda hiçbir uç ve ekran değişmez.
+- **Neden ayrı bir adım:** migration canlıya kod çıkmadan **önce** uygulanır ve o an çalışan eski kodla
+  uyumlu olmalı. Bunu tek başına sınamak, "şema eski kodu bozdu mu" sorusunu ayrı cevaplar.
+- **Sonuç (2026-11-24):**
+  - `TestMigration0016AddsReadingColumns` (yeni): Faz 15'ten kalan "Şu an okuyorum" kaydı 0016'dan sonra
+    yerinde, okuma alanları boş, `version` 1; **eski kodun yazımı** (sqlc'nin ürettiği
+    `UpsertLibraryEntry`) hâlâ çalışıyor; `reading_log` bitişi başlangıçtan önce olan ve
+    FINISHED/ABANDONED dışı sonucu reddediyor; Down kolonları ve tabloyu kaldırıp kayıtları koruyor.
+  - `TestEveryForeignKeyHasIndex` yeşil. Kuralın gerçekten yakaladığı da denendi: `reading_log_book_idx`
+    geçici olarak silinince test `reading_log.book_id` için kırmızı oldu, dosya geri kondu.
+  - Yerel yükseltme sınaması (`scripts/upgrade-check.sh`, `release`'in şeması ve demo verisi üstüne):
+    0016 dolu tablolara uygulandı (şema sürümü 16). Betik commit'lenmemiş dosyayı "beklenmeyen" saydığı
+    için son satırda durdu; asıl sınama PR'da CI'ın **Yükseltme** işi.
+  - Bütün backend testleri (veritabanı ve Redis dahil), `go vet`, golangci-lint (0 sorun) temiz.
+  - sqlc'nin `RETURNING *`'ı üretim anında açık kolon listesine çevirdiği `internal/db/library.sql.go`'da
+    görüldü: eski kodun yeni kolonları hiç istememesinin nedeni bu (migration'daki not).
+  - pgx'in `date` ↔ `time.Time` dönüşümü kaynağında doğrulandı (`pgtype/date.go`: yazarken yalnız
+    yıl/ay/gün, okurken gece yarısı UTC); `sqlc.yaml`'a boş olabilen `date` → `*time.Time` kuralı eklendi.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`backend/migrations/0016_reading.sql`](../../backend/migrations/0016_reading.sql): başlıktaki geriye
+     uyum, tarih ve sürüm notları; yabancı anahtar index'leri neden kısmi.
+  2. [`backend/sql/queries/library.sql`](../../backend/sql/queries/library.sql) sonundaki "Raf" bölümü:
+     `LockShelf` neden `FOR UPDATE`, `SaveShelf` neden tek yazma yolu ve kitap yayında değilse ne olur,
+     `GetReadingEdition` baskıyı nasıl seçer. `ListLibrary`'ye üç kolon eklendi.
+  3. [`backend/sql/queries/reading_log.sql`](../../backend/sql/queries/reading_log.sql): her sorgu neden
+     `user_id` ile süzülüyor (IDOR), "Devam et" en son kaydı neden kilitliyor.
+  4. [`backend/sqlc.yaml`](../../backend/sqlc.yaml): `date` kuralı.
+  5. [`backend/internal/database/migrate_0016_integration_test.go`](../../backend/internal/database/migrate_0016_integration_test.go).
+  6. `backend/internal/db/*.go`: sqlc'nin ürettiği kod; okumana gerek yok.
+- **Elle deneme yok (kullanıcı kararı, 2026-11-24):** bu testler CI'ın Backend işinde gerçek bir
+  Postgres'le her PR'da koşar (`ci.yml`, `TEST_DATABASE_URL`); asistan da her adımda yerelde koşturup
+  sonucu buraya yazar. Kullanıcı yalnız okur.
+
+### Adım 2 — Durum makinesi servisi
+
+- **Amaç:** kullanıcının niyet komutlarını (başla, bitir, yarım bırak, ertele, zaten okudum, çıkar) ve
+  okurken düzeltmeyi (ilerleme, birim, baskı, başlangıç günü) tek transaction'da uygulayan servis; geçmişte
+  tarih düzeltme ve silme. Bu adımda uç yok: servisi 3. adımdaki handler'lar çağıracak.
+- **İki parça:**
+  - `commands.go`: **saf** durum makinesi (`resolve`). Veritabanını bilmez; (durum, komut) → etki. Faz 4'ün
+    `moderation.Next`'iyle aynı fikir: kural tek yerde, bütün tablo testle gezilir. Dokuz komut × beş
+    durum, sekiz etkiye iner.
+  - `service.go`: etkiyi veritabanında uygular. Sıra her komutta aynı: kitap yayında mı → (kullanıcı,
+    kitap) kilidi → satır `FOR UPDATE` → `resolve` → yazım → güncel raf.
+- **Sonuç (2026-11-24):**
+  - `TestResolveExhaustive`: 45 çiftin tamamı beklenen etkide, hiçbiri hata dönmüyor.
+  - `TestShelfEveryPairRealDB` (Doğrulama 1): 45 çiftin her biri gerçek veritabanında **iki kez**
+    gönderiliyor. İlki beklenen duruma geçip beklenen sayıda günlük satırı yazıyor; ikincisi ne durumu ne
+    günlüğü ne sürümü değiştiriyor.
+  - Gerçek veritabanında ayrıca: başlarken toplamın görüntüsü (admin sayfa sayısını değiştirse de
+    okuma 300'de kalıyor), devam et / baştan başla (Doğrulama 6), bitiş günü kuralı (4), ertele ve
+    çıkarmada günlük (5), yayında olmayan kitapta 404 ama çıkarmak çalışıyor, sınır dışı ilerleme (2), eski
+    sürümle 409 (3'ün servis yarısı), Faz 15'ten kalan okumanın ilk ilerlemesi (8), başkasının günlük kaydı
+    404 (9), transaction ortasındaki hatada hiçbir şeyin değişmemesi (7).
+  - **Testlerin gerçekten yakaladığı denendi** (bilinçli bozma, sonra geri alındı): danışma kilidi
+    kaldırılınca eşzamanlı iki "Zaten okudum" günlüğe 2 satır yazdı ve test kırmızı oldu; "Devam et"in
+    günlük satırını silmesi kaldırılınca üç test kırmızı oldu.
+  - Bütün backend testleri, `go vet`, golangci-lint (0 sorun), sqlc kontrolü temiz.
+  - Uygulamada netleşen çiftler ve kilit kararı yukarıda, § 3'te.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`backend/internal/library/commands.go`](../../backend/internal/library/commands.go) `resolve`: makinenin
+     tamamı tek fonksiyonda; üstündeki çizim.
+  2. [`backend/internal/library/commands_test.go`](../../backend/internal/library/commands_test.go)
+     `TestResolveExhaustive`: beklenen tablo, spec'in tablosunun kod hâli.
+  3. [`backend/internal/library/service.go`](../../backend/internal/library/service.go): `Do` (sıra),
+     `writer.apply` (her etki ne yazar), `resume`, `snapshot` (baskı ve birim seçimi), `UpdateReading`
+     (404 ile 409'u neden kilitleyip ayırıyor), `withLog` (kilit sırası).
+  4. [`backend/sql/queries/library.sql`](../../backend/sql/queries/library.sql) sonu: `BookIsApproved` ve
+     `LockShelfKey` (danışma kilidi neden).
+  5. [`backend/internal/library/service_integration_test.go`](../../backend/internal/library/service_integration_test.go):
+     senaryolar, Doğrulama numaralarıyla.
+
+### Adım 3 — API uçları
+
+- **Amaç:** servisi HTTP'ye bağlamak: raf okuma, yedi komut, okurken düzeltme, geçmiş düzeltme ve silme
+  (§ 4). Eski `PUT {status}` ve `DELETE` kendi yazımlarını bırakıp aynı servise geçer; böylece rafa
+  yazan **tek yol** kalır. Arayüz henüz değişmez (4. adım).
+- **Parçalar:**
+  - `cmd/api/shelf.go` (yeni): `shelfService` arayüzü, cevap ve gövde DTO'ları, `writeShelfError`
+    (hata → kod), yedi komutun tek üreticisi `handleShelfCommand` (§ Önemli noktalar "Sonar tekrar
+    kapısı").
+  - `cmd/api/library.go`: eski PUT durumu bir komuta çevirir (`library.CommandForStatus`), DELETE
+    "çıkar" komutudur; liste okurken ilerlemeyi de döner.
+  - `internal/library`: `Repository`'den `Put`/`Remove`, sorgulardan `UpsertLibraryEntry` kalktı;
+    `Shelf`'e `BookID` eklendi (geçmiş uçları kitabı adresten değil kayıttan bilir).
+- **Bu adımda verilen kararlar (§ 4'e de yazıldı):** çıkarma için güncel rafı döndüren
+  `POST …/shelf/remove` eklendi, eski `DELETE` 204 olarak kaldı. Geçmiş kaydını silmek 204 değil
+  200 + raf döner. Komut gövdesi isteğe bağlı; varsa yalnız o komutun alanları kabul edilir.
+- **Sonuç (2026-11-24):**
+  - `TestShelfEndpointsRealDB` (yeni, gerçek Postgres): yönlendirici, handler ve servis birlikte
+    deneniyor. Kapsadığı senaryolar:
+    - iki sekme: eski sürüm 409 `version_conflict` dönüyor, satır değişmiyor (Doğrulama 3'ün API
+      yarısı);
+    - eski `PUT READ` süren okumayı tarihsiz kapatıyor;
+    - başkasının geçmiş kaydı her uçta 404 (9);
+    - tarih ekleme çalışıyor, ters günler 400 `invalid_dates` dönüyor;
+    - `DELETE` kitabı kitaplıktan çıkarıyor, geçmiş kalıyor (5);
+    - geçmişten silme çalışıyor, ikinci silme 404;
+    - yayında olmayan kitap 404, geçersiz ilerleme 400.
+  - Birim testleri (sahte servisle):
+    - her komutun rotası; gövdesiz istek varsayılanlarla çalışıyor;
+    - her komut yalnız kendi alanlarını kabul ediyor (`bitir`'e `mode` 400). Takvimde olmayan gün
+      (`2026-02-30`) ve saatli gün de 400;
+    - `version` zorunlu;
+    - servisin yedi hata türü × beş uç doğru koda düşüyor ve ham hata metni cevaba sızmıyor;
+    - on bir rotanın hepsi token'sız 401;
+    - cevap şekli sözleşme testiyle sabit: kullanıcı kimliği yok, günler `YYYY-AA-GG`.
+  - Eski PUT'un eşlemesi (`TestCommandForStatus`): dört durum, beş başlangıç durumunun her birinden
+    hedefe varıyor (Doğrulama 9).
+  - **Testlerin gerçekten yakaladığı denendi** (bilinçli bozma, sonra geri alındı; dördü de kırmızı):
+    - liste bayat ilerlemeyi de dönünce;
+    - 409 yerine 400 dönünce;
+    - eski `PUT READ` `finish`'e çevrilince;
+    - `bitir` başla'nın gövdesini kabul edince.
+  - **Yan bulgu, düzeltildi:** `ratings` testi bir koşuda "duplicate key users_email_key" ile kırmızı
+    oldu, yeniden koşuda yeşildi. Nedeni şuydu: `testdb.Unique` zaman ve süreç içi sayaçtan üretiliyor,
+    paketler ise ayrı süreçlerde paralel koşuyor. Bu makinede saat çok kaba (sıkı döngüde 100.000
+    çağrının 99.996'sı aynı değer), iki paketin ilk kullanıcısı aynı e-postayı alabiliyordu. Değere
+    süreç kimliği eklendi. CI Linux'ta koştuğu için orada görünmüyordu.
+  - Bütün backend testleri iki kez arka arkaya, `go vet`, golangci-lint (0 sorun), sqlc kontrolü temiz.
+  - `PROJECT_MAP` (`shelf.go`, `library`, `0016`) ve README'deki uç tablosu güncellendi; kalan
+    dokümanlar 7. adımda.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`backend/cmd/api/router.go`](../../backend/cmd/api/router.go) kitaplık grubu: yeni rotalar; yedi
+     komut tek döngüden.
+  2. [`backend/cmd/api/shelf.go`](../../backend/cmd/api/shelf.go): `handleShelfCommand` ve
+     `readCommandInput` (hangi komut hangi alanı kabul eder), `writeShelfError` (hata haritası),
+     `shelfResponse` (cevabın şekli).
+  3. [`backend/cmd/api/library.go`](../../backend/cmd/api/library.go): `handlePutLibraryEntry`,
+     `handleRemoveLibraryEntry` (eski uçlar servise), listede `if row.Status == library.StatusReading`.
+  4. [`backend/internal/library/commands.go`](../../backend/internal/library/commands.go) `CommandForStatus`.
+  5. [`backend/cmd/api/shelf_integration_test.go`](../../backend/cmd/api/shelf_integration_test.go):
+     uçtan uca senaryo; [`shelf_test.go`](../../backend/cmd/api/shelf_test.go) birim testleri.
+
+### Adım 4 — Arayüz veri katmanı
+
+- **Amaç:** arayüzün rafla konuşacağı katman: tipler, API çağrıları, sorgu anahtarı, kancalar ve "bugün"
+  yardımcısı. Ekranda hiçbir şey değişmez: yeni kancaları 5. adımdaki raf kontrolü kullanacak; o gelene
+  kadar kitap sayfasındaki eski menü eski kancalarla çalışmaya devam ediyor.
+- **Parçalar:**
+  - `src/api/types.ts`: `Shelf`, `ShelfEntry`, `Reading`, `ReadingLogEntry`, `ReadingPatch`,
+    `ReadingLogDates`; `LibraryItem`'a `unit`, `progress`, `total_pages`. `ShelfCommand` komutu ve
+    gövdesini birlikte tanımlar: sunucunun "yalnız o komutun alanları" kuralı (adım 3) derleme anında da
+    geçerli (`finish`'e `mode` yazmak tip hatası).
+  - `src/api/client.ts`: beş çağrı (`shelf`, `shelfCommand`, `updateReading`, `updateReadingLog`,
+    `deleteReadingLog`). Gövdesiz komut ağa da gövdesiz gider.
+  - `src/api/queries.ts`: `queryKeys.shelf` = `["me", kullanıcı, "library", "shelf", kitap]`.
+  - `src/api/libraryQueries.ts`: `useShelf` ve dört değişiklik kancası; ortak kurallar tek yerde
+    (`useShelfMutation`).
+  - `src/lib/day.ts` (yeni): `today()` ve `formatDay()`.
+- **Kurallar (§ Kararlar "Veri katmanı" ve "409 cevabı"nın kodu):**
+  - Başarıda cevap rafa **doğrudan yazılır**; önce o rafın süren okuması iptal edilir ki komuttan önce
+    başlamış bir GET sonra gelip eski rafı yazmasın.
+  - Neyin eskidiği kancaya göre: komutlar Kitaplığım listesini ve rozetleri, ilerleme düzeltmesi yalnız
+    listeyi (durum değişmez) eskitir; geçmiş değişiklikleri hiçbir şeyi (kitaplık satırına dokunmazlar).
+    Başka kitapların rafları hiç eskimez.
+  - Hatada yalnız 409 `version_conflict` ve 404 rafı yeniden okutur, ve hata **raf geldikten sonra**
+    yayılır: 5. adımdaki "İlerlemen başka bir yerde güncellenmiş: sayfa 57" mesajı yeni veriden kurulur.
+    400 ve 500 hiçbir şeyi eskitmez.
+- **Bu adımda verilen kararlar (asistan):**
+  - 404 de rafı yeniden okutur (spec yalnız 409'u söylüyordu): okuma ya da geçmiş kaydı başka bir
+    sekmede kapanmış/silinmişse ekrandaki raf eskidir; aynı gerekçe.
+  - Öteki görünümler eskitilir ama **beklenmez** (Faz 15 kancaları bekliyordu): ekrandaki raf zaten
+    güncel, kontrol listenin yeniden gelmesini beklemeden açılır.
+  - `formatDay` da bu adımda: `new Date("2026-11-12")` UTC gece yarısıdır ve batıdaki saat dilimlerinde
+    "11 Kasım" yazardı; "bugün"ün ikiz tuzağı, aynı dosyada.
+- **Sonuç (2026-11-24):**
+  - `day.test.ts` (yeni): testler saat dilimini **değiştirerek** koşuyor ve her biri önce değişimin
+    gerçekten uygulandığını doğruluyor (yoksa makinenin kendi diliminde tuzağı görmeden yeşil kalırdı).
+    İstanbul'da 01:00'de `today()` o günü veriyor, `toISOString()` bir önceki günü (Doğrulama 4'ün
+    birim testi); New York'ta `formatDay("2026-11-12")` "12 Kasım 2026".
+  - `libraryQueries.test.tsx`'e raf testleri: girişsiz sorgu yok; her kancanın neyi yazıp neyi eskittiği;
+    cevap, cevabın söylediği kitabın rafına; 409 ve 404'te raf yeniden okunup hata ancak sonra yayılıyor;
+    400 ve 500 hiçbir şeyi eskitmiyor; komuttan önce başlamış GET komutun cevabını ezmiyor.
+  - `client.test.ts` uç tablosuna yedi satır (yöntem, yol, gövde) ve tip testi (yanlış gövde
+    `npm run typecheck`te kırmızı).
+  - **Testlerin gerçekten yakaladığı denendi** (bilinçli bozma, sonra geri alındı; yedisi de kırmızı):
+    iptal kaldırılınca, 409'da raf beklenmeyince, bütün kitaplık öneki eskitilince, `today()` UTC günü
+    verince, `formatDay` metni UTC okuyunca, `finish` `mode` kabul edince, gövdesiz komut `{}`
+    gönderince. İlk denemede "409'da raf beklenmeyince" **kaçtı**: sahte GET hemen çözüldüğü için
+    beklenmese de hata yayılmadan bitiyordu. Sahte GET bir zamanlayıcı turu geciktirildi, sonra yakaladı.
+  - Bütün frontend testleri (431), `typecheck` ve `bundle` temiz.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`frontend/src/api/libraryQueries.ts`](../../frontend/src/api/libraryQueries.ts) dosya sonu:
+     `useShelfMutation`'ın yorumu ve `onSuccess` / `onError`; ardından dört kanca (neyi eskittikleri).
+  2. [`frontend/src/api/types.ts`](../../frontend/src/api/types.ts) `ShelfCommand` ve raf tipleri.
+  3. [`frontend/src/lib/day.ts`](../../frontend/src/lib/day.ts) ve
+     [`day.test.ts`](../../frontend/src/lib/day.test.ts).
+  4. [`frontend/src/api/libraryQueries.test.tsx`](../../frontend/src/api/libraryQueries.test.tsx)
+     "raf" bölümü; özellikle son iki test (409 sırası ve yarış).
+
+### Adım 5 — Tek raf kontrolü
+
+- **Amaç:** kitap sayfasında Faz 15'in durum menüsü yerine raf kontrolü (§ 5): bulunduğun durum, oradan
+  yapılabilecek komutlar, okurken ilerleme, yan etkili geçişlerde onay, 409 akışı ve okuma geçmişi.
+- **Parçalar:**
+  - `components/ShelfControl.tsx` (yeni, tembel parça): durum → ana eylem + "Diğer seçenekler" menüsü
+    (dosyanın başındaki tablo § 5'tekiyle aynı), durum satırı, ilerleme çubuğu, onay diyaloğu, "Puan
+    ver" daveti.
+  - `components/ShelfForms.tsx` (yeni): ilerleme formu ve "Okumayı düzenle"; ikisinin ortak 409 akışı
+    `useReadingSave`'de.
+  - `components/ReadingHistory.tsx` (yeni): geçmiş satırları, günleri düzelt, sil (onaylı).
+  - `lib/shelf.ts` (yeni): bütün metinler saf fonksiyon (ilerleme, durum satırları, gün aralığı, baskı
+    adı, bildirim); adım 6'daki kartlar da aynı ilerleme metnini kullanacak.
+  - `pages/BookDetail.tsx`: kontrol kendi ızgara alanında; "Puan ver" puan seçiciye götürür.
+  - Kaldırılanlar: `LibraryMenu.tsx`, Faz 15'in durum kancaları (`useLibraryStatus`,
+    `useSetLibraryStatus`), istemcideki `setLibraryStatus` ve `LibraryEntry` tipi. Sunucudaki eski
+    `PUT {status}` **kalıyor** (yayın penceresindeki eski arayüz için, § Kararlar).
+  - `e2e/library.spec.ts`: yeni kontrole göre (durum değişikliği artık "Zaten okudum" komutu).
+- **Kararlar:** § 5'in sonundaki "Adım 5'te verilen kararlar" listesinde. Biri daha: ilerleme formunda
+  tarayıcının kendi doğrulaması kapalı (`noValidate`). Tarayıcı `max=310`'u aşan değerde formu bizim
+  denetimimizden önce durduruyor, kendi dilinde bir balon gösteriyordu; sınırı artık kod denetliyor,
+  mesaj Türkçe ve `role="alert"` ile ekran okuyucuya ulaşıyor (test bunu yakaladı).
+- **Sonuç (2026-11-25):**
+  - `LibraryButton.test.tsx` baştan yazıldı (29 test). Her test bir raftan başlıyor; hangi komutun
+    hangi gövdeyle gittiğine ve ekranda ne kaldığına bakıyor:
+    - beş durumun her birinde menü ve ana eylem; "Okumaya başla" ve "Bitirdim" bugünün yerel gününü,
+      "Zaten okudum" tarihsiz, "Devam et" günsüz (sunucu eskisini getirir) gönderiyor;
+    - Faz 15'ten kalan birimsiz okuma ve toplamı bilinmeyen 0 sayfa: çubuk ve "0 sayfa" yok,
+      "İlerlemeni gir" var (Doğrulama 8);
+    - ilerleme varken Ertele ve Çıkar sorar, yokken Ertele sormaz; çıkarılan kitabın geçmişi görünür
+      kalıyor (5);
+    - **409:** öteki sekmenin değeri (80) görünüyor, girilen (57) korunuyor, "Benimkini kaydet" yeni
+      sürümle gönderiyor; Vazgeç öteki sekmenin değerini bırakıyor (3'ün arayüz yarısı);
+    - "Okumayı düzenle" yalnız değişeni gönderiyor, baskı değişince sıfırlanacağını söylüyor;
+    - geçmiş: satır metni, ters günlerde istek gitmiyor, silme onaylı;
+    - "Puan ver" yalnız bitirince; komut sürerken her şey pasif; raf okunamazsa tekrar dene;
+      komuttan sonra aynı sayfadaki rozet de güncelleniyor.
+  - `lib/shelf.test.ts` (yeni, 31 test): metinlerin tablosu.
+  - **Testlerin gerçekten yakaladığı denendi** (bilinçli bozma, sonra geri alındı; onu da kırmızı):
+    Devam et gün gönderince, ilerleme varken Ertele sormayınca, çıkarma onayı ilerlemeyi söylemeyince,
+    davet her Okudum'da çıkınca, komut sürerken kontroller açık kalınca, 409 mesajı gösterilmeyince,
+    düzenle formu değişmeyeni de gönderince, ters günler sunucuya gidince, toplamsız 0 sayfa
+    yazılınca, ilerleme toplamı aşabilince.
+  - Bütün frontend testleri, `typecheck` ve `bundle` temiz. Raf kontrolü ayrı parçada kaldı
+    (`ShelfControl` 22,8 kB gzip; ana paket 121,6 → 121,8 kB).
+  - Playwright yerel yığında (`make e2e`, canlı değil): 20 senaryonun 20'si yeşil; güncellenen
+    `library.spec.ts` dahil, 360 px genişlikte kitap sayfası ve Kitaplığım yatay taşmıyor.
+- **Bakılacak yerler (bu sırayla):**
+  1. [`frontend/src/components/ShelfControl.tsx`](../../frontend/src/components/ShelfControl.tsx):
+     baştaki tablo, sonra `switch (entry?.status)` (hangi durumda hangi komut) ve onay diyaloğu.
+  2. [`frontend/src/components/ShelfForms.tsx`](../../frontend/src/components/ShelfForms.tsx)
+     `useReadingSave` (409 akışı).
+  3. [`frontend/src/lib/shelf.ts`](../../frontend/src/lib/shelf.ts): ekranda yazan her cümle.
+  4. [`frontend/src/components/ReadingHistory.tsx`](../../frontend/src/components/ReadingHistory.tsx).
+  5. [`frontend/src/components/LibraryButton.test.tsx`](../../frontend/src/components/LibraryButton.test.tsx)
+     "ilerleme ve 409" bölümü.
+
+### Adım 6 — Kitaplığım kartlarında ilerleme
+
+- **Amaç:** "Şu an okuyorum" kartlarında ilerleme (§ 5 "Kitaplığım"; yalnız gösterim, komutlar kitap
+  sayfasında, § Kararlar "Kitaplığım kartları").
+- **Parçalar:**
+  - `components/ReadingProgress.tsx` (yeni): çubuk + metin. Kitap sayfasındaki raf kontrolü de artık
+    bunu kullanıyor (adım 5'teki `ProgressLine` buraya taşındı): iki yerde aynı biçim, aynı metin
+    (`lib/shelf.ts`).
+  - `pages/Library.tsx`: kartta yalnız `status === "READING"` ise ilerleme. Çıkarma onayında
+    "okuma geçmişin silinmez" de yazıyor (katalogdan kalkmış ama okunan bir kitap çıkarılırken günlüğe
+    yazılabilir).
+- **Bu adımda verilen kararlar (asistan):**
+  - Kartta ilerleme girilmemişse **hiçbir şey** yazmaz (kitap sayfası "İlerlemeni henüz girmedin" der):
+    kartlar yalnız gösterim, yapılacak bir şey önermeyen bir satır ızgarada gürültü olurdu.
+  - Her kartta bir çubuk olduğu için çubuğun erişilebilir adı kitabı da söylüyor ("Dune: okuma
+    ilerlemen"); yoksa ekran okuyucu on iki aynı ad okurdu.
+  - İstemci de durumu denetliyor: sunucu alanları yalnız READING'de doldurur (adım 3), gelse bile başka
+    durumda gösterilmez.
+- **Sonuç (2026-11-25):**
+  - `Library.test.tsx`'e altı test: sayfa (toplamlı), yüzde, toplamsız sayfa (çubuk yok); girilmemiş
+    ilerleme, toplamsız 0 sayfa ve okunmayan kitapta kartta ilerleme yok (Doğrulama 8).
+  - **Testlerin gerçekten yakaladığı denendi:** durum koşulu kaldırılınca ve çubuğun adından kitap
+    çıkarılınca kırmızı (ikisi de, sonra geri alındı).
+  - Bütün frontend testleri (485), `typecheck` temiz.
+- **Bakılacak yerler:**
+  1. [`frontend/src/components/ReadingProgress.tsx`](../../frontend/src/components/ReadingProgress.tsx).
+  2. [`frontend/src/pages/Library.tsx`](../../frontend/src/pages/Library.tsx) kartın `extra`'sı.
+
+### Adım 7 — Uçtan uca test, dokümanlar, PR
+
+- **Amaç:** okuma akışının gerçek yığında (NGINX + API + Postgres + Redis, tarayıcı) sınanması, iki sekme
+  senaryosu dahil; dokümanlar; tek PR.
+- **Parçalar:**
+  - `e2e/library.spec.ts`: ikinci senaryo **okuma** — başla → ilerle → **iki sekmede 409** → yarım bırak
+    → devam et → Kitaplığım kartında ilerleme → bitir → "Puan ver" puan seçiciye odaklanıyor → çıkar
+    (geçmiş kalır). Okurken 360 px'te kitap sayfası (çubuk, açık form, geçmiş) yatay taşmıyor.
+  - İki sekme: A ilerleme formunu açıp 50 yazar; B aynı bağlamda (aynı oturum) 57 kaydeder; A
+    gönderince 409. A'da öteki sekmenin değeri ("57 / 704 sayfa") görünür, A'nın 50'si alanda kalır; B
+    yenilenince 57 durur (409 satırı değiştirmedi); A "Benimkini kaydet" deyince ikisinde de 50.
+  - `e2e/helpers.ts` bütçe tablosu: `library.spec` yine **1 giriş**.
+  - STATUS, ROADMAP, PROJECT_MAP: 17A-1 PR'da. FEATURE_REQUESTS ve "canlıda" ibareleri yayından ve
+    canlı doğrulamadan sonra (§ Tamamlanma).
+- **Bu adımda verilen karar (asistan):** okuma senaryosu **ayrı dosya değil**, `library.spec.ts`'te
+  ikinci senaryo; ikisi `describe.serial` + `beforeAll`'da tek girişle aynı sayfayı paylaşıyor. Neden:
+  NGINX'in giriş kovası koşu başına 11 istek; bugün 10 kullanılıyor ve kural "11'in altında tut"
+  (helpers.ts). Ayrı dosya kendi girişiyle tavana dayardı. İkinci sekme aynı tarayıcı bağlamında
+  açıldığı için oturum çerezle geliyor, giriş harcamıyor.
+- **Sonuç (2026-11-25):**
+  - Playwright yerel yığında (`make e2e`, canlı değil): **21 senaryonun 21'i** yeşil. İlk koşuda okuma
+    senaryosu kırmızıydı: `browser.newPage()` ile açılan sayfanın bağlamına ikinci sekme eklenemiyor;
+    bağlam açıkça açıldı.
+  - Zamanlama kırılganlığına karşı kitaplık + okuma dosyası **beş kez arka arkaya** (tek işçiyle): 10'un 10'u yeşil. Paralel tekrar (`--repeat-each` varsayılanı) anlamsız kırmızı verdi: beş kopya aynı okur hesabıyla aynı kitabı aynı anda değiştiriyordu; normal pakette bu kitaba ve hesaba dokunan başka senaryo yok.
+    (409'u kaçırtabilecek tek şey A sekmesinin kendiliğinden tazelenmesi; önbelleğin 30 sn'lik bayatlama
+    süresi senaryonun süresinden uzun, pencereye dönünce tazeleme bu sürede olmaz.)
+  - Bütün backend testleri (gerçek Postgres + Redis) yeşil; frontend 485, `typecheck`, `bundle`
+    temiz; `scripts/checks.sh` yalnız yerelde kurulu olmayan sqlc'yi söylüyor (CI denetler).
+- **Bakılacak yerler:** [`frontend/e2e/library.spec.ts`](../../frontend/e2e/library.spec.ts) dosyanın
+  başındaki açıklama ve "Okuma (Faz 17A-1)" bölümü.
+- **PR'dan sonra, birleşmeden önce: SonarCloud'un 27 bulgusu (2026-11-25).** Kalite kapısı geçti;
+  bulgular kontrol kaydının GitHub notlarından okundu (Sonar'ın anonim API'si PR analizini vermiyor).
+  - **Düzeltilen 14:**
+    - 11 bileşende prop'lar `Readonly<…>` (S6759; örnek `BookDetail.tsx` `StarPicker`);
+    - `ReadingEditForm`'da "Baskı" ile `<select>` arasındaki belirsiz boşluk (S6772);
+    - ilerleme çubuğu elle ARIA'lı `<div role="progressbar">` yerine yerleşik `<progress>` (S6819). Rol,
+      değer ve en büyük değer tarayıcıdan gelir. Görünüm motorların sözde öğeleriyle; Chromium'da eskisiyle
+      aynı olduğu ekran görüntüsüyle karşılaştırıldı (%0, %14, %100). Firefox'un `::-moz-progress-bar`'ı
+      yerelde denenmedi, çünkü Playwright'ın yalnız Chromium'u kurulu;
+    - Go'da bilişsel karmaşıklık (S3776):
+      - `resolve` komut başına bir yardımcıya bölündü (17 → eşiğin altı);
+      - `UpdateReading`'den yamanın okumaya uygulanması `applyPatch`'e alındı (23 → eşiğin altı).
+      - Davranış değişmedi: aynı testler yeşil.
+  - **Testlerin kırıldığı denendi:** çubuğun değeri ya da metni bozulunca arayüz testleri kırmızı;
+    `applyPatch`'te ilk giriş ya da `resolveAbandon`'da bir dal bozulunca servis testleri kırmızı.
+  - **Kodla düzeltilmeyen 13:**
+    - 6 tanesi `library.sql`'de "tekrarlanan metni sabite çevir" (S1192). Tekrarlanan metinler sqlc
+      parametre adları (`'user_id'`, `'status'`) ve `'APPROVED'`; SQL sorgu dosyasında sabit yok;
+    - 6 tanesi test fonksiyonlarında karmaşıklık. Bunlar senaryo testleri: alt testler sırayla aynı
+      durumu paylaşıyor. Bölmek okunurluğu artırmaz;
+    - 1 tanesi raf kontrolünün `role="group"`'u (fieldset önerisi). Grubun içinde form denetimleri
+      değil, durum satırı, çubuk, düğmeler ve paneller var. Uygulamadaki dokuz grup da aynı biçimde.
+  - `.sonarcloud.properties` bulgu yoksaymayı (`sonar.issue.ignore.*`) desteklemiyor. Bu 13 bulgu Sonar
+    panelinde gerekçesiyle "Accepted" işaretlenir (kullanıcı kararı).
+
 ## 🪜 17A — adımlar
 
 ### 1. Şema: `0016_reading.sql` (genişletme)
@@ -199,6 +552,16 @@ Her komut tek transaction; satır `FOR UPDATE` ile kilitlenir, `version` her yaz
 - Tabloda olmayan (komut, durum) çiftleri hedef durumdaysa **hiçbir şey yapmaz** (çift tık, yeniden
   deneme), değilse en yakın tanımlı komuta çevrilir: READING'de `mark-read` = tarihsiz `finish`,
   READING'de `want` = `postpone`. Hiçbiri hata değildir.
+- **Uygulamada netleşen çiftler (2026-11-24, adım 2):** okumuyorken `finish` = `mark-read` (verilen bitiş
+  günüyle); READ ya da ABANDONED'dan `want`/`postpone` = yalnız durum (okuma zaten kapanmış); okumuyorken
+  `abandon` = yalnız durum (eski `PUT`'un davranışı); READ'den `start` = yeniden okuma. `mark-read`
+  gelen tarihi yok sayar. Tam tablo: `internal/library/commands_test.go` `TestResolveExhaustive`.
+- **Kilit (2026-11-24):** satır `FOR UPDATE` yetmiyor, çünkü kitap kitaplıkta yokken kilitlenecek satır
+  yok: iki eşzamanlı "Zaten okudum" ikisi de "yok" görüp günlüğe iki satır yazardı (testte görüldü).
+  Her komut önce (kullanıcı, kitap) için bir **danışma kilidi** (`pg_advisory_xact_lock`) alır; kilit
+  bir satıra değil bir sayıya konur, transaction bitince bırakılır. Günlük işlemleri de aynı sırayla
+  kilitler (raf → günlük), yoksa "Devam et" ile "geçmişten sil" birbirini bekleyip kilitlenirdi.
+- Yeni hata kodu: `invalid_edition` (400) — seçilen baskı bu kitabın değil.
 - `resume`'da geri alınacak kayıt yoksa (Faz 15'ten kalan ABANDONED) `restart` gibi davranır.
 - Kitap yayında değilse ekleyen/başlatan komutlar 404 (Faz 15 kuralı); `remove` her zaman çalışır.
 - Eski `PUT {status}`: WANT_TO_READ → `want`, READING → `start` (ABANDONED'dan `resume`), READ →
@@ -214,6 +577,7 @@ POST   /api/me/books/{id}/shelf/finish      {ended_on?}
 POST   /api/me/books/{id}/shelf/abandon     {ended_on?}
 POST   /api/me/books/{id}/shelf/postpone
 POST   /api/me/books/{id}/shelf/mark-read
+POST   /api/me/books/{id}/shelf/remove      çıkar, güncel rafı döner (adım 3)
 PATCH  /api/me/books/{id}/shelf/reading     {version, progress?, started_on?, unit?, edition_id?}
 DELETE /api/me/library/{id}                 çıkar (mevcut uç, artık servisten)
 PATCH  /api/me/reading-log/{id}             {started_on?, ended_on?}
@@ -223,7 +587,17 @@ DELETE /api/me/reading-log/{id}
 - Her komut güncel rafı döner (istemci ayrıca GET yapmaz; önbelleğe doğrudan yazar, § Kararlar).
 - Gövdeler ayrı DTO + `DisallowUnknownFields`; başkasının günlük kaydı 404.
 - Hatalar: `version_conflict` (409, yalnız PATCH reading; gövde standart hata zarfı, güncel raf için
-  istemci GET yapar), `invalid_progress` (400), `invalid_dates` (400).
+  istemci GET yapar), `invalid_progress` (400), `invalid_dates` (400), `invalid_edition` (400).
+- **Cevap şekli (2026-11-24, adım 3):** `{book_id, entry, log}`. `entry` null = kitaplıkta değil;
+  `entry.reading` yalnız READING'de dolu, içinde `unit` null = ilerleme henüz girilmedi; `log` en yeni
+  önce, kitaplıkta değilken de dolu olabilir. Günler `"YYYY-AA-GG"` (saatsiz).
+- **Gövdeler (adım 3):** komut gövdesi isteğe bağlı (tek tık = varsayılanlar); varsa yalnız o komutun
+  alanlarını kabul eder: `start` → `mode, edition_id, unit, started_on`; `finish`/`abandon` →
+  `ended_on`; diğerleri yalnız `{}`. Takvimde olmayan ya da saatli gün 400 `validation_error`.
+- **`POST …/shelf/remove` (adım 3, asistan kararı):** ilk listede çıkarma yalnız eski `DELETE`'ti. O uç
+  Faz 15'in gövdesiz 204'üyle kalır (yayın penceresindeki eski arayüz onu bekliyor), yeni arayüz güncel
+  rafı döndüren komutu kullanır ("her komut güncel rafı döner": çıkarma geçmişe satır yazabilir).
+  Aynı gerekçeyle `DELETE /api/me/reading-log/{id}` de 204 değil 200 + raf döner.
 - `GET /api/me/library` kartlar için `unit`, `progress`, `total_pages` de döner (aynı satır, ek JOIN yok).
 
 ### 5. Arayüz: tek raf kontrolü
@@ -250,6 +624,17 @@ durumu ve oradan yapılabilecekleri gösterir:
 - **Kitaplığım:** "Şu an okuyorum" kartlarında ilerleme (yalnız gösterim; menü kapsam dışı).
 - Kart rozetleri (`/api/me/library/statuses`) değişmez; kitap sayfası artık rozet ucunu değil raf
   ucunu okur. Raf kontrolü bugünkü `LibraryMenu`'nün yerini alır (aynı tembel yükleme).
+- **Adım 5'te verilen kararlar (asistan, 2026-11-24):**
+  - Kontrol kitap sayfasında **kendi alanında** (`shelf`): ilerleme, formlar ve geçmişle başlığa
+    sığmıyor. Dar ekranda kapak ve başlığın altında tam genişlik, genişte başlığın altında.
+  - Menüdeki "Baskı/birim değiştir" → **"Okumayı düzenle"**: baskı, birim ve başlangıç günü tek
+    formda (üçü de aynı PATCH).
+  - Metinler sayıya ek getirmez ("Sayfa 42'de", "2025'te" sayının okunuşuna göre değişir):
+    "Bitirdin · 12 Kasım 2026", "Yarım bıraktın · 42 / 310 sayfa", onayda "Okuman (42 / 310 sayfa)
+    geçmişine … kaydedilecek".
+  - Çıkarma, ilerleme olmasa da **her zaman sorar** (Faz 15'teki gibi; yalnız metni değişir).
+  - "Puan ver" daveti yalnız bu ekranda bitirilince ve puan yoksa; tıklanınca puan seçiciye gider.
+  - 409 akışı "Okumayı düzenle"de de aynı ("Yine de kaydet").
 
 ## 🪜 17B — adımlar
 

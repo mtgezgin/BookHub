@@ -3,8 +3,8 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-11-23):** Faz 1–16d canlıda · repo public (MIT) · canlı veritabanının şifreli
-yedeği canlıda · açık işler gözden geçirildi; **sıradaki: Faz 17** ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-11-25):** Faz 1–16d canlıda · repo public (MIT) · canlı veritabanının şifreli
+yedeği canlıda · **Faz 17A-1 (okuma takibi) PR'da, yayın bekliyor** ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React, CI/CD, NGINX, Kubernetes) + oturum
 sertleştirme (Faz 13) + ürün fazları 14–16d.
 
@@ -210,9 +210,12 @@ Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
    yüklendi (#100; zamanlanmış ilk koşu 2026-11-30, sonra kapanır). #40, #84, #103 canlıda doğrulanıp
    kapandı. Tarihli bekleyenler: #63 (Supabase duraklamadı mı, panel 2026-11-24), #106 (Trivy istisnası
    2026-12-19'da bitiyor; Aralık başında nginx imajına bakılır).
-2. **Sıradaki — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02;
+2. **Şimdi — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02;
    [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylı).
-   Migration'ları `0016`–`0018`. Spec 2026-11-23'te koda göre gözden geçirildi. Ardından (ROADMAP,
+   Migration'ları `0016`–`0018`. **17A-1** (migration `0016`, raf servisi ve uçları, kitap sayfasında tek
+   raf kontrolü, Kitaplığım'da ilerleme) yedi adımda yazıldı, kullanıcı her adımı commit'ten önce okudu;
+   `feat/80-okuma-takibi` PR'ı yayın bekliyor. Yayından sonra: Deploy'un `0016` öncesi şifreli dökümü
+   (#100), canlı doğrulama (spec Doğrulama 10), sonra 17A-2 (`0017`, kısıtlar) ve 17B. Ardından (ROADMAP,
    2026-11-23): okuma özeti ve kişisel ana sayfa → yazarın diğer kitapları → bağlantı önizlemesi →
    notlar ve alıntılar.
 3. **Kullanıcı adımları:** Northflank sağlık kontrolleri (panel), Grafana Cloud hesabı (#96). Sırlar

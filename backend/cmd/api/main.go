@@ -165,6 +165,7 @@ func run() int {
 		comments:   comments.NewService(pool),
 		ratings:    ratingSvc,
 		library:    library.NewRepository(pool),
+		shelf:      library.NewService(pool),
 		// Katalogun ?sort=rating sırası top-rated ile aynı m'yi kullanır.
 		ratingMinVotes: int64(cfg.RatingMinVotes),
 		auth:           auth.NewService(auth.NewRepository(pool), tokens, cfg.RefreshTokenTTL, cfg.SessionMaxAge),

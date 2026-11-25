@@ -109,20 +109,96 @@ export interface MyRating {
 /** Kişisel kitaplık durumu (backend/internal/library); arayüzdeki adı: lib/format.ts. */
 export type LibraryStatus = "WANT_TO_READ" | "READING" | "READ" | "ABANDONED";
 
-export interface LibraryEntry {
-  book_id: number;
-  status: LibraryStatus;
-  added_at: string;
-  updated_at: string;
-}
-
-/** Kitaplığım öğesi: kitap + kişisel bilgiler. in_catalog=false → kitap yayından kaldırılmış. */
+/**
+ * Kitaplığım öğesi: kitap + kişisel bilgiler. in_catalog=false → kitap yayından kaldırılmış.
+ * unit/progress/total_pages yalnız READING'de dolu (Faz 17): başka durumda sunucu null döner, eski bir
+ * okumadan kalan bayat değer kartta görünmesin.
+ */
 export interface LibraryItem {
   book: Book;
   status: LibraryStatus;
   added_at: string;
   my_rating: number | null;
   in_catalog: boolean;
+  unit: ProgressUnit | null;
+  progress: number | null;
+  total_pages: number | null;
+}
+
+/*
+ * RAF (Faz 17A-1): bir kitabın kullanıcının kitaplığındaki hâli. Kaynak: backend/cmd/api/shelf.go.
+ * Günler (`started_on`, `ended_on`) saatsiz takvim günüdür, "YYYY-AA-GG": `new Date("2026-11-12")` UTC
+ * gece yarısı olarak okunur ve batıdaki saat dilimlerinde bir önceki güne kayar; okumak ve yazmak için
+ * lib/day.ts.
+ */
+
+/** İlerleme birimi; tek birim, dönüşüm yok (spec § Kararlar "İlerleme birimi"). */
+export type ProgressUnit = "page" | "percent";
+
+/**
+ * Süren okuma. unit ve progress null = ilerleme henüz girilmedi (Faz 15'ten kalan "Şu an okuyorum");
+ * total_pages null = sayfa toplamı bilinmiyor ya da birim yüzde.
+ */
+export interface Reading {
+  edition_id: number | null;
+  unit: ProgressUnit | null;
+  progress: number | null;
+  total_pages: number | null;
+  started_on: string | null;
+}
+
+export interface ShelfEntry {
+  status: LibraryStatus;
+  /** Okurken düzeltmede (updateReading) geri gönderilir; eskiyse 409 version_conflict. */
+  version: number;
+  added_at: string;
+  updated_at: string;
+  /** Yalnız READING'de dolu. */
+  reading: Reading | null;
+}
+
+/** Kapanmış bir okuma. ended_on null = "Zaten okudum", tarih bilinmiyor (sonradan eklenebilir). */
+export interface ReadingLogEntry {
+  id: number;
+  edition_id: number | null;
+  outcome: "FINISHED" | "ABANDONED";
+  unit: ProgressUnit | null;
+  progress: number | null;
+  total_pages: number | null;
+  started_on: string | null;
+  ended_on: string | null;
+  created_at: string;
+}
+
+/** Her raf ucunun cevabı. entry null = kitaplıkta değil; log en yeni önce ve o zaman da dolu olabilir. */
+export interface Shelf {
+  book_id: number;
+  entry: ShelfEntry | null;
+  log: ReadingLogEntry[];
+}
+
+/**
+ * Komut ve GÖVDESİ birlikte: sunucu her komutta yalnız o komutun alanlarını kabul eder (fazlası 400),
+ * tip de aynısını derleme anında söyler. Gövde her komutta isteğe bağlı: yoksa varsayılanlar (tek tık).
+ */
+export type ShelfCommand =
+  | { command: "start"; body?: { mode?: "resume" | "restart"; edition_id?: number; unit?: ProgressUnit; started_on?: string } }
+  | { command: "finish" | "abandon"; body?: { ended_on?: string } }
+  | { command: "want" | "postpone" | "mark-read" | "remove" };
+
+/** PATCH …/shelf/reading: version zorunlu; gelmeyen alan değişmez. Birim ya da baskı değişirse ilerleme sıfırlanır. */
+export interface ReadingPatch {
+  version: number;
+  progress?: number;
+  started_on?: string;
+  unit?: ProgressUnit;
+  edition_id?: number;
+}
+
+/** PATCH /api/me/reading-log/{id}: gelmeyen gün değişmez. */
+export interface ReadingLogDates {
+  started_on?: string;
+  ended_on?: string;
 }
 
 export interface NewBook {

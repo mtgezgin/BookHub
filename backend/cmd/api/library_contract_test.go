@@ -34,7 +34,7 @@ func TestLibraryItemContract(t *testing.T) {
 		t.Fatalf("cevap çözülemedi: %v (gövde: %s)", err, rec.Body)
 	}
 	item := page.Items[0]
-	checkContract(t, item, []string{"book", "status", "added_at", "my_rating", "in_catalog"})
+	checkContract(t, item, []string{"book", "status", "added_at", "my_rating", "in_catalog", "unit", "progress", "total_pages"})
 
 	var book map[string]json.RawMessage
 	if err := json.Unmarshal(item["book"], &book); err != nil {

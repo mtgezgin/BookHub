@@ -10,6 +10,7 @@ import { BookCard } from "../components/BookCard";
 import { BookCover } from "../components/BookCover";
 import { ErrorBox, PageTitle } from "../components/common";
 import { EmptyState } from "../components/EmptyState";
+import { ReadingProgress } from "../components/ReadingProgress";
 import { asGenre, asOffset, asQuery, Chip, GRID, useParamUpdater } from "../components/filters";
 import { useToast } from "../components/toast";
 import { Button, buttonVariants } from "../components/ui/button";
@@ -183,7 +184,16 @@ export function Library() {
                   book={item.book}
                   headingLevel="h2"
                   status={item.status}
-                  extra={item.my_rating !== null && <p className="text-sm font-medium">Puanım: {item.my_rating}</p>}
+                  extra={
+                    <>
+                      {/* Faz 17A-1: okunan kitapta ilerleme (yalnız gösterim; komutlar kitap sayfasında). Sunucu
+                          bu alanları yalnız READING'de doldurur; girilmemişse hiçbir şey çizilmez. */}
+                      {item.status === "READING" && (
+                        <ReadingProgress reading={item} label={`${item.book.title}: okuma ilerlemen`} className="mt-1" />
+                      )}
+                      {item.my_rating !== null && <p className="text-sm font-medium">Puanım: {item.my_rating}</p>}
+                    </>
+                  }
                 />
               ) : (
                 <article className="flex flex-col gap-3">
@@ -207,7 +217,7 @@ export function Library() {
       <Dialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
         <DialogContent>
           <DialogTitle>“{removing?.book.title}” kitaplığından çıkarılsın mı?</DialogTitle>
-          <DialogDescription>Puanın ve yorumların silinmez.</DialogDescription>
+          <DialogDescription>Puanın, yorumların ve okuma geçmişin silinmez.</DialogDescription>
           <div className="flex justify-end gap-2">
             <DialogClose asChild>
               <Button type="button" variant="outline">Vazgeç</Button>

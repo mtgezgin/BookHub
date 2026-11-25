@@ -109,11 +109,17 @@ type Genre struct {
 }
 
 type LibraryEntry struct {
-	UserID    int64     `json:"user_id"`
-	BookID    int64     `json:"book_id"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	UserID     int64      `json:"user_id"`
+	BookID     int64      `json:"book_id"`
+	Status     string     `json:"status"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	EditionID  *int64     `json:"edition_id"`
+	Unit       *string    `json:"unit"`
+	Progress   *int32     `json:"progress"`
+	TotalPages *int32     `json:"total_pages"`
+	StartedOn  *time.Time `json:"started_on"`
+	Version    int32      `json:"version"`
 }
 
 type Rating struct {
@@ -122,6 +128,20 @@ type Rating struct {
 	Score     int16     `json:"score"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type ReadingLog struct {
+	ID         int64      `json:"id"`
+	UserID     int64      `json:"user_id"`
+	BookID     int64      `json:"book_id"`
+	EditionID  *int64     `json:"edition_id"`
+	Outcome    string     `json:"outcome"`
+	Unit       *string    `json:"unit"`
+	Progress   *int32     `json:"progress"`
+	TotalPages *int32     `json:"total_pages"`
+	StartedOn  *time.Time `json:"started_on"`
+	EndedOn    *time.Time `json:"ended_on"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 type RefreshToken struct {

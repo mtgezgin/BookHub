@@ -1,17 +1,15 @@
-// Package library, kişisel kitaplığın veri erişim katmanı (Faz 15).
+// Package library, kişisel kitaplık (Faz 15) ve okuma takibi (Faz 17A-1).
 //
-// Service katmanı yok: iş kuralları (yalnız yayındaki kitap eklenir, kayıt sahibine aittir)
-// SQL'de yaşıyor, Go'da yapılacak bir karar kalmıyor (GO_CONVENTIONS §4).
+// Faz 15'te yalnız bu repository vardı: iş kuralları (yalnız yayındaki kitap eklenir, kayıt sahibine
+// aittir) SQL'de yaşıyordu. Faz 17'de okuma takibiyle gerçek iş mantığı geldi (durum makinesi, günlük,
+// sürüm); yazımlar artık Service'te (service.go, commands.go), listeler ve rozetler burada kalır
+// (GO_CONVENTIONS §4: katman, mantık çıkınca eklenir).
 package library
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
 )
 
@@ -54,36 +52,15 @@ type ListFilter struct {
 	Limit, Offset                     int32
 }
 
-// Repository, kitaplık verisine erişimin tek kapısı.
+// Repository, kitaplığın OKUMA tarafı: Kitaplığım listesi ve kart rozetleri. Yazımların tek kapısı
+// Service'tir (komutlar); burada yazan bir yöntem yok.
 type Repository struct {
-	conn db.DBTX
-	q    *db.Queries
+	q *db.Queries
 }
 
 // NewRepository, verilen bağlantıyla bir Repository kurar.
 func NewRepository(dbtx db.DBTX) *Repository {
-	return &Repository{conn: dbtx, q: db.New(dbtx)}
-}
-
-// Put, kitabı kullanıcının kitaplığına ekler ya da durumunu değiştirir. Kitap yoksa ya da
-// yayında değilse books.ErrNotFound döner; ikisi bilerek ayırt edilmez.
-func (r *Repository) Put(ctx context.Context, userID, bookID int64, status string) (db.LibraryEntry, error) {
-	e, err := r.q.UpsertLibraryEntry(ctx, db.UpsertLibraryEntryParams{UserID: userID, BookID: bookID, Status: status})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return db.LibraryEntry{}, books.ErrNotFound
-	}
-	if err != nil {
-		return db.LibraryEntry{}, fmt.Errorf("kitaplık kaydı yazılamadı: %w", err)
-	}
-	return e, nil
-}
-
-// Remove, kitabı kullanıcının kitaplığından çıkarır; kayıt yoksa da hata değildir.
-func (r *Repository) Remove(ctx context.Context, userID, bookID int64) error {
-	if err := r.q.DeleteLibraryEntry(ctx, db.DeleteLibraryEntryParams{UserID: userID, BookID: bookID}); err != nil {
-		return fmt.Errorf("kitaplık kaydı silinemedi: %w", err)
-	}
-	return nil
+	return &Repository{q: db.New(dbtx)}
 }
 
 // List, kullanıcının kitaplığını süzer, sıralar ve sayfalar; ikinci dönüş sayfadan bağımsız toplam.

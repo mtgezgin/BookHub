@@ -8,16 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
 	"github.com/mtgezgin/bookhub/backend/internal/library"
 )
 
-// libraryStore, kişisel kitaplık uçlarının ihtiyacı kadar (tüketici tarafı interface):
-// handler'lar internal/library'yi değil bu sözleşmeyi tanır, testler sahte depoyla koşar.
+// libraryStore, kişisel kitaplığın OKUMA uçlarının ihtiyacı kadar (tüketici tarafı interface):
+// handler'lar internal/library'yi değil bu sözleşmeyi tanır, testler sahte depoyla koşar. Yazımlar
+// (eski PUT/DELETE dahil) shelfService'ten geçer (Faz 17A-1, shelf.go).
 type libraryStore interface {
-	Put(ctx context.Context, userID, bookID int64, status string) (db.LibraryEntry, error)
-	Remove(ctx context.Context, userID, bookID int64) error
 	Statuses(ctx context.Context, userID int64, bookIDs []int64) (map[int64]string, error)
 	List(ctx context.Context, userID int64, f library.ListFilter) ([]db.ListLibraryRow, int64, error)
 }
@@ -44,6 +42,11 @@ type libraryItemResponse struct {
 	AddedAt   time.Time    `json:"added_at"`
 	MyRating  *int         `json:"my_rating"` // null = puanım yok
 	InCatalog bool         `json:"in_catalog"`
+	// Kartlardaki ilerleme (Faz 17A-1): yalnız READING'de dolu, başka durumda hep null (0017'ye kadar
+	// satırda bayat değer kalabilir). Unit null = ilerleme henüz girilmedi.
+	Unit       *string `json:"unit"`
+	Progress   *int32  `json:"progress"`
+	TotalPages *int32  `json:"total_pages"`
 }
 
 type libraryPage struct {
@@ -58,18 +61,11 @@ type libraryStatusesResponse struct {
 	Statuses map[int64]string `json:"statuses"`
 }
 
-// writeLibraryError, kitaplık uçlarının hata haritası.
-func writeLibraryError(w http.ResponseWriter, op string, err error) {
-	if errors.Is(err, books.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not_found", "kitap bulunamadı")
-		return
-	}
-	writeInternalError(w, op, err)
-}
-
-// handlePutLibraryEntry, PUT /api/me/library/{id} {"status": …} — kitabı kitaplığa ekler ya da
-// durumunu değiştirir. PUT çünkü idempotent "şu duruma ayarla" (puanlardaki gerekçenin aynısı).
-func handlePutLibraryEntry(ls libraryStore) http.HandlerFunc {
+// handlePutLibraryEntry, PUT /api/me/library/{id} {"status": …} — Faz 15'in "şu duruma ayarla" ucu.
+// Faz 17A-1'den beri kendi yazımı yok: durum bir komuta çevrilir (library.CommandForStatus) ve raf
+// servisinden geçer. Yayın penceresindeki eski arayüz böylece okumayı da doğru kapatır (READ, süren
+// okumayı günlüğe yazar). Cevap Faz 15'teki şekliyle aynı.
+func handlePutLibraryEntry(svc shelfService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, ok := actorFrom(w, r)
 		if !ok {
@@ -84,21 +80,29 @@ func handlePutLibraryEntry(ls libraryStore) http.HandlerFunc {
 			writeRequestError(w, err)
 			return
 		}
-		if !library.ValidStatus(req.Status) {
+		c, valid := library.CommandForStatus(req.Status)
+		if !valid {
 			writeError(w, http.StatusBadRequest, "validation_error", "status yalnız WANT_TO_READ, READING, READ ya da ABANDONED olabilir")
 			return
 		}
-		e, err := ls.Put(r.Context(), user, id, req.Status)
+		s, err := svc.Do(r.Context(), user, id, library.CommandInput{Command: c})
 		if err != nil {
-			writeLibraryError(w, "PutLibraryEntry", err)
+			writeShelfError(w, "PutLibraryEntry", errBookNotFound, err)
 			return
 		}
+		if s.Entry == nil { // dört komut da bir satır bırakır; buraya düşmek servis hatasıdır
+			writeInternalError(w, "PutLibraryEntry", errors.New("komuttan sonra kitaplık satırı yok"))
+			return
+		}
+		e := s.Entry
 		writeJSON(w, http.StatusOK, libraryEntryResponse{BookID: e.BookID, Status: e.Status, AddedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt})
 	}
 }
 
-// handleRemoveLibraryEntry, DELETE /api/me/library/{id} — kayıt yoksa da 204 (idempotent).
-func handleRemoveLibraryEntry(ls libraryStore) http.HandlerFunc {
+// handleRemoveLibraryEntry, DELETE /api/me/library/{id} — kayıt yoksa da 204 (idempotent). Raf
+// servisinin "çıkar" komutu: okurken ilerleme varsa önce günlüğe "yarım bırakıldı" yazılır. Güncel rafı
+// isteyen arayüz POST …/shelf/remove kullanır; bu uç Faz 15'in sözleşmesiyle (gövdesiz 204) kalır.
+func handleRemoveLibraryEntry(svc shelfService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, ok := actorFrom(w, r)
 		if !ok {
@@ -108,8 +112,8 @@ func handleRemoveLibraryEntry(ls libraryStore) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		if err := ls.Remove(r.Context(), user, id); err != nil {
-			writeLibraryError(w, "RemoveLibraryEntry", err)
+		if _, err := svc.Do(r.Context(), user, id, library.CommandInput{Command: library.CmdRemove}); err != nil {
+			writeShelfError(w, "RemoveLibraryEntry", errBookNotFound, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -233,13 +237,17 @@ func handleListLibrary(ls libraryStore, bs bookStore) http.HandlerFunc {
 				score := int(*row.MyRating)
 				mine = &score
 			}
-			items = append(items, libraryItemResponse{
+			item := libraryItemResponse{
 				Book:      toBookResponse(row.BookView, genresByBook[row.BookView.ID]),
 				Status:    row.Status,
 				AddedAt:   row.AddedAt,
 				MyRating:  mine,
 				InCatalog: row.InCatalog,
-			})
+			}
+			if row.Status == library.StatusReading {
+				item.Unit, item.Progress, item.TotalPages = row.Unit, row.Progress, row.TotalPages
+			}
+			items = append(items, item)
 		}
 		writeJSON(w, http.StatusOK, libraryPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset})
 	}

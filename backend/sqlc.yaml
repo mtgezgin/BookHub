@@ -97,6 +97,15 @@ sql:
             go_type:
               type: "int16"
               pointer: true
+          # NULL olabilen takvim günü (Faz 17: started_on, ended_on) → *time.Time; nil = bilinmiyor.
+          # pgx okurken gece yarısı UTC verir, yazarken yalnız yıl/ay/günü kullanır (saat dilimi
+          # günü kaydırmaz). Override olmasa pgtype.Date ({Time, InfinityModifier, Valid}) üretirdi.
+          - db_type: "date"
+            nullable: true
+            go_type:
+              import: "time"
+              type: "Time"
+              pointer: true
           # jsonb → json.RawMessage: DB'deki JSON, cevaba yeniden kodlanmadan AYNEN gömülür
           # ([]byte olsaydı encoding/json onu base64 string'e çevirirdi).
           - db_type: "jsonb"

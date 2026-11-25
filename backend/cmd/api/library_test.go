@@ -17,29 +17,17 @@ import (
 )
 
 type fakeLibrary struct {
-	entry    db.LibraryEntry
 	statuses map[int64]string
 	rows     []db.ListLibraryRow
 	total    int64
 	err      error
 
-	gotUser, gotBook int64
-	gotStatus        string
-	gotIDs           []int64
-	gotFilter        *library.ListFilter
-	calls            int
+	gotUser   int64
+	gotIDs    []int64
+	gotFilter *library.ListFilter
+	calls     int
 }
 
-func (f *fakeLibrary) Put(_ context.Context, user, book int64, status string) (db.LibraryEntry, error) {
-	f.calls++
-	f.gotUser, f.gotBook, f.gotStatus = user, book, status
-	return f.entry, f.err
-}
-func (f *fakeLibrary) Remove(_ context.Context, user, book int64) error {
-	f.calls++
-	f.gotUser, f.gotBook = user, book
-	return f.err
-}
 func (f *fakeLibrary) Statuses(_ context.Context, user int64, ids []int64) (map[int64]string, error) {
 	f.calls++
 	f.gotUser, f.gotIDs = user, ids
@@ -55,31 +43,31 @@ func libraryRouter(fake *fakeLibrary) http.Handler {
 	return userRouter(deps{library: fake, books: fakeBooks{}})
 }
 
+// TestPutLibraryEntry, Faz 15'in PUT {status} ucu: artık raf servisinin komutuna çevrilir (spec 17A
+// § 3, Doğrulama 9), cevap şekli değişmez.
 func TestPutLibraryEntry(t *testing.T) {
 	added := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
 
-	t.Run("geçerli durum → 200, kullanıcı token'dan", func(t *testing.T) {
-		fake := &fakeLibrary{entry: db.LibraryEntry{UserID: 7, BookID: 5, Status: "READ", CreatedAt: added, UpdatedAt: added}}
-		rec := do(t, libraryRouter(fake), http.MethodPut, "/api/me/library/5", `{"status":"READ"}`)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status %d (%s)", rec.Code, rec.Body)
-		}
-		if fake.gotUser != 7 || fake.gotBook != 5 || fake.gotStatus != "READ" {
-			t.Errorf("depoya giden: user %d book %d status %q", fake.gotUser, fake.gotBook, fake.gotStatus)
-		}
-		var body map[string]any
-		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-			t.Fatal(err)
-		}
-		for _, k := range []string{"book_id", "status", "added_at", "updated_at"} {
-			if _, ok := body[k]; !ok {
-				t.Errorf("cevapta %q alanı yok: %s", k, rec.Body)
+	for status, cmd := range map[string]library.Command{
+		"WANT_TO_READ": library.CmdWant, "READING": library.CmdStart, "READ": library.CmdMarkRead, "ABANDONED": library.CmdAbandon,
+	} {
+		t.Run(status+" → "+string(cmd)+", kullanıcı token'dan", func(t *testing.T) {
+			fake := &fakeShelf{shelf: library.Shelf{BookID: 5, Entry: &db.LibraryEntry{UserID: 7, BookID: 5, Status: status, CreatedAt: added, UpdatedAt: added}}}
+			rec := do(t, shelfRouter(fake), http.MethodPut, "/api/me/library/5", `{"status":"`+status+`"}`)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status %d (%s)", rec.Code, rec.Body)
 			}
-		}
-		if _, ok := body["user_id"]; ok {
-			t.Errorf("cevapta user_id olmamalı: %s", rec.Body)
-		}
-	})
+			if fake.gotUser != 7 || fake.gotBook != 5 || fake.gotIn == nil || *fake.gotIn != (library.CommandInput{Command: cmd}) {
+				t.Errorf("servise giden: user %d book %d girdi %+v", fake.gotUser, fake.gotBook, fake.gotIn)
+			}
+			var body map[string]json.RawMessage
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			// Faz 15'in sözleşmesi aynen: yayın penceresindeki eski arayüz bu alanları okur.
+			checkContract(t, body, []string{"book_id", "status", "added_at", "updated_at"})
+		})
+	}
 
 	tests := []struct {
 		name, url, body string
@@ -92,31 +80,50 @@ func TestPutLibraryEntry(t *testing.T) {
 		{"bilinmeyen alan", "/api/me/library/5", `{"status":"READ","user_id":9}`, nil, http.StatusBadRequest, "invalid_json"},
 		{"bozuk kimlik", "/api/me/library/abc", `{"status":"READ"}`, nil, http.StatusBadRequest, "invalid_id"},
 		{"yayında olmayan kitap", "/api/me/library/5", `{"status":"READ"}`, books.ErrNotFound, http.StatusNotFound, "not_found"},
+		{"servis hatası 404 değil", "/api/me/library/5", `{"status":"READ"}`, errors.New("db"), http.StatusInternalServerError, "internal"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fake := &fakeLibrary{err: tt.err}
-			rec := do(t, libraryRouter(fake), http.MethodPut, tt.url, tt.body)
+			fake := &fakeShelf{err: tt.err}
+			rec := do(t, shelfRouter(fake), http.MethodPut, tt.url, tt.body)
 			if rec.Code != tt.wantStatus || errorCode(t, rec) != tt.wantCode {
 				t.Errorf("status %d kod %q, istenen %d %q (%s)", rec.Code, errorCode(t, rec), tt.wantStatus, tt.wantCode, rec.Body)
+			}
+			if tt.err == nil && fake.calls != 0 {
+				t.Errorf("geçersiz istek servise ulaşmamalı (%d çağrı)", fake.calls)
 			}
 		})
 	}
 
+	t.Run("komuttan sonra satır yoksa 500 (servis sözleşmesi bozuk)", func(t *testing.T) {
+		rec := do(t, shelfRouter(&fakeShelf{shelf: library.Shelf{BookID: 5}}), http.MethodPut, "/api/me/library/5", `{"status":"READ"}`)
+		if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
+			t.Errorf("status %d (%s)", rec.Code, rec.Body)
+		}
+	})
+
 	t.Run("token yok → 401", func(t *testing.T) {
-		fake := &fakeLibrary{}
-		rec := do(t, newRouter(deps{library: fake, tokens: fakeVerifier{}}), http.MethodPut, "/api/me/library/5", `{"status":"READ"}`)
+		fake := &fakeShelf{}
+		rec := do(t, newRouter(deps{shelf: fake, tokens: fakeVerifier{}}), http.MethodPut, "/api/me/library/5", `{"status":"READ"}`)
 		if rec.Code != http.StatusUnauthorized || fake.calls != 0 {
-			t.Errorf("status %d, depo çağrısı %d; istenen 401 ve 0", rec.Code, fake.calls)
+			t.Errorf("status %d, servis çağrısı %d; istenen 401 ve 0", rec.Code, fake.calls)
 		}
 	})
 }
 
+// TestRemoveLibraryEntry, DELETE /api/me/library/{id}: "çıkar" komutu, Faz 15'teki gibi gövdesiz 204.
 func TestRemoveLibraryEntry(t *testing.T) {
-	fake := &fakeLibrary{}
-	rec := do(t, libraryRouter(fake), http.MethodDelete, "/api/me/library/5", "")
-	if rec.Code != http.StatusNoContent || fake.gotUser != 7 || fake.gotBook != 5 {
-		t.Errorf("status %d, user %d, book %d", rec.Code, fake.gotUser, fake.gotBook)
+	fake := &fakeShelf{shelf: library.Shelf{BookID: 5}}
+	rec := do(t, shelfRouter(fake), http.MethodDelete, "/api/me/library/5", "")
+	if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 || fake.gotUser != 7 || fake.gotBook != 5 {
+		t.Errorf("status %d gövde %q, user %d, book %d", rec.Code, rec.Body, fake.gotUser, fake.gotBook)
+	}
+	if fake.gotIn == nil || *fake.gotIn != (library.CommandInput{Command: library.CmdRemove}) {
+		t.Errorf("servise giden girdi %+v", fake.gotIn)
+	}
+	rec = do(t, shelfRouter(&fakeShelf{err: errors.New("db")}), http.MethodDelete, "/api/me/library/5", "")
+	if rec.Code != http.StatusInternalServerError || errorCode(t, rec) != "internal" {
+		t.Errorf("servis hatası: %d %s", rec.Code, rec.Body)
 	}
 }
 
@@ -221,6 +228,33 @@ func TestListLibrary(t *testing.T) {
 		}
 	})
 
+	t.Run("ilerleme yalnız okurken; başka durumdaki bayat değer gitmez", func(t *testing.T) {
+		fake := &fakeLibrary{total: 3, rows: []db.ListLibraryRow{
+			{BookView: db.BookView{ID: 1}, Status: "READING", Unit: new("page"), Progress: new(int32(42)), TotalPages: new(int32(310))},
+			{BookView: db.BookView{ID: 2}, Status: "READING"}, // Faz 15'ten kalan: ilerleme girilmemiş
+			{BookView: db.BookView{ID: 3}, Status: "READ", Unit: new("page"), Progress: new(int32(99)), TotalPages: new(int32(310))},
+		}}
+		rec := do(t, libraryRouter(fake), http.MethodGet, "/api/me/library", "")
+		var page struct {
+			Items []struct {
+				Unit       *string `json:"unit"`
+				Progress   *int32  `json:"progress"`
+				TotalPages *int32  `json:"total_pages"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil || len(page.Items) != 3 {
+			t.Fatalf("cevap çözülemedi: %v (%s)", err, rec.Body)
+		}
+		if it := page.Items[0]; it.Unit == nil || *it.Unit != "page" || *it.Progress != 42 || *it.TotalPages != 310 {
+			t.Errorf("okunan kitabın ilerlemesi eksik: %+v", it)
+		}
+		for i, it := range page.Items[1:] {
+			if it.Unit != nil || it.Progress != nil || it.TotalPages != nil {
+				t.Errorf("%d. öğede ilerleme null olmalı: %+v", i+2, it)
+			}
+		}
+	})
+
 	t.Run("boş kitaplık → items boş dizi", func(t *testing.T) {
 		rec := do(t, libraryRouter(&fakeLibrary{}), http.MethodGet, "/api/me/library", "")
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"items":[]`) {
@@ -236,8 +270,6 @@ func TestLibraryStoreErrors(t *testing.T) {
 		books                   fakeBooks
 		fake                    *fakeLibrary
 	}{
-		{"silme depo hatası", http.MethodDelete, "/api/me/library/5", "", fakeBooks{}, &fakeLibrary{err: dbErr}},
-		{"ekleme depo hatası 404 değil", http.MethodPut, "/api/me/library/5", `{"status":"READ"}`, fakeBooks{}, &fakeLibrary{err: dbErr}},
 		{"durum sorgusu depo hatası", http.MethodGet, "/api/me/library/statuses?book_ids=3", "", fakeBooks{}, &fakeLibrary{err: dbErr}},
 		{"liste depo hatası", http.MethodGet, "/api/me/library", "", fakeBooks{}, &fakeLibrary{err: dbErr}},
 		{"liste tür yüklemesi hatası", http.MethodGet, "/api/me/library", "", fakeBooks{genreErr: dbErr}, &fakeLibrary{total: 1, rows: []db.ListLibraryRow{{BookView: db.BookView{ID: 1, Title: "Dune"}, Status: "READ"}}}},

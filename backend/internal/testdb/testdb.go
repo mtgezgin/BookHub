@@ -53,9 +53,12 @@ func Pool(t *testing.T) *pgxpool.Pool {
 }
 
 // Unique, test verisi için çakışmasız bir sonek üretir (slug/e-posta gibi UNIQUE
-// alanlar). Paralel paketlerde de benzersiz kalsın diye zaman + sayaç.
+// alanlar). Zaman + süreç kimliği + sayaç: `go test ./...` her paketi AYRI bir süreçte, paralel ve
+// aynı veritabanına karşı koşar; sayaç yalnız süreç içinde tekildir. Zaman tek başına yetmez:
+// Windows'ta saat kaba (ölçüldü, 2026-11-24: sıkı döngüde 100.000 çağrının 99.996'sı aynı değer),
+// iki paketin ilk kullanıcısı aynı "user-<zaman>-1" e-postasına çarpıyordu (ratings testi, aralıklı).
 func Unique(prefix string) string {
-	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().UnixNano(), counter.Add(1))
+	return fmt.Sprintf("%s-%d-%d-%d", prefix, time.Now().UnixNano(), os.Getpid(), counter.Add(1))
 }
 
 // Exec, temizlik gibi yardımcı sorgular için; hata testi düşürür.

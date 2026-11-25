@@ -10,7 +10,22 @@ import (
 	"time"
 )
 
+const bookIsApproved = `-- name: BookIsApproved :one
+SELECT EXISTS (SELECT 1 FROM books WHERE id = $1 AND status = 'APPROVED')
+`
+
+// Komutlar yalnız yayındaki kitapta çalışır (Faz 15 kuralı); "kitaplıktan çıkar" hariç. Hiçbir şey
+// yazmayan bir komut (ör. ikinci "Bitirdim") da yayında olmayan kitapta 404 dönsün diye ayrı sorgu:
+// SaveShelf'in kendi denetimi yalnız yazan komutları kapsar.
+func (q *Queries) BookIsApproved(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, bookIsApproved, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const deleteLibraryEntry = `-- name: DeleteLibraryEntry :exec
+
 DELETE FROM library_entries WHERE user_id = $1 AND book_id = $2
 `
 
@@ -19,10 +34,71 @@ type DeleteLibraryEntryParams struct {
 	BookID int64 `json:"book_id"`
 }
 
+// library.sql — kişisel kitaplık sorguları (Faz 15).
 // Silmek idempotent: kayıt yoksa da hata değil.
 func (q *Queries) DeleteLibraryEntry(ctx context.Context, arg DeleteLibraryEntryParams) error {
 	_, err := q.db.Exec(ctx, deleteLibraryEntry, arg.UserID, arg.BookID)
 	return err
+}
+
+const getReadingEdition = `-- name: GetReadingEdition :one
+SELECT id, page_count FROM editions
+WHERE book_id = $1
+  AND CASE WHEN $2::bigint IS NULL THEN is_primary
+           ELSE id = $2 END
+`
+
+type GetReadingEditionParams struct {
+	BookID    int64  `json:"book_id"`
+	EditionID *int64 `json:"edition_id"`
+}
+
+type GetReadingEditionRow struct {
+	ID        int64  `json:"id"`
+	PageCount *int32 `json:"page_count"`
+}
+
+// Okumanın baskısı ve sayfa toplamının anlık görüntüsü (kavram 7). edition_id verilmişse o kitabın o
+// baskısı (başka kitabın baskısı satır üretmez → servis 400 der), verilmemişse varsayılan baskı
+// (varsayılanı olmayan kitapta satır yok → baskısız, toplamı bilinmeyen okuma).
+func (q *Queries) GetReadingEdition(ctx context.Context, arg GetReadingEditionParams) (GetReadingEditionRow, error) {
+	row := q.db.QueryRow(ctx, getReadingEdition, arg.BookID, arg.EditionID)
+	var i GetReadingEditionRow
+	err := row.Scan(&i.ID, &i.PageCount)
+	return i, err
+}
+
+const getShelf = `-- name: GetShelf :one
+
+SELECT user_id, book_id, status, created_at, updated_at, edition_id, unit, progress, total_pages, started_on, version FROM library_entries WHERE user_id = $1 AND book_id = $2
+`
+
+type GetShelfParams struct {
+	UserID int64 `json:"user_id"`
+	BookID int64 `json:"book_id"`
+}
+
+// ── Raf (Faz 17A-1): okuma takibinin durum makinesi (internal/library servisi) ──────────────────
+// Her komut tek transaction: önce LockShelf satırı kilitler (yoksa "kitaplıkta değil"), servis yeni
+// durumu hesaplar, SaveShelf yazar. Okuma alanlarının anlamı yalnız status = 'READING' iken var.
+// Kitap sayfası için okuma (kilitsiz).
+func (q *Queries) GetShelf(ctx context.Context, arg GetShelfParams) (LibraryEntry, error) {
+	row := q.db.QueryRow(ctx, getShelf, arg.UserID, arg.BookID)
+	var i LibraryEntry
+	err := row.Scan(
+		&i.UserID,
+		&i.BookID,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EditionID,
+		&i.Unit,
+		&i.Progress,
+		&i.TotalPages,
+		&i.StartedOn,
+		&i.Version,
+	)
+	return i, err
 }
 
 const listLibrary = `-- name: ListLibrary :many
@@ -30,6 +106,7 @@ WITH q AS MATERIALIZED (
     SELECT search_tsquery(search_fold($4::text), '') AS tsq
 )
 SELECT b.id, b.title, b.slug, b.author, b.description, b.cover_url, b.publication_year, b.page_count, b.language, b.status, b.created_at, b.updated_at, b.submitted_by, b.rejection_reason, b.moderated_by, b.moderated_at, b.average_rating, b.rating_count, le.status, le.created_at AS added_at, r.score AS my_rating,
+       le.unit, le.progress, le.total_pages,
        (b.status = 'APPROVED')::boolean AS in_catalog,
        count(*) OVER () AS total
 FROM library_entries le
@@ -65,12 +142,15 @@ type ListLibraryParams struct {
 }
 
 type ListLibraryRow struct {
-	BookView  BookView  `json:"book_view"`
-	Status    string    `json:"status"`
-	AddedAt   time.Time `json:"added_at"`
-	MyRating  *int16    `json:"my_rating"`
-	InCatalog bool      `json:"in_catalog"`
-	Total     int64     `json:"total"`
+	BookView   BookView  `json:"book_view"`
+	Status     string    `json:"status"`
+	AddedAt    time.Time `json:"added_at"`
+	MyRating   *int16    `json:"my_rating"`
+	Unit       *string   `json:"unit"`
+	Progress   *int32    `json:"progress"`
+	TotalPages *int32    `json:"total_pages"`
+	InCatalog  bool      `json:"in_catalog"`
+	Total      int64     `json:"total"`
 }
 
 // Kitaplığım listesi. Filtre deseni ListBooks'un aynısı (`param IS NULL OR …`: boş filtre
@@ -85,6 +165,8 @@ type ListLibraryRow struct {
 // Arama katalogla aynı kuralla eşleşir (search_fold ve book_search; 0014_book_search.sql): Türkçe
 // harf, aksan ve kelime sırası fark etmez, son kelime önek sayılır. q tek satırlık ve MATERIALIZED:
 // arama ifadesi bir kez kurulur, kitaplıktaki her kayıt için yeniden hesaplanmaz.
+// Okuma alanları (Faz 17) kartlardaki ilerleme için; anlamları yalnız status = 'READING' iken var
+// (0017'ye kadar başka durumda bayat kalabilirler, Go tarafı bakmaz).
 func (q *Queries) ListLibrary(ctx context.Context, arg ListLibraryParams) ([]ListLibraryRow, error) {
 	rows, err := q.db.Query(ctx, listLibrary,
 		arg.UserID,
@@ -125,6 +207,9 @@ func (q *Queries) ListLibrary(ctx context.Context, arg ListLibraryParams) ([]Lis
 			&i.Status,
 			&i.AddedAt,
 			&i.MyRating,
+			&i.Unit,
+			&i.Progress,
+			&i.TotalPages,
 			&i.InCatalog,
 			&i.Total,
 		); err != nil {
@@ -174,29 +259,19 @@ func (q *Queries) ListLibraryStatuses(ctx context.Context, arg ListLibraryStatus
 	return items, nil
 }
 
-const upsertLibraryEntry = `-- name: UpsertLibraryEntry :one
-
-INSERT INTO library_entries (user_id, book_id, status)
-SELECT $1::bigint, b.id, $2::text
-FROM books b
-WHERE b.id = $3 AND b.status = 'APPROVED'
-ON CONFLICT (user_id, book_id)
-DO UPDATE SET status = EXCLUDED.status, updated_at = now()
-RETURNING user_id, book_id, status, created_at, updated_at
+const lockShelf = `-- name: LockShelf :one
+SELECT user_id, book_id, status, created_at, updated_at, edition_id, unit, progress, total_pages, started_on, version FROM library_entries WHERE user_id = $1 AND book_id = $2 FOR UPDATE
 `
 
-type UpsertLibraryEntryParams struct {
-	UserID int64  `json:"user_id"`
-	Status string `json:"status"`
-	BookID int64  `json:"book_id"`
+type LockShelfParams struct {
+	UserID int64 `json:"user_id"`
+	BookID int64 `json:"book_id"`
 }
 
-// library.sql — kişisel kitaplık sorguları (Faz 15).
-// Ekle ya da durumu değiştir, TEK deyimde. Kitap yayında değilse SELECT satır üretmez,
-// hiçbir şey yazılmaz ve RETURNING boş döner → 404 (kitabın varlığı da sızmaz).
-// Arşivlenmiş bir kitabın kaydı bu yüzden güncellenemez; yalnız silinebilir.
-func (q *Queries) UpsertLibraryEntry(ctx context.Context, arg UpsertLibraryEntryParams) (LibraryEntry, error) {
-	row := q.db.QueryRow(ctx, upsertLibraryEntry, arg.UserID, arg.Status, arg.BookID)
+// Aynı satır, transaction sonuna kadar kilitli: aynı kayda gelen ikinci komut ilki bitene kadar
+// bekler, sonra güncel satırı görür (çift tık iki günlük satırı yazamaz).
+func (q *Queries) LockShelf(ctx context.Context, arg LockShelfParams) (LibraryEntry, error) {
+	row := q.db.QueryRow(ctx, lockShelf, arg.UserID, arg.BookID)
 	var i LibraryEntry
 	err := row.Scan(
 		&i.UserID,
@@ -204,6 +279,95 @@ func (q *Queries) UpsertLibraryEntry(ctx context.Context, arg UpsertLibraryEntry
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EditionID,
+		&i.Unit,
+		&i.Progress,
+		&i.TotalPages,
+		&i.StartedOn,
+		&i.Version,
+	)
+	return i, err
+}
+
+const lockShelfKey = `-- name: LockShelfKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended(
+    'library_entries:' || $1::bigint || ':' || $2::bigint, 0))
+`
+
+type LockShelfKeyParams struct {
+	UserID int64 `json:"user_id"`
+	BookID int64 `json:"book_id"`
+}
+
+// Aynı (kullanıcı, kitap) çiftine gelen komutları SIRAYA sokar; transaction bitince kendiliğinden
+// bırakılır. NEDEN FOR UPDATE yetmiyor: kitap kitaplıkta yokken kilitlenecek satır da yoktur; iki
+// eşzamanlı "Zaten okudum" ikisi de "yok" görüp iki günlük satırı yazardı. Danışma kilidi (advisory
+// lock) bir satıra değil bir SAYIYA konur, satır olmadan da çalışır. Sayı anahtarın özetidir; iki farklı
+// çiftin özeti çakışırsa yalnız birbirini bekler, yanlış sonuç üretmez.
+func (q *Queries) LockShelfKey(ctx context.Context, arg LockShelfKeyParams) error {
+	_, err := q.db.Exec(ctx, lockShelfKey, arg.UserID, arg.BookID)
+	return err
+}
+
+const saveShelf = `-- name: SaveShelf :one
+INSERT INTO library_entries (user_id, book_id, status, edition_id, unit, progress, total_pages, started_on)
+SELECT $1::bigint, b.id, $2::text, $3::bigint,
+       $4::text, $5::integer, $6::integer,
+       $7::date
+FROM books b
+WHERE b.id = $8 AND b.status = 'APPROVED'
+ON CONFLICT (user_id, book_id)
+DO UPDATE SET status      = EXCLUDED.status,
+              edition_id  = EXCLUDED.edition_id,
+              unit        = EXCLUDED.unit,
+              progress    = EXCLUDED.progress,
+              total_pages = EXCLUDED.total_pages,
+              started_on  = EXCLUDED.started_on,
+              version     = library_entries.version + 1,
+              updated_at  = now()
+RETURNING user_id, book_id, status, created_at, updated_at, edition_id, unit, progress, total_pages, started_on, version
+`
+
+type SaveShelfParams struct {
+	UserID     int64      `json:"user_id"`
+	Status     string     `json:"status"`
+	EditionID  *int64     `json:"edition_id"`
+	Unit       *string    `json:"unit"`
+	Progress   *int32     `json:"progress"`
+	TotalPages *int32     `json:"total_pages"`
+	StartedOn  *time.Time `json:"started_on"`
+	BookID     int64      `json:"book_id"`
+}
+
+// Rafın TEK yazma yolu: durum ve okuma alanları birlikte, version her yazımda artar. Kitap yayında
+// değilse SELECT satır üretmez, hiçbir şey yazılmaz → pgx.ErrNoRows → 404 (Faz 15'in kuralı; o
+// fazın UpsertLibraryEntry'si 17A-1'de kalktı, eski PUT da buradan geçer). Satır yoksa (iki komut
+// aynı anda "kitaplıkta değil" gördüyse) ikinci INSERT çakışır ve ilk transaction'ın bitmesini
+// bekleyip güncellemeye döner.
+func (q *Queries) SaveShelf(ctx context.Context, arg SaveShelfParams) (LibraryEntry, error) {
+	row := q.db.QueryRow(ctx, saveShelf,
+		arg.UserID,
+		arg.Status,
+		arg.EditionID,
+		arg.Unit,
+		arg.Progress,
+		arg.TotalPages,
+		arg.StartedOn,
+		arg.BookID,
+	)
+	var i LibraryEntry
+	err := row.Scan(
+		&i.UserID,
+		&i.BookID,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EditionID,
+		&i.Unit,
+		&i.Progress,
+		&i.TotalPages,
+		&i.StartedOn,
+		&i.Version,
 	)
 	return i, err
 }
