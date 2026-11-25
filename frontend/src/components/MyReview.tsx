@@ -142,7 +142,7 @@ function ReviewEditor({ mine, mutation, onDone }: Readonly<{
       <span className="self-end text-xs text-muted-foreground tabular-nums">{body.length}/{MAX_REVIEW}</span>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={spoiler} onChange={(e) => setSpoiler(e.target.checked)} className="size-4 accent-primary" />
-        Spoiler içeriyor
+        <span>Spoiler içeriyor</span>
       </label>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <div className="flex justify-end gap-2">

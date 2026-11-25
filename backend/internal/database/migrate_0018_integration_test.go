@@ -78,7 +78,7 @@ func TestMigration0018Reviews(t *testing.T) {
 	if _, err := provider.DownTo(ctx, 17); err != nil {
 		t.Fatalf("0018 geri alınamadı: %v", err)
 	}
-	if got := db.count(`SELECT count(*) FROM information_schema.tables WHERE table_name = 'reviews'`); got != 0 {
+	if db.count(`SELECT count(*) FROM information_schema.tables WHERE table_name = 'reviews'`) != 0 {
 		t.Error("Down'dan sonra reviews tablosu kalmamalı")
 	}
 }

@@ -1124,6 +1124,9 @@ baştan düşük karmaşıklıkla yazılır.
   - **Tam E2E paketi yerelde tamamlanamadı:** makinenin belleği azalınca koşu durduruldu; durmadan önce
     birçok senaryo 100 ms altında düşmüştü (tarayıcı açılamıyor). Sonuç geçersiz sayıldı; tam paket PR'ın
     CI'ında koşacak.
+  - **PR #126'nın CI'ı:** bütün işler yeşil, tam E2E paketi dahil. Sonar iki bulgu verdi, ikisi de düzeltildi:
+    - `migrate_0018_integration_test.go`: koşulda gereksiz değişken;
+    - `MyReview.tsx`: `<input>`'tan sonra satır başındaki metnin boşluğu belirsizdi; metin `<span>`'e alındı.
 - **Bakılacak yerler:**
   - [`rating-comment.spec.ts`](../../frontend/e2e/rating-comment.spec.ts): ikinci senaryo ve yardımcıları;
   - [`helpers.ts`](../../frontend/e2e/helpers.ts): bütçe tablosu.
