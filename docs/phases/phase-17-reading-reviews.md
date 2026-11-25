@@ -518,7 +518,7 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
 | Adım | İçerik | Durum |
 | --- | --- | --- |
 | 1 | `0017_reading_checks.sql` + migration testi; kısıtla çakışan iki servis testi | ✅ commit (2026-11-25) |
-| 2 | Canlıda sayım, dokümanlar, PR | ✅ commit (2026-11-25); PR açıldı |
+| 2 | Canlıda sayım, dokümanlar, PR | ✅ PR [#123](https://github.com/mtgezgin/BookHub/pull/123) birleşti, canlıda doğrulandı (2026-11-25) |
 
 **Canlıda sayım (2026-11-25, kullanıcı Supabase SQL Editor'da; yalnız okuyan, yalnız sayı döndüren
 sorgu, metni PR'da):** `library_entries` toplam **0** satır, temizlenecek **0**, kural dışı ilerleme
@@ -585,6 +585,40 @@ kısıtlar boş tabloya eklenecek.
 
   Sınanan şeyler aynı. Spec taslağına ve temizliksiz migration'a karşı bozmalar yine kırmızı. Kural
   (kullanıcı, 2026-11-25): Sonar bulguları her zaman düzeltilir; düzeltilmeyecekse gerekçesi yazılır.
+
+## 🌐 17A-2 yayın ve canlı doğrulama (2026-11-25)
+
+- **Birleşme:** PR [#123](https://github.com/mtgezgin/BookHub/pull/123) (`8f71e63`). Sekiz kontrol yeşil;
+  Sonar'ın tek bulgusu birleşmeden önce düzeltildi (yukarıda).
+- **Deploy** ([koşu 45604676755](https://github.com/mtgezgin/BookHub/actions/runs/45604676755)):
+  - plan adımı yeni migration olarak yalnız `0017_reading_checks.sql`'i buldu;
+  - migration'dan **önce** şifreli döküm alındı: `bookhub-migration-oncesi-8f71e63.dump.age`, 62 968 bayt;
+    artefakt `bookhub-yedek-migration-oncesi-45604676755`, 90 gün;
+  - "migration'lar güncel"; `release` `8f71e63`'e ilerledi.
+- **Canlıda tarayıcıyla (spec Doğrulama 11'in canlı yarısı):**
+  - Kim yaptı: kullanıcının tarayıcısındaki Claude, asistanın yazdığı istemle. Asistanın Chrome
+    bağlantısı bu sefer sayfayı açamadı (üç denemede tarayıcı hata sayfası). Aynı adresler curl'le 200
+    döndü, yani sorun siteden değil Chrome tarafındaydı.
+  - Hesap: kullanıcının kendi hesabı, kitaplığı başta boş. Kitap: Martin Eden (480 sayfa).
+
+  | Adım | Sonuç |
+  |---|---|
+  | Okumaya başla | ✅ "Şu an okuyorum", "0 / 480 sayfa" |
+  | İlerleme 120 | ✅ "120 / 480 sayfa" |
+  | İlerleme 500 | ✅ form göndermedi: "0 ile 480 arasında bir tam sayı gir."; değer 120 kaldı |
+  | Bitirdim | ✅ "Okudum · Bugün bitirdin"; geçmişte "Bitirdin · 25 Kasım 2026" |
+  | Temizlik | ✅ geçmiş satırı silindi, kitap çıkarıldı; kitaplık yine boş |
+
+  - **Ağ:** `/api/me/` içeren 12 isteğin hepsi 200 döndü (`shelf/start`, `shelf/reading` PATCH,
+    `shelf/finish`, `reading-log/3` DELETE, `shelf/remove` dahil). Kırmızı bildirim ya da konsol hatası yok.
+    Konsol izlemesi bitirme adımından sonra başladı.
+- **Doğrulanmayan:**
+  - Kural dışı değerin (500 sayfa) **sunucuda** reddedilmesi canlıda sınanmadı: istemci isteği hiç
+    göndermedi. Sunucuda iki katman var: servis 400 döndürüyor (`TestShelfEndpointsRealDB`, −1 → 400) ve
+    veritabanı kısıtı reddediyor (`TestMigration0017ReadingChecks`).
+  - Kısıtların canlı veritabanında var olduğu doğrudan görülmedi (asistanın canlı veritabanına erişimi
+    yok). Migration adımının hatasız bitmesi kısıtların eklendiğini gösteriyor.
+- **17A bitti.** Sırada 17B (inceleme, `0018`). #80 açık kalıyor.
 
 ## 🪜 17A — adımlar
 

@@ -52,7 +52,7 @@ canlıda (PR [#121](https://github.com/mtgezgin/BookHub/pull/121), canlı doğru
 - tarihleri düzeltilebilen okuma geçmişi;
 - eski ekrandan yazım 409 alıyor (sessizce ezilmiyor).
 
-Kuralların veritabanında da zorlanması (CHECK kısıtları) 17A-2'de. Aynı kitabı yeniden okumanın temeli
+Kurallar 17A-2'den beri veritabanında da zorlanıyor (CHECK kısıtları, PR [#123](https://github.com/mtgezgin/BookHub/pull/123)). Aynı kitabı yeniden okumanın temeli
 (her okuma ayrı geçmiş satırı) bu fazda geldi; READ-03'ün geçmiş okumaları listeleme ekranı ayrıca
 değerlendirilecek.
 
@@ -137,7 +137,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### READ-01 — Okuma başlatma ve ilerleme güncelleme
 
-- [x] **P0 · Tamamlandı** (Faz 17A-1, [#80](https://github.com/mtgezgin/BookHub/issues/80); canlıda doğrulandı 2026-11-25; veritabanı kısıtları 17A-2'de)
+- [x] **P0 · Tamamlandı** (Faz 17A-1, [#80](https://github.com/mtgezgin/BookHub/issues/80); canlıda doğrulandı 2026-11-25; veritabanı kısıtları 17A-2'de, canlıda)
 - **Kullanıcı ihtiyacı:** Kitapta nerede kaldığımı kaydetmek.
 - **Ekran/akış:** Kitap detayı/Kitaplığım → Okumaya başla → sayfa veya yüzde gir → ilerlemeyi güncelle.
 - **İlk kapsam:** Aktif okuma kaydı, başlama tarihi, ilerleme birimi ve değeri. Toplam sayfa bilinmiyorsa yüzde kullanılabilir.
@@ -147,7 +147,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 
 ### READ-02 — Bitirme, yarım bırakma ve okuma geçmişi
 
-- [x] **P0 · Tamamlandı** (Faz 17A-1, [#80](https://github.com/mtgezgin/BookHub/issues/80); canlıda doğrulandı 2026-11-25; veritabanı kısıtları 17A-2'de)
+- [x] **P0 · Tamamlandı** (Faz 17A-1, [#80](https://github.com/mtgezgin/BookHub/issues/80); canlıda doğrulandı 2026-11-25; veritabanı kısıtları 17A-2'de, canlıda)
 - **Kullanıcı ihtiyacı:** Ne zaman başlayıp bitirdiğimi ve yarım bıraktığımı hatırlamak.
 - **İlk kapsam:** Bitirdim/Yarım bıraktım eylemleri; başlangıç/bitiş tarihini düzeltme; kitap bazında geçmiş kaydı. Önceden okunmuş kitap, tarih bilinmeden Okudum olarak eklenebilir.
 - **İş kuralları:** Kitaplık durumu ve aktif okuma kaydı tutarlı güncellenir. Bilinen bitiş başlangıçtan önce olamaz. Bilinmeyen tarihler uydurulmaz. Bitirme sonrası puan/inceleme daveti isteğe bağlıdır.
