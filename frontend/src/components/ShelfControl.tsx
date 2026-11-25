@@ -43,7 +43,7 @@ import {
 type Panel = "progress" | "edit" | null;
 type Confirm = "remove" | "postpone" | null;
 
-export function ShelfControl({ bookId, editions, onRate }: { bookId: number; editions: Edition[]; onRate?: () => void }) {
+export function ShelfControl({ bookId, editions, onRate }: Readonly<{ bookId: number; editions: Edition[]; onRate?: () => void }>) {
   const { user } = useAuth();
   const toast = useToast();
   // Kimliğe bağlı, nesneye değil: her sessiz token yenilemesi YENİ bir kullanıcı nesnesi getirir.
@@ -223,9 +223,9 @@ export function ShelfControl({ bookId, editions, onRate }: { bookId: number; edi
 }
 
 /** Durum rozeti ve durumu açıklayan satır ("Bugün bitirdin", "Okudun · tarih ekle", "Yarım bıraktın · %35"). */
-function StatusLine({ shelf, closed, busy, onEditDates }: {
+function StatusLine({ shelf, closed, busy, onEditDates }: Readonly<{
   shelf: Shelf; closed: ReturnType<typeof closedReadingOf>; busy: boolean; onEditDates: (logId: number) => void;
-}) {
+}>) {
   const status = shelf.entry!.status;
   let detail: React.ReactNode = null;
   if (status === "READ") {
@@ -268,7 +268,7 @@ interface MenuItem {
  * KENDİ prop'una bakar; tarayıcı pasif düğmede de pointerdown tetiklediği için düğmenin disabled'ı tek
  * başına yetmez (Faz 15'ten).
  */
-function MoreMenu({ items, disabled, split = false }: { items: MenuItem[]; disabled: boolean; split?: boolean }) {
+function MoreMenu({ items, disabled, split = false }: Readonly<{ items: MenuItem[]; disabled: boolean; split?: boolean }>) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild disabled={disabled}>
@@ -290,7 +290,7 @@ function MoreMenu({ items, disabled, split = false }: { items: MenuItem[]; disab
   );
 }
 
-function MenuEntry({ item }: { item: MenuItem }) {
+function MenuEntry({ item }: Readonly<{ item: MenuItem }>) {
   return (
     <>
       {item.separated && <DropdownMenuSeparator />}

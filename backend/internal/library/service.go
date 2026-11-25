@@ -144,28 +144,9 @@ func (s *Service) UpdateReading(ctx context.Context, userID, bookID int64, p Rea
 		if cur.Version != p.Version {
 			return ErrVersionConflict
 		}
-		r := readingOf(cur)
-		editionChange := p.EditionID != nil && (r.EditionID == nil || *p.EditionID != *r.EditionID)
-		unitChange := p.Unit != nil && (r.Unit == nil || *p.Unit != *r.Unit)
-		// Faz 15'ten kalan okuma birimsizdir ("İlerlemeni gir"): ilk ilerlemeyle baskı ve birim seçilir.
-		firstEntry := r.Unit == nil && p.Progress != nil
-		if editionChange || unitChange || firstEntry {
-			in := CommandInput{EditionID: r.EditionID, Unit: r.Unit, StartedOn: r.StartedOn}
-			if p.EditionID != nil {
-				in.EditionID = p.EditionID
-			}
-			if p.Unit != nil {
-				in.Unit = p.Unit
-			}
-			if r, err = snapshot(ctx, q, bookID, in); err != nil {
-				return err
-			}
-		}
-		if p.Progress != nil {
-			r.Progress = p.Progress
-		}
-		if p.StartedOn != nil {
-			r.StartedOn = p.StartedOn
+		r, err := applyPatch(ctx, q, bookID, readingOf(cur), p)
+		if err != nil {
+			return err
 		}
 		if err := validProgress(r); err != nil {
 			return err
@@ -178,6 +159,35 @@ func (s *Service) UpdateReading(ctx context.Context, userID, bookID int64, p Rea
 		return err
 	})
 	return out, err
+}
+
+// applyPatch, yamayı süren okumaya uygular. Baskı ya da birim değişirse yeni bir anlık görüntü alınır
+// (sayfa toplamı o baskıdan, ilerleme sıfırdan); ardından yamadaki ilerleme ve başlangıç günü yazılır.
+func applyPatch(ctx context.Context, q *db.Queries, bookID int64, r reading, p ReadingPatch) (reading, error) {
+	editionChange := p.EditionID != nil && (r.EditionID == nil || *p.EditionID != *r.EditionID)
+	unitChange := p.Unit != nil && (r.Unit == nil || *p.Unit != *r.Unit)
+	// Faz 15'ten kalan okuma birimsizdir ("İlerlemeni gir"): ilk ilerlemeyle baskı ve birim seçilir.
+	firstEntry := r.Unit == nil && p.Progress != nil
+	if editionChange || unitChange || firstEntry {
+		in := CommandInput{EditionID: r.EditionID, Unit: r.Unit, StartedOn: r.StartedOn}
+		if p.EditionID != nil {
+			in.EditionID = p.EditionID
+		}
+		if p.Unit != nil {
+			in.Unit = p.Unit
+		}
+		var err error
+		if r, err = snapshot(ctx, q, bookID, in); err != nil {
+			return reading{}, err
+		}
+	}
+	if p.Progress != nil {
+		r.Progress = p.Progress
+	}
+	if p.StartedOn != nil {
+		r.StartedOn = p.StartedOn
+	}
+	return r, nil
 }
 
 // UpdateLogDates, kapanmış bir okumanın başlangıç ya da bitiş gününü düzeltir (nil = değişmez).

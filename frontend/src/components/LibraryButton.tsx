@@ -12,7 +12,7 @@ const ShelfControl = lazy(() => import("./ShelfControl").then((m) => ({ default:
  * Kitap sayfasındaki kitaplık kontrolü: giriş yoksa giriş bağlantısı (dönüş bu kitaba), varsa raf kontrolü.
  * onRate: bitirince gösterilen "Puan ver" davetinin yapacağı (kitap sayfası puan seçiciye götürür).
  */
-export function LibraryButton({ bookId, editions, onRate }: { bookId: number; editions: Edition[]; onRate?: () => void }) {
+export function LibraryButton({ bookId, editions, onRate }: Readonly<{ bookId: number; editions: Edition[]; onRate?: () => void }>) {
   const { user } = useAuth();
   const location = useLocation();
   if (!user) {

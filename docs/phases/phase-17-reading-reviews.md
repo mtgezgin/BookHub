@@ -443,6 +443,30 @@ birikir ve tek PR olur. Her adım testleri yeşil bırakır.
     temiz; `scripts/checks.sh` yalnız yerelde kurulu olmayan sqlc'yi söylüyor (CI denetler).
 - **Bakılacak yerler:** [`frontend/e2e/library.spec.ts`](../../frontend/e2e/library.spec.ts) dosyanın
   başındaki açıklama ve "Okuma (Faz 17A-1)" bölümü.
+- **PR'dan sonra, birleşmeden önce: SonarCloud'un 27 bulgusu (2026-11-25).** Kalite kapısı geçti;
+  bulgular kontrol kaydının GitHub notlarından okundu (Sonar'ın anonim API'si PR analizini vermiyor).
+  - **Düzeltilen 14:**
+    - 11 bileşende prop'lar `Readonly<…>` (S6759; örnek `BookDetail.tsx` `StarPicker`);
+    - `ReadingEditForm`'da "Baskı" ile `<select>` arasındaki belirsiz boşluk (S6772);
+    - ilerleme çubuğu elle ARIA'lı `<div role="progressbar">` yerine yerleşik `<progress>` (S6819). Rol,
+      değer ve en büyük değer tarayıcıdan gelir. Görünüm motorların sözde öğeleriyle; Chromium'da eskisiyle
+      aynı olduğu ekran görüntüsüyle karşılaştırıldı (%0, %14, %100). Firefox'un `::-moz-progress-bar`'ı
+      yerelde denenmedi, çünkü Playwright'ın yalnız Chromium'u kurulu;
+    - Go'da bilişsel karmaşıklık (S3776):
+      - `resolve` komut başına bir yardımcıya bölündü (17 → eşiğin altı);
+      - `UpdateReading`'den yamanın okumaya uygulanması `applyPatch`'e alındı (23 → eşiğin altı).
+      - Davranış değişmedi: aynı testler yeşil.
+  - **Testlerin kırıldığı denendi:** çubuğun değeri ya da metni bozulunca arayüz testleri kırmızı;
+    `applyPatch`'te ilk giriş ya da `resolveAbandon`'da bir dal bozulunca servis testleri kırmızı.
+  - **Kodla düzeltilmeyen 13:**
+    - 6 tanesi `library.sql`'de "tekrarlanan metni sabite çevir" (S1192). Tekrarlanan metinler sqlc
+      parametre adları (`'user_id'`, `'status'`) ve `'APPROVED'`; SQL sorgu dosyasında sabit yok;
+    - 6 tanesi test fonksiyonlarında karmaşıklık. Bunlar senaryo testleri: alt testler sırayla aynı
+      durumu paylaşıyor. Bölmek okunurluğu artırmaz;
+    - 1 tanesi raf kontrolünün `role="group"`'u (fieldset önerisi). Grubun içinde form denetimleri
+      değil, durum satırı, çubuk, düğmeler ve paneller var. Uygulamadaki dokuz grup da aynı biçimde.
+  - `.sonarcloud.properties` bulgu yoksaymayı (`sonar.issue.ignore.*`) desteklemiyor. Bu 13 bulgu Sonar
+    panelinde gerekçesiyle "Accepted" işaretlenir (kullanıcı kararı).
 
 ## 🪜 17A — adımlar
 

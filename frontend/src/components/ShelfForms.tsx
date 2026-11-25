@@ -65,7 +65,7 @@ const fieldClass =
  * İlerleme. Birim seçimi yalnız ilk girişte (Faz 15'ten kalan, birimsiz "Şu an okuyorum"): sonra birim
  * "Okumayı düzenle"den değişir, çünkü değişmesi ilerlemeyi sıfırlar ve bunu orada söylüyoruz.
  */
-export function ProgressForm({ entry, reading, editions, mutation, onDone }: FormProps) {
+export function ProgressForm({ entry, reading, editions, mutation, onDone }: Readonly<FormProps>) {
   const firstEntry = reading.unit === null;
   const primary = editions.find((e) => e.is_primary);
   const [unit, setUnit] = useState<ProgressUnit>(reading.unit ?? (primary?.page_count ? "page" : "percent"));
@@ -131,7 +131,7 @@ export function ProgressForm({ entry, reading, editions, mutation, onDone }: For
  * değişmez). Baskı ya da birim değişirse sunucu ilerlemeyi sıfırlar (sayfa ↔ yüzde dönüşümü yok, spec §
  * Kararlar "İlerleme birimi"); ilerleme varken bu, kaydetmeden önce yazılır.
  */
-export function ReadingEditForm({ entry, reading, editions, mutation, onDone }: FormProps) {
+export function ReadingEditForm({ entry, reading, editions, mutation, onDone }: Readonly<FormProps>) {
   const [editionId, setEditionId] = useState<number | null>(reading.edition_id);
   const [unit, setUnit] = useState<ProgressUnit | null>(reading.unit);
   const [startedOn, setStartedOn] = useState(reading.started_on ?? "");
@@ -163,7 +163,7 @@ export function ReadingEditForm({ entry, reading, editions, mutation, onDone }: 
       )}
       {editions.length > 0 && (
         <Label>
-          Baskı
+          {"Baskı"}
           <select
             className={fieldClass}
             value={editionId ?? ""}
@@ -195,7 +195,7 @@ export function ReadingEditForm({ entry, reading, editions, mutation, onDone }: 
   );
 }
 
-function UnitChoice({ value, onChange }: { value: ProgressUnit | null; onChange: (u: ProgressUnit) => void }) {
+function UnitChoice({ value, onChange }: Readonly<{ value: ProgressUnit | null; onChange: (u: ProgressUnit) => void }>) {
   return (
     <fieldset className="flex flex-col gap-1.5 text-sm">
       <legend className="mb-1.5 font-medium">İlerleme birimi</legend>

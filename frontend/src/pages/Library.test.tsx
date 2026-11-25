@@ -170,8 +170,8 @@ describe("Library", () => {
     const { el } = await render("/library");
     const card = el.querySelector('[aria-label="Kitaplığım"] li')!;
     expect(card.textContent).toContain(text);
-    const bar = card.querySelector("[role=progressbar]");
-    expect(bar?.getAttribute("aria-valuenow") ?? null).toBe(now);
+    const bar = card.querySelector("progress");
+    expect(bar?.getAttribute("value") ?? null).toBe(now);
     if (bar) expect(bar.getAttribute("aria-label")).toBe("Kitap 1: okuma ilerlemen");
   });
 
@@ -185,7 +185,7 @@ describe("Library", () => {
     reply = () => pageOf([itemOf(1, { status, ...progress })]);
     const { el } = await render("/library");
     const card = el.querySelector('[aria-label="Kitaplığım"] li')!;
-    expect(card.querySelector("[role=progressbar]")).toBeNull();
+    expect(card.querySelector("progress")).toBeNull();
     expect(card.textContent).not.toMatch(/sayfa|%/);
   });
 

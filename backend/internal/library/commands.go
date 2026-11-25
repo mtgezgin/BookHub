@@ -92,40 +92,13 @@ func resolve(current Status, c Command, m StartMode) (step, error) {
 	}
 	switch c {
 	case CmdWant, CmdPostpone:
-		// "Ertele" okumuyorken "okumak istiyorum"un aynısıdır; okurken de "istiyorum" ertelemedir.
-		switch current {
-		case StatusWantToRead:
-			return step{act: actNone}, nil
-		case StatusReading:
-			return step{act: actPostpone}, nil
-		}
-		return step{act: actSetStatus, status: StatusWantToRead}, nil
+		return resolveWant(current), nil
 	case CmdStart:
-		switch {
-		case current == StatusReading:
-			return step{act: actNone}, nil
-		case current == StatusAbandoned && m != ModeRestart:
-			return step{act: actResume}, nil
-		}
-		return step{act: actStart}, nil // yok, WANT_TO_READ, READ (yeniden okuma), ABANDONED + restart
+		return resolveStart(current, m), nil
 	case CmdFinish, CmdMarkRead:
-		switch current {
-		case StatusRead:
-			return step{act: actNone}, nil
-		case StatusReading:
-			return step{act: actClose, status: StatusRead}, nil
-		}
-		return step{act: actMarkRead}, nil
+		return resolveFinish(current), nil
 	case CmdAbandon:
-		switch current {
-		case StatusAbandoned:
-			return step{act: actNone}, nil
-		case StatusReading:
-			return step{act: actClose, status: StatusAbandoned}, nil
-		}
-		// Okumuyorken "yarım bıraktım": yalnız durum (eski PUT {status: ABANDONED}'un davranışı);
-		// kapatılacak bir okuma olmadığı için günlüğe bir şey yazılmaz.
-		return step{act: actSetStatus, status: StatusAbandoned}, nil
+		return resolveAbandon(current), nil
 	case CmdRemove:
 		if current == StatusNone {
 			return step{act: actNone}, nil
@@ -133,6 +106,50 @@ func resolve(current Status, c Command, m StartMode) (step, error) {
 		return step{act: actRemove}, nil
 	}
 	return step{}, fmt.Errorf("%w: %q", ErrInvalidCommand, c)
+}
+
+// resolveWant: "Ertele" okumuyorken "okumak istiyorum"un aynısıdır; okurken de "istiyorum" ertelemedir.
+func resolveWant(current Status) step {
+	switch current {
+	case StatusWantToRead:
+		return step{act: actNone}
+	case StatusReading:
+		return step{act: actPostpone}
+	}
+	return step{act: actSetStatus, status: StatusWantToRead}
+}
+
+func resolveStart(current Status, m StartMode) step {
+	switch {
+	case current == StatusReading:
+		return step{act: actNone}
+	case current == StatusAbandoned && m != ModeRestart:
+		return step{act: actResume}
+	}
+	return step{act: actStart} // yok, WANT_TO_READ, READ (yeniden okuma), ABANDONED + restart
+}
+
+// resolveFinish: "Bitirdim" ve "Zaten okudum"; okurken okumayı kapatır, değilse tarihsiz okundu yazar.
+func resolveFinish(current Status) step {
+	switch current {
+	case StatusRead:
+		return step{act: actNone}
+	case StatusReading:
+		return step{act: actClose, status: StatusRead}
+	}
+	return step{act: actMarkRead}
+}
+
+func resolveAbandon(current Status) step {
+	switch current {
+	case StatusAbandoned:
+		return step{act: actNone}
+	case StatusReading:
+		return step{act: actClose, status: StatusAbandoned}
+	}
+	// Okumuyorken "yarım bıraktım": yalnız durum (eski PUT {status: ABANDONED}'un davranışı);
+	// kapatılacak bir okuma olmadığı için günlüğe bir şey yazılmaz.
+	return step{act: actSetStatus, status: StatusAbandoned}
 }
 
 func knownStatus(s Status) bool { return s == StatusNone || ValidStatus(s) }

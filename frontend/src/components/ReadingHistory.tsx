@@ -28,7 +28,7 @@ interface Props {
   busy: boolean;
 }
 
-export function ReadingHistory({ log, editions, editing, onEdit, dates, remove, busy }: Props) {
+export function ReadingHistory({ log, editions, editing, onEdit, dates, remove, busy }: Readonly<Props>) {
   const toast = useToast();
   const [deleting, setDeleting] = useState<ReadingLogEntry | null>(null);
   if (log.length === 0) return null;
@@ -94,9 +94,9 @@ export function ReadingHistory({ log, editions, editing, onEdit, dates, remove, 
  * (sunucu da 400 invalid_dates der; bu yalnız beklemeyi kısaltır). Bir gün silinemez: sunucu "gelmeyen
  * alan değişmez" der, boş alan gönderilmez.
  */
-function LogDatesForm({ entry, mutation, onDone }: {
+function LogDatesForm({ entry, mutation, onDone }: Readonly<{
   entry: ReadingLogEntry; mutation: ReturnType<typeof useUpdateReadingLog>; onDone: () => void;
-}) {
+}>) {
   const toast = useToast();
   const [startedOn, setStartedOn] = useState(entry.started_on ?? "");
   const [endedOn, setEndedOn] = useState(entry.ended_on ?? "");

@@ -219,8 +219,8 @@ describe("raf kontrolü — durumlar ve komutlar", () => {
   it("okurken: ilerleme çubuğu ve metni; Bitirdim ve Yarım bıraktım bugünle kapatır", async () => {
     server = shelfOf("READING");
     await render();
-    const bar = document.querySelector("[role=progressbar]")!;
-    expect(bar.getAttribute("aria-valuenow")).toBe("14"); // 42 / 310
+    const bar = document.querySelector("progress")!;
+    expect(bar.getAttribute("value")).toBe("14"); // 42 / 310
     expect(bar.getAttribute("aria-valuetext")).toBe("42 / 310 sayfa");
     await openMenu();
     expect(menuItems()).toEqual(["Yarım bıraktım", "Ertele", "Okumayı düzenle", "Kitaplığımdan çıkar"]);
@@ -239,7 +239,7 @@ describe("raf kontrolü — durumlar ve komutlar", () => {
   ])("%s: çubuk ve '0 sayfa' yok, İlerlemeni gir", async (_name, reading) => {
     server = shelfOf("READING", { reading });
     await render();
-    expect(document.querySelector("[role=progressbar]")).toBeNull();
+    expect(document.querySelector("progress")).toBeNull();
     expect(group().textContent).toContain("İlerlemeni henüz girmedin");
     expect(group().textContent).not.toMatch(/0\. sayfa|0 sayfa/);
     expect(byText("İlerlemeni gir")).toBeTruthy();
@@ -343,7 +343,7 @@ describe("raf kontrolü — ilerleme ve 409", () => {
     await submit("İlerleme");
     expect(calls.updateReading).toEqual([[12, { version: 3, progress: 57 }]]);
     expect(document.querySelector("form[aria-label='İlerleme']")).toBeNull();
-    expect(document.querySelector("[role=progressbar]")?.getAttribute("aria-valuetext")).toBe("57 / 310 sayfa");
+    expect(document.querySelector("progress")?.getAttribute("aria-valuetext")).toBe("57 / 310 sayfa");
   });
 
   it("birimsiz okumada ilk girişle birim de gönderilir (varsayılan: toplam biliniyorsa sayfa)", async () => {
@@ -382,7 +382,7 @@ describe("raf kontrolü — ilerleme ve 409", () => {
 
     await submit("İlerleme", "Benimkini kaydet");
     expect(calls.updateReading).toEqual([[12, { version: 3, progress: 57 }], [12, { version: 4, progress: 57 }]]);
-    expect(document.querySelector("[role=progressbar]")?.getAttribute("aria-valuetext")).toBe("57 / 310 sayfa");
+    expect(document.querySelector("progress")?.getAttribute("aria-valuetext")).toBe("57 / 310 sayfa");
   });
 
   it("409'dan sonra Vazgeç formu kapatır, öteki sekmenin değeri kalır", async () => {
@@ -399,7 +399,7 @@ describe("raf kontrolü — ilerleme ve 409", () => {
     await submit("İlerleme");
     await submit("İlerleme", "Vazgeç");
     expect(document.querySelector("form[aria-label='İlerleme']")).toBeNull();
-    expect(document.querySelector("[role=progressbar]")?.getAttribute("aria-valuetext")).toBe("80 / 310 sayfa");
+    expect(document.querySelector("progress")?.getAttribute("aria-valuetext")).toBe("80 / 310 sayfa");
     expect(calls.updateReading).toHaveLength(1);
   });
 
