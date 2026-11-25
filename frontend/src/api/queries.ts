@@ -28,6 +28,12 @@ export const queryKeys = {
   // Yorumlar kitabın ALTINDA değil ayrı bir kökte: ["books"] her puandan sonra bayat işaretleniyor;
   // yorumlar onun altında olsaydı puan vermek yorumları da gereksiz yere yeniden çekerdi.
   comments: (bookId: number, offset: number) => ["comments", bookId, offset] as const,
+  // İncelemeler (Faz 17B) yorumlar gibi kendi kökünde: puan vermek ["books"]'u eskitir, listeyi değil.
+  // (İncelemedeki yazar puanı ratings'ten okunur; okurun kendi puanı değişince liste 30 sn içinde ya da
+  // sayfa yeniden açılınca tazelenir, kabul edilmiş bir gecikme.)
+  reviews: (bookId: number, offset: number) => ["reviews", bookId, offset] as const,
+  // Benim incelemem: kullanıcıya özel, "me" altında (çıkışta silinir; başka kullanıcının önbelleği görünmez).
+  myReview: (userId: number, bookId: number) => ["me", userId, "review", bookId] as const,
   adminBooks: (status: BookStatus, offset: number) => ["admin", "books", status, offset] as const,
   // Kitaplık (adım 7): liste ve durum rozetleri AYNI önekte, ["me", kullanıcı, "library"]. Rafa ekleme ya
   // da çıkarma bu öneki geçersiz kılar; Kitaplığım listesi, katalogdaki rozetler ve kitap sayfasındaki

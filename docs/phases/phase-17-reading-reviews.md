@@ -810,7 +810,7 @@ baştan düşük karmaşıklıkla yazılır.
 | 1 | `0018_reviews.sql` + sqlc sorguları + migration testi | ✅ commit (2026-11-25) |
 | 2 | `internal/reviews` servisi: yaz/düzenle (sürümlü), sil, gizle/geri aç (audit) | ✅ commit (2026-11-25) |
 | 3 | API: inceleme uçları, admin uçları, `review` rate limit | ✅ commit (2026-11-25) |
-| 4 | Arayüz veri katmanı: tipler, istemci, kancalar | — |
+| 4 | Arayüz veri katmanı: tipler, istemci, kancalar | ✅ commit (2026-11-25) |
 | 5 | Arayüz: İncelemeler bölümü, kendi incelemem, spoiler, admin gizleme | — |
 | 6 | Playwright (axe dahil), dokümanlar, PR | — |
 
@@ -979,6 +979,52 @@ baştan düşük karmaşıklıkla yazılır.
   - [`router.go`](../../backend/cmd/api/router.go): "İncelemeler (Faz 17B)" bloğu ve admin rotaları;
   - [`reviews_test.go`](../../backend/cmd/api/reviews_test.go),
     [`reviews_integration_test.go`](../../backend/cmd/api/reviews_integration_test.go).
+
+### 17B adım 4 — Arayüz veri katmanı
+
+- **Amaç:** arayüzün incelemeleri okuyup yazabilmesi. Ekran bu adımda değişmez.
+- **Parçalar:**
+  - `api/types.ts`: `PublicReview` (liste), `Review` (benim incelemem; yönetici uçları da bunu döner),
+    `ReviewDraft` (PUT gövdesi; ilk yazımda `version` yok).
+  - `api/client.ts`: `reviews`, `myReview`, `saveReview`, `deleteReview`, `hideReview`, `unhideReview`.
+  - `api/queries.ts`: iki anahtar: liste `["reviews", kitap, offset]` (yorumlar gibi kendi kökünde) ve
+    benim incelemem `["me", kullanıcı, "review", kitap]` (kullanıcıya özel; çıkışta önbelleğin tamamı
+    zaten siliniyor).
+  - `api/reviewQueries.ts` (yeni): `useReviews`, `useMyReview`, `useSaveReview`, `useDeleteReview`,
+    `useModerateReview`. Ayrı dosyada: İncelemeler bölümü tembel yüklenirse kancalar ana pakete girmez.
+- **Bu adımda verilen kararlar (asistan):**
+  - **"İncelemen yok" bir cevap, hata değil:** `no_review` → `null` (puandaki `not_rated` gibi). Kitap
+    yoksa (`not_found`) hata kalır.
+  - **Yazımda** cevap benim incelememe doğrudan yazılır, bu kitabın bütün liste sayfaları eskitilir;
+    başka kitabın listesi ve puan özeti dokunulmaz. Raf kancalarındaki gibi önce süren okuma iptal
+    edilir (eski bir GET yeni hâli ezmesin).
+  - **409'da** benim incelemem bir kez yeniden okunur ve hata ancak sonra yayılır: arayüz mesajı güncel
+    hâlden kurar. Sessiz yeniden deneme yok: kullanıcının metni ötekini ezmesin. 400 ve 404 hiçbir şeyi
+    eskitmez.
+  - **Silmede** `no_review` (başka sekme zaten silmiş) başarıyla aynı sonucu verir: benim incelemem
+    `null`, liste eskir; hata yine yayılır.
+  - **Yönetici işleminde** liste hatada da eskitilir (yorum silmedeki gibi, hayalet satır kalmasın).
+    Yönetici kendi incelemesini gizlemiş olabilir: onun "benim incelemem"i de eskitilir.
+  - **Kabul edilen gecikme:** listedeki yazar puanı `ratings`'ten gelir; okur puanını değiştirince liste
+    hemen eskitilmez (puan kancası `["reviews"]`'a dokunmuyor), 30 sn içinde ya da sayfa yeniden
+    açılınca tazelenir. Puan vermek her seferinde incelemeleri yeniden çekmesin diye.
+- **Sonuç (2026-11-25):**
+  - Kanca testleri (12) ve istemci adres testleri (8 yeni satır) yeşil; bütün arayüz testleri 505/505;
+    `typecheck` ve `vite build` temiz.
+  - Ara düzeltme: 409 testi ilk hâlinde benim incelememi izleyen bir bileşen kurmuyordu; gözlemcisiz
+    kayıt eskitilince yeniden çekilmediği için test bir şey kanıtlamıyordu. Düzenleyicideki gibi kanca
+    gözlemciyle kuruldu.
+  - Bilinçli bozmayla denendi; on ikinin on ikisi kırmızı:
+    - `no_review` `null`'a çevrilmeyince; girişsizde de istek gidince;
+    - yazımda benim incelemem yazılmayınca; liste eskimeyince; bütün kitapların listesi eskiyince;
+    - 409'da yeniden okunmayınca; her hatada yeniden okununca;
+    - silmede `no_review` hata gibi işlenince; her hata "silinmiş" sayılınca;
+    - yönetici işleminde hatada liste eskimeyince; yöneticinin kendi incelemesi eskimeyince;
+    - `saveReview` PUT yerine POST gönderince.
+- **Bakılacak yerler:**
+  - [`reviewQueries.ts`](../../frontend/src/api/reviewQueries.ts): kancaların başındaki notlar;
+  - [`reviewQueries.test.tsx`](../../frontend/src/api/reviewQueries.test.tsx);
+  - [`types.ts`](../../frontend/src/api/types.ts): `PublicReview`, `Review`, `ReviewDraft`.
 
 ## 🪜 17B — adımlar
 

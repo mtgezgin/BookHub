@@ -877,6 +877,13 @@ describe("api client — uç tablosu", () => {
     ["myRating", () => api.myRating(5), "GET", "/api/books/5/rating", undefined],
     ["rate", () => api.rate(5, 8), "PUT", "/api/books/5/rating", { score: 8 }],
     ["removeRating", () => api.removeRating(5), "DELETE", "/api/books/5/rating", undefined],
+    ["reviews", () => api.reviews(5), "GET", "/api/books/5/reviews?offset=0", undefined],
+    ["reviews (offset)", () => api.reviews(5, 10), "GET", "/api/books/5/reviews?offset=10", undefined],
+    ["myReview", () => api.myReview(5), "GET", "/api/books/5/review", undefined],
+    // İlk yazım sürümsüz gider: sürüm alanı gövdede hiç olmamalı (sunucu "incelemem yok" diye okur).
+    ["saveReview (ilk)", () => api.saveReview(5, { body: "Güzel", has_spoiler: false }), "PUT", "/api/books/5/review", { body: "Güzel", has_spoiler: false }],
+    ["saveReview (düzenleme)", () => api.saveReview(5, { body: "Güzel", has_spoiler: true, version: 3 }), "PUT", "/api/books/5/review", { body: "Güzel", has_spoiler: true, version: 3 }],
+    ["deleteReview", () => api.deleteReview(5), "DELETE", "/api/books/5/review", undefined],
     ["adminBooks", () => api.adminBooks("PENDING", 20), "GET", "/api/admin/books?status=PENDING&offset=20", undefined],
     ["approve", () => api.approve(5), "POST", "/api/admin/books/5/approve", undefined],
     ["reject", () => api.reject(5, "spam"), "POST", "/api/admin/books/5/reject", { reason: "spam" }],
@@ -884,6 +891,8 @@ describe("api client — uç tablosu", () => {
     ["restoreBook", () => api.restoreBook(5), "POST", "/api/admin/books/5/restore", undefined],
     ["createGenre", () => api.createGenre("Roman"), "POST", "/api/admin/genres", { name: "Roman" }],
     ["deleteComment", () => api.deleteComment(9), "DELETE", "/api/admin/comments/9", undefined],
+    ["hideReview", () => api.hideReview(9, "Spam"), "POST", "/api/admin/reviews/9/hide", { reason: "Spam" }],
+    ["unhideReview", () => api.unhideReview(9), "POST", "/api/admin/reviews/9/unhide", undefined],
     ["shelf", () => api.shelf(5), "GET", "/api/me/books/5/shelf", undefined],
     // Gövdesiz komut gövdesiz gider: sunucu varsayılanları uygular (tek tık).
     ["shelfCommand (gövdesiz)", () => api.shelfCommand(5, { command: "want" }), "POST", "/api/me/books/5/shelf/want", undefined],
