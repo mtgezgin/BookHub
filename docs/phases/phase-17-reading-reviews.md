@@ -798,6 +798,339 @@ durumu ve oradan yapılabilecekleri gösterir:
   - "Puan ver" daveti yalnız bu ekranda bitirilince ve puan yoksa; tıklanınca puan seçiciye gider.
   - 409 akışı "Okumayı düzenle"de de aynı ("Yine de kaydet").
 
+## 🧭 17B nasıl takip edilecek
+
+17A-1 gibi: asistan bir adımı yazar, kullanıcı okur, "tamam" deyince commit; dal `feat/80-inceleme`, tek PR.
+`0018` yalnız yeni tablo eklediği için genişletme/daraltma ayrımı yok: canlıdaki kod tabloya hiç dokunmaz.
+Kural (2026-11-25): Sonar'ın her bulgusu birleşmeden önce düzeltilir ya da gerekçesi yazılır; testler
+baştan düşük karmaşıklıkla yazılır.
+
+| Adım | İçerik | Durum |
+| --- | --- | --- |
+| 1 | `0018_reviews.sql` + sqlc sorguları + migration testi | ✅ commit (2026-11-25) |
+| 2 | `internal/reviews` servisi: yaz/düzenle (sürümlü), sil, gizle/geri aç (audit) | ✅ commit (2026-11-25) |
+| 3 | API: inceleme uçları, admin uçları, `review` rate limit | ✅ commit (2026-11-25) |
+| 4 | Arayüz veri katmanı: tipler, istemci, kancalar | ✅ commit (2026-11-25) |
+| 5 | Arayüz: İncelemeler bölümü, kendi incelemem, spoiler, admin gizleme | ✅ commit (2026-11-25) |
+| 6 | Playwright (axe dahil), dokümanlar, PR | ✅ commit (2026-11-25); PR açık |
+
+### 17B adım 1 — Şema ve sorgular
+
+- **Amaç:** incelemenin veritabanı tarafı. Bu adımda uç ve ekran değişmez.
+- **Parçalar:**
+  - `backend/migrations/0018_reviews.sql`: `reviews` tablosu (§ 1). Taslaktan farklar § 1'de, gerekçeleriyle
+    dosyanın başında.
+  - `backend/sql/queries/reviews.sql`, servisin (adım 2) kullanacağı sorgular:
+    - herkese açık liste ve sayısı: gizlenenler yok; yazarın adı `users`'tan, puanı `ratings`'ten;
+    - kendi incelemem ve kilitli hâli;
+    - ilk yazım: yalnız yayındaki kitaba; aynı anda iki ilk yazımda ikincisi satır döndürmez, servis
+      kilitleyip sürüm kuralına göre karar verir;
+    - düzenleme: `edited_at` dolar, `version` artar, gizleme kolonlarına dokunmaz;
+    - silme;
+    - yönetici için kilitli okuma, gizleme ve geri açma.
+  - `internal/db`: sqlc'nin ürettiği kod.
+  - `internal/database/migrate_0018_integration_test.go`: veritabanı `0017`'ye kadar kurulur, `0018`
+    uygulanır. Sınananlar:
+    - kullanıcı başına kitapta tek inceleme;
+    - metin 1–5000 karakter, gerekçe en çok 500;
+    - gizleme kuralı iki yönlü;
+    - silmeler: puan silinince inceleme kalır, yönetici silinince gizleme kalır ve gizleyen boşalır,
+      kitap ve yazar silinince inceleme gider;
+    - `Down` tabloyu kaldırır.
+  - `migrate_integration_test.go`: migration testlerinin ortak yardımcısı `schemaDB` (`must`, `try`,
+    `count`). 0017 testinin `must`'ı buraya taşındı; Sonar tekrar saymasın.
+- **Bu adımda verilen kararlar (asistan):**
+  - Gizlemek `version`'ı artırmıyor: sahibinin açık düzenleyicisi yönetici yüzünden 409 almasın.
+  - Sorgular bu adımda yalnız sqlc'nin şemaya karşı doğrulamasından geçti (`generate`, `diff`).
+    Davranışları servis testleriyle adım 2'de sınanacak (17A-1 adım 1'deki gibi).
+- **Sonuç (2026-11-25):**
+  - Bütün backend testleri gerçek Postgres + Redis'le yeşil; golangci-lint 0 sorun; sqlc `diff` temiz.
+  - Yabancı anahtar index denetimi (`TestEveryForeignKeyHasIndex`) `reviews`'i de kapsıyor ve geçiyor.
+  - Testlerin gerçekten yakaladığı bilinçli bozmayla denendi; beşinin beşi kırmızı:
+    - `UNIQUE` kaldırılınca;
+    - gizleme kuralı spec taslağındaki tek yönlü hâline çevrilince;
+    - `hidden_by`'ın `ON DELETE SET NULL`'ı kaldırılınca;
+    - `hidden_by` index'i kaldırılınca (FK denetimi);
+    - 500 sınırı kaldırılınca.
+- **Bakılacak yerler:**
+  - [`0018_reviews.sql`](../../backend/migrations/0018_reviews.sql): baştaki açıklama;
+  - [`reviews.sql`](../../backend/sql/queries/reviews.sql): her sorgunun üstündeki not;
+  - [`migrate_0018_integration_test.go`](../../backend/internal/database/migrate_0018_integration_test.go).
+
+### 17B adım 2 — Servis
+
+- **Amaç:** incelemenin iş kuralları tek yerde. Bu adımda uç ve ekran değişmez.
+- **Parçalar:**
+  - `backend/internal/reviews/service.go`:
+    - `List`, `Mine`: kitap yayında değilse "kitap yok".
+    - `Save`: yaz ya da düzenle, tek transaction. Kitap yayında mı → incelemem kilitli okunur → yoksa
+      ilk yazım, varsa düzenleme.
+    - `Delete`: puanı silmez.
+    - `Hide`, `Unhide`: satır kilitli okunur; yazım ve audit aynı transaction'da.
+  - `internal/audit`: yeni varlık tipi `review`.
+  - `backend/internal/reviews/service_integration_test.go`: gerçek Postgres'le yedi test.
+- **Bu adımda verilen kararlar (asistan):**
+  - **Sürüm iki yönlü karşılaştırılır.** İnceleme varken sürümsüz yazım 409: başka bir sekme az önce
+    yazmıştır. İnceleme yokken sürümlü yazım da 409: başka bir sekme silmiştir. Böylece hiçbir yazım
+    haberi olmadan ezilmez ve silinen inceleme sessizce geri gelmez.
+  - **Aynı anda iki ilk yazım:** ikincisi `UNIQUE`'te birincinin bitmesini bekler, satır döndürmez;
+    servis satırı yeniden okur ve 409 verir. Birincinin metni kalır.
+  - **Değişiklik yoksa yazılmaz:** metin ve spoiler bayrağı aynıysa sürüm artmaz, "düzenlendi"
+    görünmez. Kaydet'e iki kez basmak düzenleme değildir.
+  - **Gizleme ve geri açma tekrarlanınca hiçbir şey yazılmaz:** zaten gizli incelemenin gerekçesi
+    değişmez, audit'e ikinci satır düşmez. İki yönetici aynı anda gizlerse de tek satır (kilit).
+  - **Audit gerekçeyi saklar:** gizlemede verilen gerekçe; geri açmada satırdan silinen gerekçe. Geri
+    açılan incelemenin neden gizlendiğinin tek izi audit.
+  - **Silmek için kitabın yayında olması aranmaz:** okur kendi verisini her zaman silebilir (Faz 15'te
+    kitaplıktan çıkarmak gibi). Yazmak, düzenlemek, okumak ve listelemek yayında olmayan kitapta 404.
+  - **Yönetici gizlemesi kitabın durumuna bakmaz:** yayından kalkmış kitaptaki inceleme de gizlenebilir.
+  - **Uzunluk handler'da doğrulanır** (adım 3; yorumlardaki gibi): metin 1–5000, gerekçe 1–500
+    karakter. Sınırlar serviste sabit (`MaxBodyLen`, `MaxReasonLen`); veritabanı CHECK'leri son güvence.
+- **Sonuç (2026-11-25):**
+  - Yedi test, gerçek Postgres'le yeşil:
+    - yazım ve düzenleme adımları (Doğrulama 12);
+    - yayında olmayan kitap;
+    - silme (Doğrulama 13, 14);
+    - liste;
+    - gizleme (Doğrulama 15);
+    - olmayan incelemeyi gizleme;
+    - aynı anda iki ilk yazım: birinci yazım commit edilmeden ikincinin onu beklediği
+      `pg_blocking_pids` ile görülür, sonra commit edilir.
+  - Bütün backend testleri yeşil; golangci-lint 0 sorun.
+  - Bilinçli bozmayla denendi; on birin on biri kırmızı (derlenen hâlleriyle; derlenmeyen iki ilk deneme
+    sayılmadı):
+    - düzenlemede ya da ilk yazımda sürüm denetimi kaldırılınca;
+    - yarışı kaybeden ilk yazım 404 alınca;
+    - değişmeyen kayıt da yazılınca;
+    - gizleme tekrarı yeniden yazınca;
+    - geri açma audit'ine boş gerekçe yazılınca;
+    - audit hiç yazılmayınca;
+    - silmede 0 satır başarı sayılınca;
+    - `Save`, `Mine` ya da `List` kitabın yayında olduğuna bakmayınca.
+  - **Testsiz kalan tek dal:** ilk yazımla "kitap yayında mı" denetimi arasında kitap yayından kalkarsa
+    `Save` "kitap yok" döner. Bu yarışı testte kurmanın güvenilir bir yolu yok (iki sorgu arasındaki
+    anlık durum); dal üç satır ve gerekçesi kodda yazılı.
+- **Bakılacak yerler:**
+  - [`service.go`](../../backend/internal/reviews/service.go): `Save` → `create` / `edit`, `lostInsert`,
+    `moderate`;
+  - [`service_integration_test.go`](../../backend/internal/reviews/service_integration_test.go).
+
+### 17B adım 3 — API
+
+- **Amaç:** servisi HTTP'ye açmak. Ekran bu adımda değişmez.
+- **Uçlar** (§ 2'deki gibi):
+
+  ```text
+  GET    /api/books/{id}/reviews          herkese açık, sayfalı (limit, offset)
+  GET    /api/books/{id}/review           benim incelemem; yoksa 404 no_review
+  PUT    /api/books/{id}/review           {body, has_spoiler, version?}  yeni 201, düzenleme 200
+  DELETE /api/books/{id}/review           204
+  POST   /api/admin/reviews/{id}/hide     {reason}  200
+  POST   /api/admin/reviews/{id}/unhide   gövdesiz  200
+  ```
+
+- **Parçalar:**
+  - `backend/cmd/api/reviews.go`: handler'lar, DTO'lar, hata haritası.
+  - `router.go`: rotalar; `main.go`: servis bağlandı; `middleware_test.go`: iki yeni admin rotası
+    korunan rotalar listesinde (401/403 testi).
+  - `reviews_test.go`: sahte servisle uç testleri; `reviews_integration_test.go`: gerçek servisle
+    uçtan uca.
+  - `AUTH_RATE_LIMIT_PER_MIN`'in açıklaması: `config.go`, `.env.example`, DEPLOYMENT.md.
+- **Bu adımda verilen kararlar (asistan):**
+  - **Cevaplar:**
+    - Herkese açık liste: `id`, `author` (`id`, `display_name`), `author_score` (puan yoksa null),
+      `body`, `has_spoiler`, `created_at`, `edited_at`. Sürüm ve gizleme alanları yok; e-posta yok.
+      `author` yorumlardakiyle aynı biçim.
+    - Benim incelemem (yönetici uçları da bunu döner): `id`, `book_id`, `body`, `has_spoiler`,
+      `version`, `created_at`, `edited_at`, `hidden` (görünürse null, gizliyse `at` ve `reason`).
+      **Gizleyen yöneticinin kimliği cevapta yok**; yalnız veritabanında ve audit'te.
+  - **Hata kodları:** incelemem yoksa `404 no_review` (kitap yoksa `404 not_found`; arayüz ikisini
+    ayırıp boş düzenleyici gösterir, puandaki `not_rated` gibi). Sürüm uyuşmazsa `409 version_conflict`.
+    Yönetici uçlarında olmayan inceleme `404 not_found`.
+  - **PUT'un durum kodu istekten bilinir:** sürümsüz istek ancak ilk yazımsa başarılı olur (servis
+    inceleme varken sürümsüz yazımı 409 yapar). Bu yüzden sürümsüz başarı 201, sürümlü başarı 200.
+  - **Doğrulama:** metin ve gerekçe kırpılır; metin 1–5000, gerekçe 1–500 karakter; sürüm gönderilirse
+    en az 1. NUL ve bilinmeyen alan (`user_id` gibi) `readJSON`'da `400 invalid_json`.
+  - **İstek sınırı:** yalnız PUT, IP başına ayrı `review` kovası, önce kimlik sonra sınır (parola
+    değiştirmedeki sıra). Sınır değeri yeni bir ayar değil, mevcut `AUTH_RATE_LIMIT_PER_MIN` (varsayılan
+    dakikada 10); parola kovası da onu kullanıyordu. Adı tarihî kaldı, açıklaması üç yerde güncellendi.
+    NGINX'e ayrı bölge eklenmedi: uç zaten kimlik istiyor ve API'deki sınır Redis'te bütün örnekler
+    arasında paylaşılıyor.
+- **Sonuç (2026-11-25):**
+  - Uç testleri yeşil: PUT için 13 senaryo, okuma ve silme 10, yönetici 9; servise gidenler (kullanıcı
+    token'dan, kitap adresten, kırpılmış metin); cevap sözleşmeleri; istek sınırı (kimliksiz istek
+    kotayı yemez, okuma ve silme sınırsız).
+  - Uçtan uca test gerçek Postgres'le yeşil: yaz → sürümsüz ikinci yazım 409 → düzenle → yönetici gizler
+    (listede yok) → sahibi düzenler (gizli kalır) → geri açılır (listede) → başkasının silmesi Alice'in
+    incelemesine dokunmaz.
+  - Bütün backend testleri yeşil; golangci-lint 0 sorun; `scripts/checks.sh range` yalnız yerelde
+    `sqlc` kurulu olmadığını söylüyor (CI'da var; bu adımda sorgu değişmedi).
+  - Bilinçli bozmayla denendi; on ikinin on ikisi kırmızı (hepsi derlendi):
+    - metin kırpılmayınca; metin ya da gerekçe uzunluğu denetlenmeyince; sürüm alt sınırı kalkınca;
+      gerekçe zorunlu olmayınca;
+    - düzenleme de 201 dönünce; 409 eşlemesi kalkınca; `no_review` yerine `not_found` dönünce;
+    - gizleme bilgisi cevaptan düşünce;
+    - PUT'tan istek sınırı kalkınca; sınır bütün gruba (okuma, silme) konunca;
+    - gizleme rotası admin grubunun dışına çıkınca.
+  - Ara düzeltme: handler'a önce `v.text` (NUL denetimi) koymuştum; `readJSON` bunu zaten bütün metin
+    alanları için yapıyor, kaldırıldı.
+- **Bakılacak yerler:**
+  - [`reviews.go`](../../backend/cmd/api/reviews.go): DTO'lar ve `handleSaveReview`;
+  - [`router.go`](../../backend/cmd/api/router.go): "İncelemeler (Faz 17B)" bloğu ve admin rotaları;
+  - [`reviews_test.go`](../../backend/cmd/api/reviews_test.go),
+    [`reviews_integration_test.go`](../../backend/cmd/api/reviews_integration_test.go).
+
+### 17B adım 4 — Arayüz veri katmanı
+
+- **Amaç:** arayüzün incelemeleri okuyup yazabilmesi. Ekran bu adımda değişmez.
+- **Parçalar:**
+  - `api/types.ts`: `PublicReview` (liste), `Review` (benim incelemem; yönetici uçları da bunu döner),
+    `ReviewDraft` (PUT gövdesi; ilk yazımda `version` yok).
+  - `api/client.ts`: `reviews`, `myReview`, `saveReview`, `deleteReview`, `hideReview`, `unhideReview`.
+  - `api/queries.ts`: iki anahtar: liste `["reviews", kitap, offset]` (yorumlar gibi kendi kökünde) ve
+    benim incelemem `["me", kullanıcı, "review", kitap]` (kullanıcıya özel; çıkışta önbelleğin tamamı
+    zaten siliniyor).
+  - `api/reviewQueries.ts` (yeni): `useReviews`, `useMyReview`, `useSaveReview`, `useDeleteReview`,
+    `useModerateReview`. Ayrı dosyada: İncelemeler bölümü tembel yüklenirse kancalar ana pakete girmez.
+- **Bu adımda verilen kararlar (asistan):**
+  - **"İncelemen yok" bir cevap, hata değil:** `no_review` → `null` (puandaki `not_rated` gibi). Kitap
+    yoksa (`not_found`) hata kalır.
+  - **Yazımda** cevap benim incelememe doğrudan yazılır, bu kitabın bütün liste sayfaları eskitilir;
+    başka kitabın listesi ve puan özeti dokunulmaz. Raf kancalarındaki gibi önce süren okuma iptal
+    edilir (eski bir GET yeni hâli ezmesin).
+  - **409'da** benim incelemem bir kez yeniden okunur ve hata ancak sonra yayılır: arayüz mesajı güncel
+    hâlden kurar. Sessiz yeniden deneme yok: kullanıcının metni ötekini ezmesin. 400 ve 404 hiçbir şeyi
+    eskitmez.
+  - **Silmede** `no_review` (başka sekme zaten silmiş) başarıyla aynı sonucu verir: benim incelemem
+    `null`, liste eskir; hata yine yayılır.
+  - **Yönetici işleminde** liste hatada da eskitilir (yorum silmedeki gibi, hayalet satır kalmasın).
+    Yönetici kendi incelemesini gizlemiş olabilir: onun "benim incelemem"i de eskitilir.
+  - **Kabul edilen gecikme:** listedeki yazar puanı `ratings`'ten gelir; okur puanını değiştirince liste
+    hemen eskitilmez (puan kancası `["reviews"]`'a dokunmuyor), 30 sn içinde ya da sayfa yeniden
+    açılınca tazelenir. Puan vermek her seferinde incelemeleri yeniden çekmesin diye.
+- **Sonuç (2026-11-25):**
+  - Kanca testleri (12) ve istemci adres testleri (8 yeni satır) yeşil; bütün arayüz testleri 505/505;
+    `typecheck` ve `vite build` temiz.
+  - Ara düzeltme: 409 testi ilk hâlinde benim incelememi izleyen bir bileşen kurmuyordu; gözlemcisiz
+    kayıt eskitilince yeniden çekilmediği için test bir şey kanıtlamıyordu. Düzenleyicideki gibi kanca
+    gözlemciyle kuruldu.
+  - Bilinçli bozmayla denendi; on ikinin on ikisi kırmızı:
+    - `no_review` `null`'a çevrilmeyince; girişsizde de istek gidince;
+    - yazımda benim incelemem yazılmayınca; liste eskimeyince; bütün kitapların listesi eskiyince;
+    - 409'da yeniden okunmayınca; her hatada yeniden okununca;
+    - silmede `no_review` hata gibi işlenince; her hata "silinmiş" sayılınca;
+    - yönetici işleminde hatada liste eskimeyince; yöneticinin kendi incelemesi eskimeyince;
+    - `saveReview` PUT yerine POST gönderince.
+- **Bakılacak yerler:**
+  - [`reviewQueries.ts`](../../frontend/src/api/reviewQueries.ts): kancaların başındaki notlar;
+  - [`reviewQueries.test.tsx`](../../frontend/src/api/reviewQueries.test.tsx);
+  - [`types.ts`](../../frontend/src/api/types.ts): `PublicReview`, `Review`, `ReviewDraft`.
+
+### 17B adım 5 — Arayüz
+
+- **Amaç:** kitap sayfasında incelemeler (§ 3).
+- **Parçalar:**
+  - `components/ReviewSection.tsx` (yeni): bölüm, liste ve sayfalama, inceleme kartı (spoiler düğmesi),
+    yöneticinin gizleme diyaloğu ve "Geri aç".
+  - `components/MyReview.tsx` (yeni): okurun kendi incelemesi; yazma ve düzenleme formu, 409 notu,
+    silme onayı.
+  - `pages/BookDetail.tsx`: bölüm yorumların üstünde, tembel yüklenir.
+  - `ReviewSection.test.tsx` (yeni, 14 test); `BookDetail.test.tsx`: sahte API'ye inceleme uçları eklendi
+    (yoksa bölüm hata kutusu çiziyor ve sayfanın "hata yok" testleri kırılıyordu).
+- **Ekranda:**
+  - Başlık "İncelemeler (toplam)". Girişsiz ziyaretçiye "İnceleme yazmak için giriş yap".
+  - Okurun incelemesi yoksa "İnceleme yaz"; varsa "Senin incelemen" kutusu: metin, tarih,
+    "düzenlendi", spoiler işareti, Düzenle ve Sil. Gizlenmişse kutuda "Bu inceleme yönetici tarafından
+    gizlendi: <gerekçe>. Başkaları göremiyor."
+  - Form: metin alanı, karakter sayacı (`/5000`), "Spoiler içeriyor" onay kutusu, Kaydet ve Vazgeç.
+  - Silme onayı: "İncelemen silinsin mi? Puanın silinmez."
+  - Listedeki kart: yazar, puanı (varsa), zaman, "düzenlendi". Spoiler'lı kartta "Spoiler içeriyor" ve
+    `Spoiler'ı göster` düğmesi.
+  - Yöneticiye her kartta "gizle"; diyalogda zorunlu gerekçe (`/500`).
+- **Bu adımda verilen kararlar (asistan):**
+  - **Kendi incelemen listede ikinci kez görünmez:** üstteki kutuda durur. Başlıktaki toplam sunucunun
+    sayısıdır, onu da sayar.
+  - **Spoiler (kavram 8):** metin açılana kadar DOM'da hiç yok. Düğme `aria-expanded` taşır;
+    `aria-controls` yalnız metin varken (olmayan bir kimliği göstermesin). Kendi incelemende metin hep
+    açık; yalnız işaretli olduğu yazılır.
+  - **409 akışı (raf formlarıyla aynı):** form açık kalır, yazdığın metin korunur. Üstte ne olduğu yazar:
+    başka yerde değişmişse şimdiki metin, silinmişse "silinmiş". Düğme "Benimkini kaydet" olur ve güncel
+    sürümle (silinmişse sürümsüz, yeni inceleme olarak) gönderir.
+  - **Yöneticinin geri açması:** gizlenenler ekranı kapsam dışı (spec § Kapsam dışı). Yine de yanlış
+    gizleme aynı ziyarette geri alınabilsin diye gizledikten sonra listenin üstünde "<yazar> tarafından
+    yazılan inceleme gizlendi · Geri aç" kalır. Canlı doğrulamanın (Doğrulama 17) "geri aç" adımı da
+    böylece arayüzden yapılabilir.
+  - **Tembel yükleme:** bölüm ayrı bir parça (`ReviewSection`, 10 kB). Rollup ana paketle bu parçanın
+    ortak modüllerini ayrı bir parçaya (`toast-…js`, 87,5 kB) aldı; ana paket 387 kB'tan 300 kB'a indi.
+    Toplam aynı, açılışta ikisi de yükleniyor; fark bir istek fazlası.
+  - Metin alanının sınırı tarayıcının `maxLength`'i (UTF-16 birimi); sunucu karakter sayar. Emojili
+    metinde arayüz sınırı biraz erken keser, tersi olmaz.
+- **Sonuç (2026-11-25):**
+  - Bileşen testleri 14/14; bütün arayüz testleri 519/519; `typecheck` ve `vite build` temiz.
+  - Bilinçli bozmayla denendi; on beşin on beşi kırmızı:
+    - spoiler metni hep DOM'da; `aria-expanded` yok; `aria-controls` hep var;
+    - kendi incelemen listede de; herkes "gizle" görür; girişsizde de "benim incelemem" sorulur;
+    - gerekçe kırpılmaz; gerekçesiz gizlenir; gizledikten sonra "Geri aç" notu çıkmaz;
+    - gizleme gerekçesi kutuda gösterilmez; metin kırpılmaz; boş metin gönderilir; ilk yazımda sürüm
+      gider; 409 notunda şimdiki metin yok; silme onayı puanı söylemez.
+  - Erişilebilirlik (axe) ve klavyeyle kullanım Playwright'ta (adım 6) sınanacak.
+- **Bakılacak yerler:**
+  - [`ReviewSection.tsx`](../../frontend/src/components/ReviewSection.tsx): `ReviewCard` ve `HideDialog`;
+  - [`MyReview.tsx`](../../frontend/src/components/MyReview.tsx): `ReviewEditor` ve 409 notu;
+  - [`ReviewSection.test.tsx`](../../frontend/src/components/ReviewSection.test.tsx).
+
+### 17B adım 6 — Uçtan uca test, dokümanlar, PR
+
+- **Amaç:** Doğrulama 12, 14, 15 ve 16'nın tarayıcıdaki karşılığı; dokümanlar; PR.
+- **Parçalar:**
+  - `frontend/e2e/rating-comment.spec.ts`: ikinci senaryo **inceleme**. Dosya artık iki senaryoyu tek
+    girişle koşuyor (`describe.serial`, `beforeAll`'da tek giriş; `library.spec`'teki kalıp).
+  - `frontend/e2e/helpers.ts`: giriş bütçesi tablosunda satırın açıklaması. **Bütçe değişmedi (10).**
+  - `frontend/package.json`: geliştirme bağımlılığı `@axe-core/playwright` 4.14.0.
+  - PROJECT_MAP (`reviews.go`, `internal/reviews`, `0018`, `reviewQueries.ts`, `ReviewSection` +
+    `MyReview`), STATUS, ROADMAP.
+- **Senaryo** (okur arayüzden; yönetici doğrudan API'den):
+  1. Yeniden deneme için ikisinin de incelemesi baştan silinir.
+  2. Yönetici bu kitaba spoiler'lı bir inceleme yazar.
+  3. **Spoiler (Doğrulama 16):** metin sayfanın HTML'inde yok; düğme `aria-expanded="false"`. axe temiz.
+     Düğmeye odaklanıp Enter: metin görünür, `aria-expanded="true"`. axe yine temiz.
+  4. **Yazma ve düzenleme (Doğrulama 12):** "İnceleme yaz", metin, spoiler kutusu klavyeyle (Space);
+     düzenleyici açıkken axe temiz. Kaydet; sonra Düzenle → kaydet: "düzenlendi".
+  5. **İki sekmede 409:** ikinci sekme kaydeder; birinci sekmede kaydet → "İncelemen başka bir yerde
+    değişmiş" ve öteki sekmenin metni, yazılan metin alanda duruyor; "Benimkini kaydet" yazar.
+  6. **Gizleme (Doğrulama 15):** yönetici gizler → okur sayfayı yenileyince gerekçeyi görür; düzenleyince
+     "gizli kalmaya devam ediyor"; yönetici geri açınca not kalkar.
+  7. **Silme (Doğrulama 14):** onayda "Puanın silinmez."; silince "İnceleme yaz" döner, puan yerinde.
+- **Bu adımda verilen kararlar (asistan):**
+  - **Yeni giriş yok:** ayrı bir dosya kendi girişini yapar ve bütçeyi tavana (11) dayardı. İnceleme,
+    konusu en yakın dosyaya (puan ve yorum) ikinci senaryo olarak eklendi.
+  - **Yönetici tarafı doğrudan API'den:** öteki okurun incelemesini yazmak, gizlemek ve geri açmak
+    NGINX'i atlayan isteklerle yapılıyor (global-setup'taki yol; sınırlı kovayı harcamaz). Gizleme
+    diyaloğunun kendisi bileşen testinde (adım 5) ve canlı doğrulamada (Doğrulama 17) sınanıyor.
+  - **axe yalnız İncelemeler bölümünde,** WCAG 2.0/2.1 A ve AA kuralları. Sayfanın geri kalanı bu fazın
+    işi değil; tam sayfa taraması ayrı bir iş olabilir.
+  - **Bağımlılık yaşı:** `@axe-core/playwright` 4.14.0, 2026-10-15'te yayımlandı. Bağımlı olduğu
+    `axe-core`'un en yeni yaması (4.14.1) 9 günlüktü; kurulum `--before 2026-11-11` ile yapıldı, kilit
+    dosyasında `axe-core` 4.14.0 (2026-10-05). Lisans MPL-2.0; yalnız testte, pakete girmez.
+- **Sonuç (2026-11-25):**
+  - `scripts/e2e.sh e2e/rating-comment.spec.ts`: iki senaryo da yeşil (inceleme 4,5 sn).
+  - İlk koşuda senaryo arama kutusunu bulamadı: önceki senaryo sayfayı kitapta bırakıyor. Kataloğa üst
+    çubuktan dönülüyor.
+  - Bir koşu tarayıcı 180 sn'de açılamadığı için düştü (kodla ilgisiz); `afterAll` artık sayfa hiç
+    açılmamışsa da hata vermiyor.
+  - axe'ın gerçekten yakaladığı denendi: bölüme adı olmayan bir düğme konunca senaryo `button-name`
+    ihlaliyle kırmızı.
+  - Bütün arayüz testleri 519/519; `typecheck` temiz.
+  - **Tam E2E paketi yerelde tamamlanamadı:** makinenin belleği azalınca koşu durduruldu; durmadan önce
+    birçok senaryo 100 ms altında düşmüştü (tarayıcı açılamıyor). Sonuç geçersiz sayıldı; tam paket PR'ın
+    CI'ında koşacak.
+  - **PR #126'nın CI'ı:** bütün işler yeşil, tam E2E paketi dahil. Sonar iki bulgu verdi, ikisi de düzeltildi:
+    - `migrate_0018_integration_test.go`: koşulda gereksiz değişken;
+    - `MyReview.tsx`: `<input>`'tan sonra satır başındaki metnin boşluğu belirsizdi; metin `<span>`'e alındı.
+- **Bakılacak yerler:**
+  - [`rating-comment.spec.ts`](../../frontend/e2e/rating-comment.spec.ts): ikinci senaryo ve yardımcıları;
+  - [`helpers.ts`](../../frontend/e2e/helpers.ts): bütçe tablosu.
+
 ## 🪜 17B — adımlar
 
 ### 1. Şema: `0018_reviews.sql`
@@ -814,13 +1147,20 @@ CREATE TABLE reviews (
     edited_at     timestamptz,                        -- NULL = hiç düzenlenmedi
     hidden_at     timestamptz,                        -- NULL = görünür
     hidden_by     bigint REFERENCES users (id) ON DELETE SET NULL,
-    hidden_reason text NOT NULL DEFAULT '',
+    hidden_reason text NOT NULL DEFAULT '' CHECK (char_length(hidden_reason) <= 500),
     UNIQUE (user_id, book_id),
-    CHECK (hidden_at IS NULL OR hidden_reason <> '')
+    CONSTRAINT reviews_hidden_has_reason CHECK ((hidden_at IS NULL) = (hidden_reason = ''))
 );
-CREATE INDEX reviews_book_created_idx ON reviews (book_id, created_at DESC);
+CREATE INDEX reviews_book_created_idx ON reviews (book_id, created_at DESC, id DESC);
 CREATE INDEX reviews_hidden_by_idx ON reviews (hidden_by) WHERE hidden_by IS NOT NULL;
 ```
+
+- **Uygulamada değişen (2026-11-25, 17B adım 1):**
+  - Liste index'ine `id DESC` eklendi. Liste kararlı sayfalama için `id`'yi ikinci sıralama anahtarı
+    yapıyor; index'te yoksa sıralamanın tamamını veremez (0005'in dersi).
+  - Gizleme kuralı iki yönlü oldu: gizliyse gerekçe dolu, görünürse boş. Geri açılan incelemede eski
+    gerekçe kalmasın.
+  - Gerekçe en çok 500 karakter; moderasyondaki ret gerekçesiyle aynı sınır.
 
 - **2026-11-23 düzeltmesi:** ilk taslakta liste index'i kısmiydi (`WHERE hidden_at IS NULL`). Böyle bir
   index yabancı anahtar denetimine sayılmaz (yorumlarda 0015'te düzeltilen sorunun aynısı), bu yüzden

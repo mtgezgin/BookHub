@@ -19,7 +19,8 @@
 
 import type {
   AdminBook, Book, BookDetail, BookStatus, Comment, Genre, LibraryItem, LibraryStatus, MyRating,
-  NewBook, Page, RatingSummary, ReadingLogDates, ReadingPatch, Session, Shelf, ShelfCommand, TopRated, User,
+  NewBook, Page, PublicReview, RatingSummary, ReadingLogDates, ReadingPatch, Review, ReviewDraft, Session, Shelf,
+  ShelfCommand, TopRated, User,
 } from "./types";
 
 /** HINT: "bu tarayıcıda oturum açık olmalı" ipucu. Sır DEĞİL (bkz. dosya başı). */
@@ -394,6 +395,13 @@ export const api = {
   rate: (id: number, score: number) => request<{ score: number }>("PUT", `/api/books/${id}/rating`, { score }),
   removeRating: (id: number) => request<unknown>("DELETE", `/api/books/${id}/rating`),
 
+  // İncelemeler (Faz 17B). "Benim incelemem" puandaki gibi adreste kullanıcısız; yoksa 404 no_review.
+  reviews: (bookId: number, offset = 0) =>
+    request<Page<PublicReview>>("GET", `/api/books/${bookId}/reviews${qs({ offset })}`),
+  myReview: (bookId: number) => request<Review>("GET", `/api/books/${bookId}/review`),
+  saveReview: (bookId: number, d: ReviewDraft) => request<Review>("PUT", `/api/books/${bookId}/review`, d),
+  deleteReview: (bookId: number) => request<void>("DELETE", `/api/books/${bookId}/review`),
+
   // Kişisel kitaplık (giriş ister; kullanıcı adreste değil token'da)
   library: (p: {
     status?: LibraryStatus; q?: string; genre?: string; rated?: "yes" | "no";
@@ -421,6 +429,8 @@ export const api = {
   restoreBook: (id: number) => request<AdminBook>("POST", `/api/admin/books/${id}/restore`),
   createGenre: (name: string) => request<Genre>("POST", "/api/admin/genres", { name }),
   deleteComment: (id: number) => request<void>("DELETE", `/api/admin/comments/${id}`),
+  hideReview: (id: number, reason: string) => request<Review>("POST", `/api/admin/reviews/${id}/hide`, { reason }),
+  unhideReview: (id: number) => request<Review>("POST", `/api/admin/reviews/${id}/unhide`),
 };
 
 /** Test yardımcısı: modül durumunu sıfırla. */

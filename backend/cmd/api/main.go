@@ -26,6 +26,7 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/moderation"
 	"github.com/mtgezgin/bookhub/backend/internal/ratelimit"
 	"github.com/mtgezgin/bookhub/backend/internal/ratings"
+	"github.com/mtgezgin/bookhub/backend/internal/reviews"
 	"github.com/mtgezgin/bookhub/backend/internal/telemetry"
 )
 
@@ -163,6 +164,7 @@ func run() int {
 		moderation: moderationSvc,
 		editions:   editionSvc,
 		comments:   comments.NewService(pool),
+		reviews:    reviews.NewService(pool),
 		ratings:    ratingSvc,
 		library:    library.NewRepository(pool),
 		shelf:      library.NewService(pool),

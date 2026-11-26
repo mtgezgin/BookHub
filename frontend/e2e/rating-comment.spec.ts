@@ -1,21 +1,43 @@
-// rating-comment.spec.ts — girişli kullanıcının kitaba puan vermesi ve yorum yazması.
-// RATE LIMIT BÜTÇESİ: 1 login. Tablo: e2e/helpers.ts.
+// rating-comment.spec.ts — kitap sayfasında topluluk, İKİ senaryo TEK girişle:
+//  1. Puan ve yorum (Faz 5).
+//  2. İnceleme (Faz 17B): yaz, düzenle, iki sekmede 409, gizlenince gerekçe ve gizli kalan düzenleme,
+//     spoiler'ın klavyeyle açılması ve axe taraması, silince puanın kalması (spec Doğrulama 12, 14–16).
+// RATE LIMIT BÜTÇESİ: 1 login. Tablo: e2e/helpers.ts. İnceleme senaryosu ayrı bir dosya olsaydı kendi
+// girişini yapar ve bütçeyi tavana (11) dayardı; library.spec'teki gibi aynı sayfayı paylaşır. Yönetici
+// tarafı (öteki okurun spoiler'lı incelemesi, gizleme, geri açma) NGINX'i atlayan doğrudan API
+// çağrılarıyla kurulur (global-setup'taki gibi): sınırlı kovadan kredi yemez. Gizleme diyaloğunun kendisi
+// bileşen testinde (ReviewSection.test.tsx) ve canlı doğrulamada.
 //
 // Kitaba aramayla gidiyoruz (goto ile doğrudan /books/<id> yerine): id demo veriye göre
 // değişir, ayrıca SPA gezintisi olduğu için bellekteki access token korunur — tam sayfa
 // yüklemesi olsaydı önce restore'un bitmesini beklemek gerekirdi.
-import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { expect, request, test, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
 
-import { READER_EMAIL, READER_NAME, RUN_ID, readerPassword } from "./env";
-import { expectLoggedIn, uiLogin } from "./helpers";
+import { DIRECT_API_URL, READER_EMAIL, READER_NAME, RUN_ID, adminEmail, adminPassword, readerPassword } from "./env";
+import { expectLoggedIn, topbar, uiLogin } from "./helpers";
 
 /** Demo katalogdaki (backend/scripts/demo_seed.sql) puanlanmış bir kitap. */
 const BOOK = "Vakıf";
 
-test("puan özeti anında güncellenir, yorum listenin başında görünür", async ({ page }) => {
+// İki senaryo aynı sayfayı paylaşır; yeniden deneme ikisini birlikte koşar ve girişi bir kez tekrarlar.
+test.describe.configure({ mode: "serial" });
+
+let page: Page;
+
+test.beforeAll(async ({ browser }) => {
+  // Bağlam AÇIKÇA: inceleme senaryosu aynı bağlamda ikinci sekme açar (oturum çerezle gelir).
+  const context = await browser.newContext();
+  page = await context.newPage();
   await uiLogin(page, READER_EMAIL, readerPassword());
   await expectLoggedIn(page, READER_NAME);
+});
 
+test.afterAll(async () => {
+  await page?.context().close(); // giriş öncesinde düştüyse sayfa hiç açılmamış olabilir
+});
+
+test("puan özeti anında güncellenir, yorum listenin başında görünür", async () => {
   await page.getByPlaceholder("Başlık ya da yazar ara…").fill(BOOK);
   await page.getByRole("button", { name: "Ara" }).click();
 
@@ -83,4 +105,196 @@ function voteCount(text: string): number {
   const match = /\((\d+) oy\)/.exec(text);
   expect(match, `puan özetinden oy sayısı okunamadı: ${text}`).not.toBeNull();
   return Number(match![1]);
+}
+
+// ---------------------------------------------------------------------------------------------
+// İnceleme (Faz 17B)
+// ---------------------------------------------------------------------------------------------
+
+/** Öteki okurun (yönetici hesabı) spoiler'lı incelemesinin metni: açılana kadar sayfada OLMAMALI. */
+const SPOILER = `E2E spoiler ${RUN_ID}: sonunda herkes ölüyor`;
+const HIDE_REASON = `E2E gizleme gerekçesi ${RUN_ID}`;
+
+test("inceleme: yaz, düzenle, iki sekmede 409, gizlenince gerekçe, spoiler klavyeyle ve axe, sil", async () => {
+  await openBook(page);
+  const bookId = Number(new URL(page.url()).pathname.split("/").pop());
+  const admin = await adminApi();
+  try {
+    // Yeniden denemede ilk denemenin incelemeleri kalmış olabilir: ikisi de baştan silinir.
+    await admin.deleteReview(bookId);
+    await deleteMyReviewIfAny(page);
+    await admin.saveReview(bookId, { body: SPOILER, has_spoiler: true });
+    await page.reload();
+    await expectLoggedIn(page, READER_NAME);
+
+    await spoilerIsKeyboardAccessible(page);
+    await writeAndEdit(page);
+    await twoTabConflict(page);
+    await hiddenReviewShowsReason(page, admin, bookId);
+
+    // Silme onayı puanın kalacağını söyler; silince yazma düğmesi döner, puan yerinde (Doğrulama 14).
+    await myReview(page).getByRole("button", { name: "Sil" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("Puanın silinmez.");
+    await dialog.getByRole("button", { name: "Sil", exact: true }).click();
+    await expect(page.getByRole("button", { name: "İnceleme yaz" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Senin puanın" }).locator("button[aria-pressed=true]")).toHaveCount(1);
+  } finally {
+    await admin.deleteReview(bookId);
+    await admin.dispose();
+  }
+});
+
+const reviews = (p: Page) => p.getByRole("region", { name: /^İncelemeler/ });
+const myReview = (p: Page) => p.getByRole("region", { name: "Senin incelemen" });
+const editor = (p: Page) => p.getByRole("form", { name: "İncelemeni yaz" });
+
+/** Kitaba katalogdan (SPA gezintisi, bellekteki oturum korunur); önceki senaryo sayfayı kitapta bırakır. */
+async function openBook(p: Page) {
+  await topbar(p).getByRole("link", { name: "BookHub" }).click();
+  await p.getByPlaceholder("Başlık ya da yazar ara…").fill(BOOK);
+  await p.getByRole("button", { name: "Ara" }).click();
+  await p.getByRole("list", { name: "Kitaplar" }).getByRole("link", { name: BOOK, exact: true }).click();
+  await expect(p.getByRole("heading", { name: BOOK, level: 1 })).toBeVisible();
+}
+
+/** Okurun incelemesi varsa arayüzden siler (yeniden deneme). Benim incelemem gelene kadar bekler. */
+async function deleteMyReviewIfAny(p: Page) {
+  const write = p.getByRole("button", { name: "İnceleme yaz" });
+  await expect(write.or(myReview(p))).toBeVisible();
+  if (await write.isVisible()) return;
+  await myReview(p).getByRole("button", { name: "Sil" }).click();
+  await p.getByRole("dialog").getByRole("button", { name: "Sil", exact: true }).click();
+  await expect(write).toBeVisible();
+}
+
+/** axe: İncelemeler bölümünde WCAG 2.1 A/AA ihlali yok. */
+async function expectNoA11yViolations(p: Page, what: string) {
+  const result = await new AxeBuilder({ page: p })
+    .include("section[aria-labelledby=reviews-heading]")
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+    .analyze();
+  const found = result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
+  expect(found, what).toEqual([]);
+}
+
+/**
+ * Spoiler (Doğrulama 16, kavram 8): metin açılana kadar DOM'da yok; düğmeye odaklanıp Enter'la açılır,
+ * aria-expanded değişir. axe kapalı ve açık hâlde.
+ */
+async function spoilerIsKeyboardAccessible(p: Page) {
+  const card = reviews(p).getByRole("listitem").filter({ hasText: "E2E Admin" });
+  const toggle = card.getByRole("button", { name: "Spoiler'ı göster" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(await p.content(), "spoiler metni açılmadan sayfada olmamalı").not.toContain(SPOILER);
+  await expectNoA11yViolations(p, "spoiler kapalı");
+
+  await toggle.focus();
+  await p.keyboard.press("Enter");
+  await expect(card.getByText(SPOILER)).toBeVisible();
+  await expect(card.getByRole("button", { name: "Spoiler'ı gizle" })).toHaveAttribute("aria-expanded", "true");
+  await expectNoA11yViolations(p, "spoiler açık");
+}
+
+/** İlk yazım (spoiler kutusu klavyeyle) ve düzenleme: ikinci kayıt aynı incelemeyi düzenler (Doğrulama 12). */
+async function writeAndEdit(p: Page) {
+  await p.getByRole("button", { name: "İnceleme yaz" }).click();
+  await editor(p).getByLabel("İncelemen").fill(`E2E incelemesi ${RUN_ID}`);
+  await editor(p).getByLabel("Spoiler içeriyor").focus();
+  await p.keyboard.press("Space");
+  await expect(editor(p).getByLabel("Spoiler içeriyor")).toBeChecked();
+  await expectNoA11yViolations(p, "düzenleyici açık");
+  await editor(p).getByRole("button", { name: "Kaydet" }).click();
+  await expect(myReview(p)).toContainText(`E2E incelemesi ${RUN_ID}`);
+  await expect(myReview(p)).toContainText("spoiler içeriyor olarak işaretli");
+  await expect(myReview(p)).not.toContainText("düzenlendi");
+
+  await myReview(p).getByRole("button", { name: "Düzenle" }).click();
+  await editor(p).getByLabel("İncelemen").fill(`E2E düzenlenmiş inceleme ${RUN_ID}`);
+  await editor(p).getByRole("button", { name: "Kaydet" }).click();
+  await expect(myReview(p)).toContainText(`E2E düzenlenmiş inceleme ${RUN_ID}`);
+  await expect(myReview(p)).toContainText("düzenlendi");
+}
+
+/** İki sekme aynı incelemeyi düzenler: sonra kaydeden 409 alır, ötekinin metnini görür, "Benimkini kaydet" yazar. */
+async function twoTabConflict(p: Page) {
+  const second = await p.context().newPage();
+  try {
+    await second.goto(p.url());
+    await expectLoggedIn(second, READER_NAME);
+    await myReview(p).getByRole("button", { name: "Düzenle" }).click();
+    await myReview(second).getByRole("button", { name: "Düzenle" }).click();
+    await editor(second).getByLabel("İncelemen").fill(`E2E ikinci sekme ${RUN_ID}`);
+    await editor(second).getByRole("button", { name: "Kaydet" }).click();
+    await expect(myReview(second)).toContainText(`E2E ikinci sekme ${RUN_ID}`);
+  } finally {
+    await second.close();
+  }
+
+  await editor(p).getByLabel("İncelemen").fill(`E2E birinci sekme ${RUN_ID}`);
+  await editor(p).getByRole("button", { name: "Kaydet" }).click();
+  const note = editor(p).getByRole("alert");
+  await expect(note).toContainText("İncelemen başka bir yerde değişmiş");
+  await expect(note).toContainText(`E2E ikinci sekme ${RUN_ID}`);
+  await expect(editor(p).getByLabel("İncelemen")).toHaveValue(`E2E birinci sekme ${RUN_ID}`);
+  await editor(p).getByRole("button", { name: "Benimkini kaydet" }).click();
+  await expect(myReview(p)).toContainText(`E2E birinci sekme ${RUN_ID}`);
+}
+
+/**
+ * Yönetici gizler: okur gerekçeyi görür, düzenleyince inceleme gizli kalır; geri açınca not kalkar
+ * (Doğrulama 15'in arayüz yarısı). Gizleme ve geri açma doğrudan API'den (dosya başındaki not).
+ */
+async function hiddenReviewShowsReason(p: Page, admin: AdminApi, bookId: number) {
+  const id = await admin.reviewIdOf(bookId, READER_NAME);
+  await admin.moderate(id, "hide", HIDE_REASON);
+  await p.reload();
+  await expectLoggedIn(p, READER_NAME);
+  await expect(myReview(p)).toContainText(`Bu inceleme yönetici tarafından gizlendi: ${HIDE_REASON}`);
+
+  await myReview(p).getByRole("button", { name: "Düzenle" }).click();
+  await editor(p).getByLabel("İncelemen").fill(`E2E gizliyken düzenlendi ${RUN_ID}`);
+  await editor(p).getByRole("button", { name: "Kaydet" }).click();
+  await expect(p.getByRole("region", { name: "Bildirimler" })).toContainText("gizli kalmaya devam ediyor");
+  await expect(myReview(p)).toContainText(HIDE_REASON);
+
+  await admin.moderate(id, "unhide");
+  await p.reload();
+  await expectLoggedIn(p, READER_NAME);
+  await expect(myReview(p)).toContainText(`E2E gizliyken düzenlendi ${RUN_ID}`);
+  await expect(myReview(p)).not.toContainText("gizlendi");
+}
+
+type AdminApi = Awaited<ReturnType<typeof adminApi>>;
+
+/**
+ * Yönetici, NGINX'i atlayan doğrudan API'den: sınırlı kovayı harcamaz (API'nin kendi sınırı e2e'de
+ * yükseltilmiş). Tarayıcı ve çerez yok: token Authorization başlığında.
+ */
+async function adminApi() {
+  const api: APIRequestContext = await request.newContext({ baseURL: DIRECT_API_URL });
+  const login = await api.post("/api/auth/login", { data: { email: adminEmail(), password: adminPassword() } });
+  expect(login.status(), "yönetici doğrudan API'den giriş yapamadı").toBe(200);
+  const headers = { Authorization: `Bearer ${(await login.json()).access_token}` };
+  const ok = async (call: Promise<APIResponse>, what: string, allowed = [200, 201, 204]) => {
+    const res = await call;
+    expect(allowed, `${what}: ${res.status()} ${await res.text()}`).toContain(res.status());
+    return res;
+  };
+  return {
+    saveReview: (bookId: number, data: { body: string; has_spoiler: boolean }) =>
+      ok(api.put(`/api/books/${bookId}/review`, { headers, data }), "yöneticinin incelemesi"),
+    deleteReview: (bookId: number) =>
+      ok(api.delete(`/api/books/${bookId}/review`, { headers }), "yöneticinin incelemesini silme", [204, 404]),
+    moderate: (id: number, action: "hide" | "unhide", reason?: string) =>
+      ok(api.post(`/api/admin/reviews/${id}/${action}`, { headers, data: reason === undefined ? undefined : { reason } }), action),
+    reviewIdOf: async (bookId: number, author: string): Promise<number> => {
+      const res = await ok(api.get(`/api/books/${bookId}/reviews?limit=50`), "inceleme listesi");
+      const items: { id: number; author: { display_name: string } }[] = (await res.json()).items;
+      const item = items.find((r) => r.author.display_name === author);
+      expect(item, `${author} incelemesi listede yok`).toBeTruthy();
+      return item!.id;
+    },
+    dispose: () => api.dispose(),
+  };
 }

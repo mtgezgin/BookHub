@@ -28,6 +28,7 @@ type deps struct {
 	ratings    ratingService
 	library    libraryStore
 	shelf      shelfService
+	reviews    reviewService
 	// ratingMinVotes: ağırlıklı puandaki m (RATING_MIN_VOTES); katalogun ?sort=rating sırası için.
 	ratingMinVotes int64
 	auth           authService
@@ -67,6 +68,11 @@ func newRouter(d deps) http.Handler {
 
 	r.Get("/health", handleHealth)
 
+	limiter := d.limiter
+	if limiter == nil {
+		limiter = ratelimit.Unlimited{}
+	}
+
 	// Herkese açık okuma uçları.
 	r.Get("/api/books", handleListBooks(d.books, d.ratingMinVotes))
 	r.Get("/api/books/top-rated", handleTopRated(d.books, d.ratings)) // statik yol {id}'den önce eşleşir
@@ -88,6 +94,17 @@ func newRouter(d deps) http.Handler {
 		r.Get("/api/books/{id}/rating", handleMyRating(d.ratings))
 		r.Put("/api/books/{id}/rating", handleRateBook(d.ratings))
 		r.Delete("/api/books/{id}/rating", handleRemoveRating(d.ratings))
+	})
+
+	// İncelemeler (Faz 17B). Liste herkese açık; "benim incelemem" puandaki gibi adreste kullanıcısız
+	// (Doğrulama 13). Yazım IP başına ayrı "review" kovasında: önce kimlik (kimliksiz istek kotayı
+	// yemesin), sonra sınır. Silme ve okuma sınırsız.
+	r.Get("/api/books/{id}/reviews", handleListReviews(d.reviews))
+	r.Group(func(r chi.Router) {
+		r.Use(requireAuth(d.tokens))
+		r.Get("/api/books/{id}/review", handleMyReview(d.reviews))
+		r.With(rateLimit(limiter, "review")).Put("/api/books/{id}/review", handleSaveReview(d.reviews))
+		r.Delete("/api/books/{id}/review", handleDeleteReview(d.reviews))
 	})
 
 	// Kişisel kitaplık (Faz 15) ve okuma takibi (Faz 17A-1). "me" = token'daki kullanıcı; adreste
@@ -113,11 +130,6 @@ func newRouter(d deps) http.Handler {
 		r.Patch("/api/me/reading-log/{id}", handlePatchReadingLog(d.shelf))
 		r.Delete("/api/me/reading-log/{id}", handleDeleteReadingLog(d.shelf))
 	})
-
-	limiter := d.limiter
-	if limiter == nil {
-		limiter = ratelimit.Unlimited{}
-	}
 
 	// Çerez adı boşsa varsayılana düş. NEDEN: net/http, adı geçersiz (boş dahil) bir çerezi
 	// HATA DÖNMEDEN düşürür — yalnız bir log satırı basar. Yalnızca tek bir alanı dolduran
@@ -171,6 +183,10 @@ func newRouter(d deps) http.Handler {
 		r.Post("/editions/{id}/primary", handleSetPrimaryEdition(d.editions))
 
 		r.Delete("/comments/{id}", handleDeleteComment(d.comments))
+
+		// İnceleme gizleme (Faz 17B): audit aynı transaction'da; tekrar hiçbir şey yazmaz.
+		r.Post("/reviews/{id}/hide", handleHideReview(d.reviews))
+		r.Post("/reviews/{id}/unhide", handleUnhideReview(d.reviews))
 
 		r.Post("/genres", handleCreateGenre(d.genres))
 		r.Patch("/genres/{id}", handleUpdateGenre(d.genres))

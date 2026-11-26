@@ -94,6 +94,43 @@ export interface Comment {
   created_at: string;
 }
 
+/**
+ * Herkese açık listedeki inceleme (Faz 17B). Sürüm ve gizleme bilgisi yok: yalnız sahibini ve yöneticiyi
+ * ilgilendirir. author_score yazarın bu kitaba puanı (ratings'ten); null = puan vermemiş. Spoiler metni de
+ * gelir; açılana kadar ekrana koymamak arayüzün işi (spec kavram 8).
+ */
+export interface PublicReview {
+  id: number;
+  author: { id: number; display_name: string };
+  author_score: number | null;
+  body: string;
+  has_spoiler: boolean;
+  created_at: string;
+  edited_at: string | null; // null = hiç düzenlenmedi
+}
+
+/**
+ * Okurun kendi incelemesi; yönetici uçları da bunu döner. version düzenlemede geri gönderilir (eskiyse 409).
+ * hidden null = görünür; doluysa yönetici gerekçesiyle gizlemiş. Gizleyenin kimliği bilerek yok.
+ */
+export interface Review {
+  id: number;
+  book_id: number;
+  body: string;
+  has_spoiler: boolean;
+  version: number;
+  created_at: string;
+  edited_at: string | null;
+  hidden: { at: string; reason: string } | null;
+}
+
+/** PUT gövdesi. version: ilk yazımda YOK, düzenlemede incelemenin son bilinen sürümü. */
+export interface ReviewDraft {
+  body: string;
+  has_spoiler: boolean;
+  version?: number;
+}
+
 export interface RatingSummary {
   average_rating: number | null;
   rating_count: number;
