@@ -102,13 +102,14 @@ Doğrulanamadı (adım 1 deneyinde bakılacak):
 | 9 | Spoiler parçası: art arda gelen spoiler işaretli metinler tek parça; açılana kadar metin DOM'da yok; düğme `aria-expanded` taşır. | 17B'nin kuralı, parça başına. |
 | 10 | Sürümlü yazım (409), silme, gizleme ve audit aynen. "Değişmedi" karşılaştırması belge üstünden yapılır. | 17B davranışı korunur. |
 
-İki küçük karar önerildiği gibi onaylandı: spoiler kısayolu `Ctrl+Shift+S`, düğme metni "Spoiler".
-Kısayolun tarayıcıların kendi kısayollarıyla çakışıp çakışmadığına adım 1'de bakılır; çakışırsa burada
-değişir.
+İki küçük karar: düğme metni "Spoiler". Spoiler kısayolu önce `Ctrl+Shift+S` olarak onaylandı;
+adım 1 deneyi Firefox ve Edge'de belgeli bir çakışma bulduğu için **kısayolsuz** başlanıyor
+([adım 1 kaydı](#adım-1--deney-kayıt), 2026-11-27).
 
 ## 🚫 Kapsam dışı
 
-Başlık, resim, bağlantı, tablo, kod bloğu, renk, hizalama; yorumlarda zengin metin; Markdown; ortak
+Başlık, resim, bağlantı, tablo, kod bloğu, renk, hizalama; yorumlarda zengin metin; saklama ya da
+aktarma biçimi olarak Markdown (yazarken `**kalın**` gibi kısayollar açık, adım 1 kaydı); ortak
 düzenleme; taslak kaydetme; sürüm geçmişi; sıfırdan editör.
 
 ## 🧭 Nasıl takip edilecek
@@ -134,6 +135,95 @@ PR'ı; daraltma ayrı PR.
 7. **Playwright, axe, dokümanlar, PR.**
 8. **Ayrı PR, yayın doğrulandıktan sonra (daraltma):** kalan satırların kalıcı çevirisi,
    `body_doc NOT NULL`, eski gövde desteğinin kaldırılması.
+
+### Adım 1 — Deney (kayıt)
+
+- **Amaç:** önerilen çekirdeği üretim koduna dokunmadan denemek ve "doğrulanamadı" listesini kapatmak.
+- **Nasıl:** depo dışında, geçici bir klasörde küçük bir Vite + React uygulaması; projeyle aynı React
+  (19.3.1), Vite (8.3.8), vitest (5.1.0), jsdom (31.0.1) ve Playwright (1.65.0) sürümleri. Tiptap
+  3.34.0 `--before 2026-11-13T13:30Z` ile kuruldu. Derlenen sayfa, `security-headers.conf`'taki CSP
+  başlığıyla küçük bir Node sunucusundan sunuldu ve gerçek chromium'da klavye ve yapıştırma olaylarıyla
+  denendi. Depoya kod ve bağımlılık girmedi.
+- **Sonuç (2026-11-27):**
+  - **Paket boyutu.** Düzenleyici ayrı parça olarak 335,6 kB (gzip **102,7 kB**). Karşılaştırma: bugünkü
+    ana paketimiz gzip 94,9 kB. Yani düzenleyiciyi açan okur uygulamanın kendisinden büyük bir parça
+    indirir; açmayan hiçbir şey indirmez (karar 8). Dağılım (her grup ayrı sıkıştırılınca; toplamları bu
+    yüzden 103'ü aşar): ProseMirror 66 kB, Tiptap çekirdeği 27 kB, React bağı ve iki yardımcısı 9 kB,
+    uzantılarımız 9 kB. Liste ve geri alma
+    uzantıları alt yoldan içe aktarılınca (`@tiptap/extension-list/bullet-list` gibi) 110,6 → 102,7 kB.
+  - **CSP.** Bugünkü başlıkla ihlal yok. Tiptap sayfaya bir `<style>` etiketi ekliyor; bu yalnız
+    `'unsafe-inline'` sayesinde çalışıyor (`style-src 'self'` ile denendi: etiket engellendi, editör
+    çalıştı ama boşluk kuralları uygulanmadı). `injectCSS: false` ile etiket hiç eklenmiyor ve iki
+    başlıkta da ihlal yok.
+  - **Sıralı liste öznitelikleri.** Varsayılan `orderedList` JSON'a `attrs: {start: 1, type: null}`
+    yazıyor. `OrderedList.extend({ addAttributes: () => ({}) })` ile öznitelik üretmiyor; `5. ` yazım
+    kuralı ve `<ol start="7" type="a">` yapıştırması hata vermeden özniteliksiz listeye dönüyor.
+  - **Belge biçimi.** Spoiler işareti kalınla üst üste biniyor:
+    `{"type":"text","marks":[{"type":"bold"},{"type":"spoiler"}],"text":"uşak"}`. Üç ayrıntı
+    doğrulayıcıyı ve `ReviewDoc`'u etkiler: (1) kalın, spoiler'ın ortasında başlarsa spoiler **üç ayrı
+    metin düğümüne** bölünür (karar 9'un "art arda gelenler tek parça" kuralı gerekli); (2) boş
+    paragrafın `content` alanı **yok** (`{"type":"paragraph"}`), boş belge tek boş paragraftır;
+    (3) işaretlerin sırası şemadaki sıradır, istemci elle başka sırada gönderebilir.
+  - **Yapıştırma.** Başlık, bağlantı, üstü çizili, kod, renkli yazı, tablo, resim, `<script>`, `<pre>`,
+    `<hr>` içeren HTML yapıştırıldı: şemada olmayan her şey düştü, metinleri paragraf olarak kaldı;
+    kalın, italik, liste ve alıntı korundu. Word biçimli HTML temiz kalın ve italiğe döndü. Düz metinde
+    her satır bir paragraf oldu. `onerror`, `onload`, `<script>` ve `iframe srcdoc` CSP **olmadan** da
+    çalışmadı; resim isteği de gitmedi (içerik ayrı, etkisiz bir belgede ayrıştırılıyor). CSP açıkken
+    konsola iki "inline event handler" ihlal satırı düşüyor; çalışan bir şey yok.
+  - **Markdown benzeri kurallar varsayılan olarak açık.** `**kalın**`, `*italik*`, `> `, `- ` ve `1. `
+    yazınca biçime dönüyor; düz metin olarak yapıştırılan `**kalın**` da kalın oluyor (yapıştırılan
+    `1. bir` listeye dönmüyor). `enableInputRules` ve `enablePasteRules` ile kapatılabilir.
+  - **Klavye.** `Ctrl+B`, `Ctrl+I`, `Ctrl+Shift+7/8` (liste), `Ctrl+Shift+B` (alıntı), `Ctrl+Z`,
+    `Ctrl+Y` çalışıyor. Enter iki kez listeden çıkarıyor. **Tab:** paragrafta odağı editörden çıkarıyor
+    (klavye tuzağı yok), liste maddesinde girinti yapıyor, girinti yapılamayan ilk maddede yine odağı
+    çıkarıyor. `Shift+Enter` hiçbir şey yapmıyor (şemada satır sonu düğümü yok).
+  - **İç içe liste sınırsız.** Sekiz Tab'la derinliği 21 olan bir belge üretildi. Karar 4'ün derinlik
+    sınırı yalnız sunucuda kalırsa okur 400 alır; düzenleyici de aynı sınırda girintiyi durdurmalı.
+  - **Erişilebilirlik öznitelikleri.** `role="textbox"`, `aria-multiline` ve `aria-label`
+    `editorProps.attributes` ile verilebiliyor; editör `tabindex="0"` alıyor.
+  - **jsdom.** Çekirdek editör jsdom'da kuruluyor; komutlar, `setContent` ve `getJSON` çalışıyor, React
+    bileşeni çiziliyor (vitest 2/2). Yazma ve seçim jsdom'da denenmedi; onlar Playwright'ta kalır.
+  - **Bağımlılıklar.** Çalışma zamanı için 30 yeni paket (11 Tiptap, 13 ProseMirror, 6 küçük yardımcı),
+    hepsi MIT. `@tiptap/react` iki isteğe bağlı paket daha istiyor (`extension-bubble-menu`,
+    `extension-floating-menu`; `@floating-ui` ile 5 paket): kilit dosyasına girer, pakete girmez.
+    `--omit=optional` kullanılamaz, çünkü Vite'ın Windows'a özel yerel paketi de isteğe bağlı.
+  - **`Ctrl+Shift+S`.** Chromium'da sayfa tuşu yakalıyor (`defaultPrevented`). Ama Firefox'un ve
+    Edge'in kendi dokümanları aynı tuşu ekran görüntüsü aracına veriyor
+    ([Firefox](https://support.mozilla.org/en-US/kb/take-screenshots-firefox),
+    [Edge](https://learn.microsoft.com/en-us/deployedge/edge-learnmore-configurable-edge-commands)).
+    Bu iki tarayıcıda hangisinin kazandığı sınanamadı: otomasyonun gönderdiği tuşlar tarayıcının kendi
+    kısayollarını tetiklemez.
+- **Deneyden çıkan kararlar (kullanıcı onayladı, 2026-11-27):**
+  1. Sıralı liste özniteliksiz kurulur; belgede hiçbir düğümün `attrs` alanı olmaz. Karar 3 sadeleşir:
+     `attrs` görülürse 400.
+  2. `injectCSS: false`; gereken birkaç satır kendi stil dosyamıza yazılır. Böylece düzenleyici
+     `'unsafe-inline'`'a yaslanmaz.
+  3. Markdown benzeri yazım ve yapıştırma kuralları **açık kalır**: bilen okur `**kalın**`, `> `,
+     `- `, `1. ` yazar, bilmeyen düğmeyi kullanır. Saklama biçimi JSON kalır; Markdown saklanmaz.
+     Neden saklama biçimi değil: her metin geçerli Markdown olduğu için izin listesi (karar 3)
+     uygulanamaz; Markdown içine HTML yazılabilir; spoiler Markdown'da tanımlı değil; sunucu (Go) ve
+     tarayıcı ayrı ayrıştırıcılarla aynı metni farklı okuyabilir. İlk öneri "kapatılsın" idi;
+     kullanıcının sorusu üzerine değişti.
+  4. `Shift+Enter` için şemaya satır sonu eklenmez.
+  5. Doğrulayıcı işaret sırasına bakmaz, aynı işaretin tekrarını reddeder; "değişmedi" karşılaştırması
+     sıradan bağımsız yapılır.
+  6. Spoiler kısayolu: **kısayolsuz başlanır**; düğme araç çubuğunda klavyeyle erişilir (kriter 7).
+     Önce onaylanan `Ctrl+Shift+S` bırakıldı, çünkü çakışma belgeli ve sınanamıyor.
+  7. Çekirdek değişmiyor: Tiptap 3.34.0. Bilerek kabul edilen bedel 103 kB'lık tembel parça.
+- **Doğrulanamadı:** ekran okuyucuyla kullanım; Firefox, Safari ve mobil klavyelerde davranış (yalnız
+  chromium denendi); `Ctrl+Shift+S`'in Firefox ve Edge'deki gerçek davranışı.
+- **Deneydeki spoiler işareti** (adım 6'nın başlangıç noktası):
+
+  ```ts
+  export const Spoiler = Mark.create({
+    name: "spoiler",
+    parseHTML: () => [{ tag: "span[data-spoiler]" }],
+    renderHTML: ({ HTMLAttributes }) => ["span", mergeAttributes(HTMLAttributes, { "data-spoiler": "" }), 0],
+    addCommands() {
+      return { toggleSpoiler: () => ({ commands }) => commands.toggleMark(this.name) };
+    },
+  });
+  ```
 
 ## ⚠️ Önemli noktalar
 
