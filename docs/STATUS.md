@@ -3,8 +3,8 @@
 > **Yeni bir konuşma bunu İLK okusun.** Nerede olduğumuzu, kararları ve sıradaki adımı özetler.
 > Her faz sonunda güncellenir. "Neyin ne olduğu" için: [PROJECT_MAP.md](PROJECT_MAP.md).
 
-**Son güncelleme (2026-11-25):** Faz 1–16d canlıda · repo public (MIT) · canlı veritabanının şifreli
-yedeği canlıda · **Faz 17A (okuma takibi ve kısıtları) canlıda**; 17B (inceleme) PR'da ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
+**Son güncelleme (2026-11-27):** Faz 1–16d canlıda · repo public (MIT) · canlı veritabanının şifreli
+yedeği canlıda · **Faz 17 (okuma takibi ve inceleme) canlıda** ([Sıradaki](#sıradaki)). MVP (Faz 1–7, brief §15;
 `backend/scripts/mvp_smoke.sh` 25/25) + altyapı rayı (Docker, React, CI/CD, NGINX, Kubernetes) + oturum
 sertleştirme (Faz 13) + ürün fazları 14–16d.
 
@@ -219,7 +219,9 @@ Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
    kodla düzeltilmeyen 12 bulgusu panelde "Accepted" işaretlenecek (kullanıcı, sonra). **17A-2**
    (`0017`, okuma kısıtları) canlıda (PR #123, 2026-11-25; canlı sayım 0 satır). **17B** (`0018`,
    incelemeler: servis, uçlar, kitap sayfasında İncelemeler bölümü, spoiler, yönetici gizlemesi)
-   `feat/80-inceleme` PR'ında; yayından sonra canlı doğrulama (Doğrulama 17). Ardından (ROADMAP,
+   canlıda (PR #126, 2026-11-26); canlı doğrulama (Doğrulama 17) 2026-11-27'de yeşil
+   ([spec](phases/phase-17-reading-reviews.md#-17b-yayın-ve-canlı-doğrulama-2026-11-27)). #80 kullanıcı
+   onayıyla kapanır. Ardından (ROADMAP,
    2026-11-23): okuma özeti ve kişisel ana sayfa → yazarın diğer kitapları → bağlantı önizlemesi →
    notlar ve alıntılar.
 3. **Kullanıcı adımları:** Northflank sağlık kontrolleri (panel), Grafana Cloud hesabı (#96). Sırlar
