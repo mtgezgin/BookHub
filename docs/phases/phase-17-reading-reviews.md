@@ -812,7 +812,7 @@ baştan düşük karmaşıklıkla yazılır.
 | 3 | API: inceleme uçları, admin uçları, `review` rate limit | ✅ commit (2026-11-25) |
 | 4 | Arayüz veri katmanı: tipler, istemci, kancalar | ✅ commit (2026-11-25) |
 | 5 | Arayüz: İncelemeler bölümü, kendi incelemem, spoiler, admin gizleme | ✅ commit (2026-11-25) |
-| 6 | Playwright (axe dahil), dokümanlar, PR | ✅ commit (2026-11-25); PR açık |
+| 6 | Playwright (axe dahil), dokümanlar, PR | ✅ PR [#126](https://github.com/mtgezgin/BookHub/pull/126) birleşti, canlıda doğrulandı (2026-11-27) |
 
 ### 17B adım 1 — Şema ve sorgular
 
@@ -1130,6 +1130,41 @@ baştan düşük karmaşıklıkla yazılır.
 - **Bakılacak yerler:**
   - [`rating-comment.spec.ts`](../../frontend/e2e/rating-comment.spec.ts): ikinci senaryo ve yardımcıları;
   - [`helpers.ts`](../../frontend/e2e/helpers.ts): bütçe tablosu.
+
+## 🌐 17B yayın ve canlı doğrulama (2026-11-27)
+
+- **Birleşme:** PR [#126](https://github.com/mtgezgin/BookHub/pull/126) (`1a59c5a`, 2026-11-26). Sekiz
+  kontrol yeşil; Sonar'ın iki bulgusu birleşmeden önce düzeltildi (adım 6).
+- **Deploy** ([koşu 45857779675](https://github.com/mtgezgin/BookHub/actions/runs/45857779675)):
+  - plan adımı yeni migration olarak yalnız `0018_reviews.sql`'i buldu;
+  - migration'dan **önce** şifreli döküm alındı: `bookhub-migration-oncesi-1a59c5a.dump.age`, 63 990 bayt;
+    artefakt `bookhub-yedek-migration-oncesi-45857779675`, 90 gün;
+  - "migration'lar güncel"; `release` `1a59c5a`'ya ilerledi.
+  - Yayın kontrolü: girişsiz `GET /api/books/1/reviews` 200 ve boş sayfa döndü (eski sürümde 404 olurdu;
+    tablo yoksa 500).
+- **Canlıda tarayıcıyla (Doğrulama 17):** asistan, kullanıcının Chrome'unda (Claude in Chrome). Giriş ve
+  çıkışları kullanıcı yaptı. Kitap: Martin Eden (`/books/54`), başta incelemesi yok.
+
+  | Adım | Hesap | Sonuç |
+  |---|---|---|
+  | Yaz (spoiler işaretli) | okur | ✅ `PUT /api/books/54/review` 201; "İncelemen yayında", "İncelemeler (1)", kartta "spoiler içeriyor olarak işaretli"; sayaç 59/5000 |
+  | Düzenle | okur | ✅ `PUT` 200; yeni metin ve "düzenlendi" |
+  | Herkese açık liste | girişsiz (curl) | ✅ 1 inceleme, `has_spoiler` true, `edited_at` dolu |
+  | Spoiler | yönetici | ✅ açılmadan metin sayfanın metninde yok; "Spoiler'ı göster" → metin göründü, düğme "Spoiler'ı gizle" oldu |
+  | Gizle ("Canlı doğrulama") | yönetici | ✅ gerekçe penceresi (15/500); `POST /api/admin/reviews/1/hide` 200; "İnceleme gizlendi", "İncelemeler (0)", "‹okurun adı› tarafından yazılan inceleme gizlendi · Geri aç"; girişsiz liste boş |
+  | Geri aç | yönetici | ✅ `POST …/unhide` 200; "İnceleme yeniden yayında", "İncelemeler (1)" |
+
+  - **Ağ:** bu adımlardaki bütün `/api/` istekleri 200/201. Yöneticinin kendi incelemesi için
+    `GET …/review` 404 (`no_review`), bu beklenen. Konsolda hata yok (izleme gizlemeden sonra başladı).
+- **Doğrulanmayan:**
+  - Audit satırları canlıda görülmedi: arayüzde audit sayfası yok, asistanın canlı veritabanına erişimi
+    yok. Gizleme ve geri açmanın audit'e yazıldığı `TestHideRealDB`'de sınanıyor.
+  - Okurun gizliyken gerekçeyi görmesi ve gizliyken düzenleme canlıda denenmedi (iki kez hesap değiştirmek
+    gerekirdi); yerelde ve CI'da Playwright'la sınanıyor.
+  - Spoiler klavyeyle ve axe canlıda koşmadı; Playwright'ta sınanıyor.
+- **Canlıda kalan veri:** okurun Martin Eden incelemesi (id 1) görünür durumda duruyor (kullanıcı kararı:
+  kalır).
+- **17B bitti; Faz 17 tamamlandı** (Doğrulama 1–17). #80 kullanıcı onayıyla kapanır.
 
 ## 🪜 17B — adımlar
 
