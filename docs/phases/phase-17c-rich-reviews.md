@@ -262,6 +262,65 @@ PR'ı; daraltma ayrı PR.
   4. [`sqlc.yaml`](../../backend/sqlc.yaml): yeni `jsonb` kuralı.
   5. `backend/internal/db/*.go`: sqlc'nin ürettiği kod; okumana gerek yok.
 
+### Adım 3 — `internal/richtext` (kayıt)
+
+- **Amaç:** belgenin tek kapısı. Bu adımda paketi hiçbir şey çağırmıyor; servis adım 4'te bağlanır.
+- **Parçalar:**
+  - `Parse(raw)`: ham JSON'u izin listesine göre doğrular. Biçim dosyanın başında yazılı (hangi düğüm
+    neyin içinde durabilir). Hata her zaman `ErrInvalid`'i sarar; sınır aşımı ayrıca `ErrLimit`,
+    görünen metnin olmaması `ErrEmpty`.
+  - `Doc.Text()`: düz metin; her paragraf bir satır. `reviews.body`'ye bu yazılacak.
+  - `Doc.HasSpoiler()`: belgede spoiler işareti var mı. `reviews.has_spoiler`'a bu yazılacak.
+  - `Doc.JSON()`: kanonik JSON; veritabanına ve cevaba bu gider.
+  - `Equal(a, b)`: "değişmedi" karşılaştırması.
+  - `FromPlain(body, spoiler)`: düz metinden belge (karar 6 ve 7).
+- **Yeni kavramlar:**
+  1. **Kanonik hâl.** Aynı içerik birden çok JSON'la yazılabilir (işaret sırası, metnin kaç düğüme
+     bölündüğü, boş dizi ya da alanın hiç olmaması). `Parse` hepsini tek biçime indirir ve veritabanına
+     o yazılır. İki kazanç: karşılaştırma basitleşir ve **saklanan şey doğrulanan şeyin kendisidir**,
+     istemcinin gönderdiği baytlar değil.
+  2. **Fuzz testi.** Elle yazılan örnekler aklımıza gelen hataları sınar. Fuzz, girdiyi rastgele
+     bozarak milyonlarca kez dener ve bir *sözün* her girdide tuttuğuna bakar. Buradaki sözler: panik
+     yok; kabul edilen belgenin kanonik hâli yeniden doğrulanınca aynı belgeyi verir; düz metin
+     sınırların içindedir ve denetim karakteri taşımaz.
+  3. **Mutasyon denemesi.** Testin işe yaradığını görmenin yolu koda bilerek hata koymaktır: test
+     kırmızıya dönmüyorsa o satırı aslında sınamıyordur.
+- **Kararlar (bu adımda verildi):**
+  - **Sınırlar (karar 4'ün rakamları):** metin 5000 karakter (kod noktası; satır sonları dahil, çünkü
+    `body`'nin CHECK'i onları da sayar), ham JSON 128 KiB, 2000 düğüm, 12 kat (bir alıntının içinde
+    dört kat iç içe liste). Düzenleyici girintiyi bundan önce durdurmalı (adım 6).
+  - **Alan adları harfi harfine.** Go'nun `encoding/json`'ı struct alanlarını büyük/küçük harfe
+    bakmadan eşler (`"Type"` kabul edilirdi); düğümler bu yüzden elle açılıyor.
+  - **Metin kuralları:** boş metin düğümü yok; sekme dışında denetim karakteri yok. Satır sonu da
+    yasak: paragraf içinde satır sonu yoktur, yeni satır yeni paragraftır. NUL ayrıca Postgres'in
+    kabul etmediği tek karakter.
+  - **Hata mesajı girdiyi geri yazmaz:** yalnız sorunun yeri (`doc.content[2].marks[0]`) ve türü.
+  - **Boş dizi hoş görülür:** `"content": []` ile alanın hiç olmaması aynı belgedir (kanonik hâlde
+    alan yok). "Bilinmeyen şey → 400" kuralı aynen duruyor.
+- **Sonuç (2026-11-27):**
+  - 76 alt test yeşil: 6 geçerli örnek (`testdata/vectors.json`), 42 ret, sınırların tam üstü, kanonik
+    hâl, `FromPlain`. Ret listesinde adım 1'in varsayılan çıktısı da var (`attrs`'lı sıralı liste).
+  - Fuzz: `FuzzParse` 45 sn'de 8,4 milyon, `FuzzFromPlain` 30 sn'de 142 bin deneme; söz bozulmadı.
+    Normal `go test` yalnız tohumları koşturur.
+  - Mutasyon: bilerek konmuş 11 hatanın 8'i ilk seferde yakalandı. **İki boşluk bulundu ve
+    kapatıldı:** derinlik testi sınırın iki üstünü deniyordu (bir üstü kaçıyordu); boyut testi aslında
+    metin sınırına takılıyordu. Yakalanmayan sonuncusu eşdeğer bir değişiklik (JSON null zaten bir
+    sonraki satırda reddediliyor).
+  - Ölçüm (`BenchmarkParse`, bu makinede): 5000 karakterlik biçimli bir inceleme 1,3 ms ve 0,5 MB
+    geçici bellek; düğüm sınırına dayanan en kötü belge 9,1 ms ve 4,2 MB. Yazma ucu için kabul
+    edilebilir; kod sadelik için her katı yeniden çözüyor, hız gerekirse yeri belli.
+  - Bütün backend testleri gerçek Postgres ve Redis'le yeşil; `go vet` temiz; golangci-lint 0 sorun.
+- **Doğrulanamadı / sonraya kalan:**
+  - Arayüzdeki sayaç aynı kuralla saymalı (kod noktası, paragraf başına bir satır sonu). Adım 5'te
+    TypeScript tarafı `vectors.json`'ın aynısıyla sınanacak; o zamana kadar iki taraf eşlenmiş değil.
+  - Fuzz yalnız yerelde ve kısa koştu; CI'da sürekli fuzz yok.
+- **Bakılacak yerler:**
+  1. [`richtext.go`](../../backend/internal/richtext/richtext.go): baştaki açıklama (biçim), sınırlar,
+     `Parse`, `checkContent`.
+  2. [`derive.go`](../../backend/internal/richtext/derive.go): `Text`, `HasSpoiler`, `FromPlain`.
+  3. [`richtext_test.go`](../../backend/internal/richtext/richtext_test.go): `TestParseRejects` tablosu.
+  4. [`fuzz_test.go`](../../backend/internal/richtext/fuzz_test.go): `FuzzParse`'ın sözleri.
+
 ## ⚠️ Önemli noktalar
 
 - Editör davranışı bileşen testiyle değil Playwright ile sınanır (gerçek tarayıcı); birim testleri
