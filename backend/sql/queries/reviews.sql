@@ -32,7 +32,8 @@ SELECT * FROM reviews WHERE user_id = $1 AND book_id = $2 FOR UPDATE;
 -- İlk yazım: yalnız yayındaki kitaba (değilse satır üretmez → pgx.ErrNoRows → 404). Aynı anda iki ilk
 -- yazım gelirse ikincisi UNIQUE'e çarpar ve ON CONFLICT DO NOTHING yüzünden yine satır döndürmez;
 -- servis o durumda satırı kilitleyip sürüm kuralına göre karar verir.
--- body_doc verilmezse NULL yazılır (eski gövdeyle gelen istek; spec karar 7).
+-- body_doc: servis her yazımda belgeyi verir (eski gövdeyle gelen istek de belgeye çevrilir, spec
+-- karar 7). Parametre boş olabilir kalıyor, çünkü kolon daraltma PR'ına kadar boş olabilir.
 -- name: InsertReview :one
 INSERT INTO reviews (user_id, book_id, body, has_spoiler, body_doc)
 SELECT sqlc.arg('user_id'), b.id, sqlc.arg('body'), sqlc.arg('has_spoiler'), sqlc.narg('body_doc')
@@ -42,8 +43,8 @@ ON CONFLICT (user_id, book_id) DO NOTHING
 RETURNING *;
 
 -- Düzenleme: metin ve spoiler bayrağı; edited_at dolar, version artar. Gizleme kolonlarına dokunmaz:
--- gizlenmiş inceleme düzenlenince gizli kalır (REV-01). body_doc her düzenlemede yeniden yazılır:
--- verilmezse NULL olur, yoksa eski belge yeni metnin yanında bayat kalırdı.
+-- gizlenmiş inceleme düzenlenince gizli kalır (REV-01). body, has_spoiler ve body_doc hep birlikte
+-- yazılır: üçü aynı belgeden türer, biri bayat kalamaz.
 -- name: UpdateReview :one
 UPDATE reviews
 SET body = sqlc.arg('body'), has_spoiler = sqlc.arg('has_spoiler'), body_doc = sqlc.narg('body_doc'),

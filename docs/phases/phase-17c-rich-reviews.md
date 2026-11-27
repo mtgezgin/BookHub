@@ -321,6 +321,57 @@ PR'ı; daraltma ayrı PR.
   3. [`richtext_test.go`](../../backend/internal/richtext/richtext_test.go): `TestParseRejects` tablosu.
   4. [`fuzz_test.go`](../../backend/internal/richtext/fuzz_test.go): `FuzzParse`'ın sözleri.
 
+### Adım 4 — Servis ve API (kayıt)
+
+- **Amaç:** belgeyi yazma ve okuma yoluna bağlamak; bugünkü arayüz hiçbir şey fark etmemeli.
+- **Parçalar:**
+  - `internal/reviews`: `Draft` artık metin ve bayrak değil, doğrulanmış **belge** taşıyor. Servis üç
+    kolonu aynı belgeden yazıyor: `body_doc` (kanonik JSON), `body` (düz metin), `has_spoiler`
+    (belgede spoiler işareti var mı). "Değişmedi" karşılaştırması belge üstünden (`unchanged`).
+  - `PUT /api/books/{id}/review` iki gövde kabul ediyor (karar 7):
+    yeni `{"doc": {...}, "version": n}`, eski `{"body": "...", "has_spoiler": b, "version": n}`.
+    İkisi birlikte gelirse 400. Eski gövde bugünkü kurallarıyla denetlenip belgeye çevriliyor.
+  - Cevaplar (liste ve "benim incelemem") `doc` alanını da taşıyor; **hiçbir zaman null değil**:
+    belgesi olmayan eski inceleme düz metninden çevriliyor (karar 6). `body` ve `has_spoiler` duruyor.
+  - `readJSON`'daki NUL taraması bayt dilimlerini atlıyor (belgeyi kendi doğrulayıcısı denetliyor).
+- **Adım 2'ye göre değişen:** orada "eski gövdeyle gelen istek belgeyi boş bırakır" yazıyordu. Yeni kodda
+  eski gövde de belgeye çevrilip yazılıyor; belgesiz satır yalnız **eski kodun** yazdığıdır (bugünkü
+  canlı satır ve yayın sırasında eski sürümün yazdıkları). Böylece daraltma PR'ına az iş kalır.
+- **Davranış farkları (bilerek):**
+  - Eski gövdede satır sonları `\n`'e iner, sekme dışındaki denetim karakterleri atılır (belgede
+    yasaklar). Bugünkü arayüz bunları zaten üretmiyor.
+  - Eski gövdeyle 1000'den çok satırlı bir inceleme artık 400 alır (düğüm sınırı: satır başına iki
+    düğüm). 5000 karakterde 1000 satır gerçek bir inceleme değil.
+  - Belge yolunda metin kırpılmaz (baştaki boş paragraf metne `\n` olarak girer); "yalnız boşluk" yine
+    400.
+  - Kaydedilmiş bir belgenin `doc` alanı veritabanının yazdığı hâliyle döner (`jsonb` anahtar sırasını
+    ve boşlukları değiştirir). İçerik kanoniktir, baytlar değil.
+- **Sonuç (2026-11-27):**
+  - Servis (gerçek Postgres): `TestDocRealDB` yeşil. Üç kolon belgeden türüyor; aynı belgenin başka
+    yazımı (işaret sırası, bölünmüş metin) düzenleme sayılmıyor; yalnız biçim değişirse düzenleme;
+    belgesiz eski satırın aynısı yazılmıyor, düzenlenince belgesini alıyor. Var olan yedi servis testi
+    belgeye çevrilmiş taslaklarla yeşil (sürüm, 409, yarış, gizleme aynen).
+  - Uçlar: 15 yeni PUT senaryosu (geçerli belge, bilinmeyen düğüm, bağlantı işareti, `attrs`, boş,
+    5001 karakter, NUL, HTML metni, iki gövde birlikte, `doc: null`, ikisi de yok, çok satırlı eski
+    gövde). Hata mesajı girdiyi geri yazmıyor. Sözleşme testi iki cevapta da `doc`'u arıyor.
+  - Bütün backend testleri gerçek Postgres ve Redis'le yeşil (22 paket); `go vet` temiz; golangci-lint
+    0 sorun; sqlc `diff` temiz.
+  - **Bugünkü arayüz, yeni API:** `scripts/e2e.sh e2e/rating-comment.spec.ts` 2/2 yeşil (inceleme
+    senaryosu 3,7 sn: yaz, düzenle, iki sekmede 409, gizlenince gerekçe, klavyeyle spoiler, axe, sil).
+    Yığın bu dalın API'siyle kuruldu (yerel şema sürümü 19); arayüz değişmedi, yani eski gövdeyi
+    gönderdi. Karar 7'nin "açık duran eski sekme bozulmaz" sözünün yereldeki kanıtı bu.
+- **Doğrulanamadı / sonraya kalan:** yeni gövdenin tarayıcıdan gönderilmesi (arayüz adım 5 ve 6);
+  yayın sırasında eski ve yeni sürümün aynı anda yazması (canlıda görülür; kural 0019 testinde ve
+  `unchanged`'de sınandı).
+- **Bakılacak yerler:**
+  1. [`service.go`](../../backend/internal/reviews/service.go): `Draft`, `create`, `edit`, `unchanged`,
+     `DocJSON`.
+  2. [`reviews.go`](../../backend/cmd/api/reviews.go): `saveReviewRequest` ve `document()`.
+  3. [`service_integration_test.go`](../../backend/internal/reviews/service_integration_test.go):
+     `TestDocRealDB`.
+  4. [`reviews_test.go`](../../backend/cmd/api/reviews_test.go): `TestSaveReviewRequests`'in "belge:"
+     satırları.
+
 ## ⚠️ Önemli noktalar
 
 - Editör davranışı bileşen testiyle değil Playwright ile sınanır (gerçek tarayıcı); birim testleri

@@ -123,7 +123,8 @@ type InsertReviewParams struct {
 // İlk yazım: yalnız yayındaki kitaba (değilse satır üretmez → pgx.ErrNoRows → 404). Aynı anda iki ilk
 // yazım gelirse ikincisi UNIQUE'e çarpar ve ON CONFLICT DO NOTHING yüzünden yine satır döndürmez;
 // servis o durumda satırı kilitleyip sürüm kuralına göre karar verir.
-// body_doc verilmezse NULL yazılır (eski gövdeyle gelen istek; spec karar 7).
+// body_doc: servis her yazımda belgeyi verir (eski gövdeyle gelen istek de belgeye çevrilir, spec
+// karar 7). Parametre boş olabilir kalıyor, çünkü kolon daraltma PR'ına kadar boş olabilir.
 func (q *Queries) InsertReview(ctx context.Context, arg InsertReviewParams) (Review, error) {
 	row := q.db.QueryRow(ctx, insertReview,
 		arg.UserID,
@@ -318,8 +319,8 @@ type UpdateReviewParams struct {
 }
 
 // Düzenleme: metin ve spoiler bayrağı; edited_at dolar, version artar. Gizleme kolonlarına dokunmaz:
-// gizlenmiş inceleme düzenlenince gizli kalır (REV-01). body_doc her düzenlemede yeniden yazılır:
-// verilmezse NULL olur, yoksa eski belge yeni metnin yanında bayat kalırdı.
+// gizlenmiş inceleme düzenlenince gizli kalır (REV-01). body, has_spoiler ve body_doc hep birlikte
+// yazılır: üçü aynı belgeden türer, biri bayat kalamaz.
 func (q *Queries) UpdateReview(ctx context.Context, arg UpdateReviewParams) (Review, error) {
 	row := q.db.QueryRow(ctx, updateReview,
 		arg.Body,

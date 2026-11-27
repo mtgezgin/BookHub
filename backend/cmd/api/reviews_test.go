@@ -123,7 +123,42 @@ func TestSaveReviewRequests(t *testing.T) {
 		put("yayında olmayan kitap → 404", `{"body":"a"}`, books.ErrNotFound, http.StatusNotFound, "not_found", true),
 		put("beklenmeyen hata → 500", `{"body":"a"}`, errors.New("db"), http.StatusInternalServerError, "internal", true),
 		{"kimliksiz → 401", "", http.MethodPut, reviewURL, `{"body":"a"}`, nil, http.StatusUnauthorized, "missing_token", false},
+
+		// Faz 17C: belge gövdesi (spec karar 7). Biçimin ayrıntılı ret tablosu internal/richtext'te;
+		// burada uç ile doğrulayıcının bağlandığı sınanır.
+		put("belge: ilk yazım → 201", `{"doc":`+docOf(`{"type":"text","text":"Güzel"}`)+`}`, nil, http.StatusCreated, "", true),
+		put("belge: düzenleme → 200", `{"doc":`+docOf(`{"type":"text","text":"Güzel"}`)+`,"version":1}`, nil, http.StatusOK, "", true),
+		put("belge: HTML metindir, geçer", `{"doc":`+docOf(`{"type":"text","text":"<script>alert(1)</script>"}`)+`}`, nil, http.StatusCreated, "", true),
+		put("belge: bilinmeyen düğüm → 400", `{"doc":{"type":"doc","content":[{"type":"heading","content":[{"type":"text","text":"a"}]}]}}`, nil, http.StatusBadRequest, "validation_error", false),
+		put("belge: bağlantı işareti → 400", `{"doc":`+docOf(`{"type":"text","text":"a","marks":[{"type":"link","attrs":{"href":"javascript:alert(1)"}}]}`)+`}`, nil, http.StatusBadRequest, "validation_error", false),
+		put("belge: attrs → 400", `{"doc":{"type":"doc","content":[{"type":"paragraph","attrs":{"style":"x"},"content":[{"type":"text","text":"a"}]}]}}`, nil, http.StatusBadRequest, "validation_error", false),
+		put("belge: metin yok → 400", `{"doc":{"type":"doc","content":[{"type":"paragraph"}]}}`, nil, http.StatusBadRequest, "validation_error", false),
+		put("belge: 5001 karakter → 400", `{"doc":`+docOf(`{"type":"text","text":"`+strings.Repeat("ş", reviews.MaxBodyLen+1)+`"}`)+`}`, nil, http.StatusBadRequest, "validation_error", false),
+		put("belge: NUL → 400 (500 değil)", `{"doc":`+docOf(`{"type":"text","text":"a\u0000b"}`)+`}`, nil, http.StatusBadRequest, "validation_error", false),
+		put("belge: nesne değil (HTML metni) → 400", `{"doc":"<p>merhaba</p>"}`, nil, http.StatusBadRequest, "validation_error", false),
+		put("belge ile body birlikte → 400", `{"doc":`+docOf(`{"type":"text","text":"a"}`)+`,"body":"b"}`, nil, http.StatusBadRequest, "validation_error", false),
+		put("belge ile has_spoiler birlikte → 400", `{"doc":`+docOf(`{"type":"text","text":"a"}`)+`,"has_spoiler":true}`, nil, http.StatusBadRequest, "validation_error", false),
+		put("doc null, body dolu: eski gövde sayılır → 201", `{"doc":null,"body":"Güzel"}`, nil, http.StatusCreated, "", true),
+		put("ikisi de yok → 400", `{}`, nil, http.StatusBadRequest, "validation_error", false),
+		put("eski gövde: 2000'den çok satır → 400 (düğüm sınırı)", `{"body":"`+strings.Repeat(`a\n`, 1200)+`a"}`, nil, http.StatusBadRequest, "validation_error", false),
 	})
+}
+
+// docOf, tek paragraflı belge JSON'u; içerik paragrafın content dizisinin içidir.
+func docOf(content string) string {
+	return `{"type":"doc","content":[{"type":"paragraph","content":[` + content + `]}]}`
+}
+
+// TestSaveReviewErrorHidesInput: doğrulama mesajı istemcinin gönderdiği değeri geri yazmaz.
+func TestSaveReviewErrorHidesInput(t *testing.T) {
+	rec := do(t, reviewRouter(&fakeReviews{}, "user"), http.MethodPut, reviewURL,
+		`{"doc":{"type":"doc","content":[{"type":"<img src=x onerror=alert(1)>"}]}}`)
+	if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "onerror") {
+		t.Fatalf("status %d, gövde girdiyi taşımamalı: %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), "doc.content[0]") {
+		t.Errorf("mesaj sorunun yerini söylemeli: %s", rec.Body)
+	}
 }
 
 // TestReviewReadDeleteRequests: okurun GET ve DELETE'i, herkese açık liste.
@@ -163,8 +198,17 @@ func TestModerateReviewRequests(t *testing.T) {
 func TestReviewInputsReachService(t *testing.T) {
 	fake := &fakeReviews{}
 	do(t, reviewRouter(fake, "user"), http.MethodPut, reviewURL, `{"body":"  Güzel \n","has_spoiler":true,"version":4}`)
-	if d := fake.gotDraft; fake.gotActor != 7 || fake.gotID != 5 || d == nil || d.Body != "Güzel" || !d.HasSpoiler || d.Version == nil || *d.Version != 4 {
+	if d := fake.gotDraft; fake.gotActor != 7 || fake.gotID != 5 || d == nil || d.Doc.Text() != "Güzel" || !d.Doc.HasSpoiler() || d.Version == nil || *d.Version != 4 {
 		t.Errorf("servise giden: user %d kitap %d taslak %+v", fake.gotActor, fake.gotID, d)
+	}
+
+	// Yeni gövde: belge doğrulanmış ve kanonik hâliyle gider; spoiler belgeden okunur.
+	fake = &fakeReviews{}
+	do(t, reviewRouter(fake, "user"), http.MethodPut, reviewURL,
+		`{"doc":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Katil ","marks":[{"type":"spoiler"}]},{"type":"text","text":"uşak","marks":[{"type":"spoiler"}]}]}]},"version":2}`)
+	const canonical = `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"spoiler"}],"text":"Katil uşak"}]}]}`
+	if d := fake.gotDraft; d == nil || string(d.Doc.JSON()) != canonical || !d.Doc.HasSpoiler() || d.Version == nil || *d.Version != 2 {
+		t.Errorf("servise giden belge: %+v", d)
 	}
 
 	fake = &fakeReviews{}
@@ -193,14 +237,22 @@ func TestReviewContracts(t *testing.T) {
 	if len(page.Items) != 1 {
 		t.Fatalf("liste öğesi %d", len(page.Items))
 	}
-	checkContract(t, page.Items[0], []string{"id", "author", "author_score", "body", "has_spoiler", "created_at", "edited_at"})
+	checkContract(t, page.Items[0], []string{"id", "author", "author_score", "body", "has_spoiler", "doc", "created_at", "edited_at"})
+	// Belgesi olmayan eski inceleme: doc düz metinden çevrilir, hiçbir zaman null değildir.
+	if got := string(page.Items[0]["doc"]); got != docOf(`{"type":"text","text":"Metin"}`) {
+		t.Errorf("eski incelemenin doc alanı: %s", got)
+	}
 
 	hiddenAt, admin := reviewTime.Add(time.Hour), int64(1)
-	fake = &fakeReviews{review: db.Review{ID: 3, BookID: 5, Body: "Metin", Version: 2, CreatedAt: reviewTime,
+	stored := json.RawMessage(docOf(`{"type":"text","marks":[{"type":"bold"}],"text":"Metin"}`))
+	fake = &fakeReviews{review: db.Review{ID: 3, BookID: 5, Body: "Metin", BodyDoc: stored, Version: 2, CreatedAt: reviewTime,
 		HiddenAt: &hiddenAt, HiddenBy: &admin, HiddenReason: "Spam"}}
 	var mine map[string]json.RawMessage
 	decode(t, do(t, reviewRouter(fake, "user"), http.MethodGet, reviewURL, "").Body.Bytes(), &mine)
-	checkContract(t, mine, []string{"id", "book_id", "body", "has_spoiler", "version", "created_at", "edited_at", "hidden"})
+	checkContract(t, mine, []string{"id", "book_id", "body", "has_spoiler", "doc", "version", "created_at", "edited_at", "hidden"})
+	if string(mine["doc"]) != string(stored) {
+		t.Errorf("saklanan belge aynen dönmeli: %s", mine["doc"])
+	}
 	var hidden map[string]json.RawMessage
 	decode(t, mine["hidden"], &hidden)
 	checkContract(t, hidden, []string{"at", "reason"})

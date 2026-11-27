@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
 	"github.com/mtgezgin/bookhub/backend/internal/reviews"
+	"github.com/mtgezgin/bookhub/backend/internal/richtext"
 )
 
 // reviewService, inceleme uçlarının ihtiyacı kadar (tüketici tarafı interface); *reviews.Service sağlar.
@@ -25,14 +27,19 @@ type reviewService interface {
 // publicReviewResponse, herkese açık listedeki inceleme. E-posta yok (kişisel veri); sürüm ve gizleme
 // alanları yok (yalnız sahibini ve yöneticiyi ilgilendirir). Spoiler metni de gelir: gizlemek arayüzün
 // işi (spec § Kararlar "Spoiler").
+//
+// Doc (Faz 17C), incelemenin belgesi; her zaman dolu (belgesi olmayan eski inceleme düz metninden
+// çevrilir). Body ve HasSpoiler kalır: belgeden türetilmiş hâlleridir, yayın anında açık duran eski
+// arayüz onları okur.
 type publicReviewResponse struct {
-	ID          int64         `json:"id"`
-	Author      commentAuthor `json:"author"`       // hesap silinince inceleme de silinir: yazar hep var
-	AuthorScore *int16        `json:"author_score"` // yazarın bu kitaba puanı; null = puan vermemiş
-	Body        string        `json:"body"`
-	HasSpoiler  bool          `json:"has_spoiler"`
-	CreatedAt   time.Time     `json:"created_at"`
-	EditedAt    *time.Time    `json:"edited_at"` // null = hiç düzenlenmedi
+	ID          int64           `json:"id"`
+	Author      commentAuthor   `json:"author"`       // hesap silinince inceleme de silinir: yazar hep var
+	AuthorScore *int16          `json:"author_score"` // yazarın bu kitaba puanı; null = puan vermemiş
+	Body        string          `json:"body"`
+	HasSpoiler  bool            `json:"has_spoiler"`
+	Doc         json.RawMessage `json:"doc"`
+	CreatedAt   time.Time       `json:"created_at"`
+	EditedAt    *time.Time      `json:"edited_at"` // null = hiç düzenlenmedi
 }
 
 type reviewPage struct {
@@ -49,6 +56,7 @@ type reviewResponse struct {
 	BookID     int64           `json:"book_id"`
 	Body       string          `json:"body"`
 	HasSpoiler bool            `json:"has_spoiler"`
+	Doc        json.RawMessage `json:"doc"`
 	Version    int32           `json:"version"`
 	CreatedAt  time.Time       `json:"created_at"`
 	EditedAt   *time.Time      `json:"edited_at"`
@@ -63,6 +71,7 @@ type reviewHiddenAt struct {
 func toReviewResponse(r db.Review) reviewResponse {
 	out := reviewResponse{
 		ID: r.ID, BookID: r.BookID, Body: r.Body, HasSpoiler: r.HasSpoiler,
+		Doc:     reviews.DocJSON(r.Body, r.HasSpoiler, r.BodyDoc),
 		Version: r.Version, CreatedAt: r.CreatedAt, EditedAt: r.EditedAt,
 	}
 	if r.HiddenAt != nil {
@@ -73,10 +82,49 @@ func toReviewResponse(r db.Review) reviewResponse {
 
 // saveReviewRequest: kullanıcı ve kitap kimliği yok (token'dan ve adresten). Version: ilk yazımda
 // gönderilmez, düzenlemede GET'te ya da son yazımda dönen sürüm.
+//
+// İki gövde kabul edilir (spec karar 7): yeni arayüz Doc gönderir; yayın anında açık duran eski arayüz
+// Body ve HasSpoiler gönderir. İkisi birlikte gelirse 400: hangisinin geçerli olduğu belirsiz olurdu.
+// Eski gövde desteği daraltma PR'ında kalkar.
 type saveReviewRequest struct {
-	Body       string `json:"body"`
-	HasSpoiler bool   `json:"has_spoiler"`
-	Version    *int32 `json:"version"`
+	Doc        json.RawMessage `json:"doc"`
+	Body       string          `json:"body"`
+	HasSpoiler bool            `json:"has_spoiler"`
+	Version    *int32          `json:"version"`
+}
+
+// document, isteğin belgesini doğrulayıp döndürür. Doc verilmişse yalnız o okunur; verilmemişse eski
+// gövde bugünkü kurallarıyla (kırpma, zorunlu, 5000 karakter) denetlenir ve belgeye çevrilir. İki
+// yolda da son söz richtext.Parse'ındır: servise doğrulanmamış belge gitmez.
+func (req saveReviewRequest) document() (richtext.Doc, error) {
+	var v validator
+	v.check(req.Version == nil || *req.Version >= 1, "version 1 ya da daha büyük olmalı")
+	raw := req.Doc
+	if len(raw) == 0 || string(raw) == "null" {
+		body := strings.TrimSpace(req.Body)
+		v.required("body", body)
+		v.maxLen("body", body, reviews.MaxBodyLen)
+		if err := v.err(); err != nil {
+			return richtext.Doc{}, err
+		}
+		raw = richtext.FromPlain(body, req.HasSpoiler).JSON()
+	} else {
+		v.check(req.Body == "" && !req.HasSpoiler, "doc ile birlikte body ya da has_spoiler gönderilemez")
+		if err := v.err(); err != nil {
+			return richtext.Doc{}, err
+		}
+	}
+	doc, err := richtext.Parse(raw)
+	switch {
+	case errors.Is(err, richtext.ErrEmpty):
+		return richtext.Doc{}, badRequest("validation_error", "inceleme metni boş olamaz")
+	case errors.Is(err, richtext.ErrInvalid):
+		// Mesaj istemcinin gönderdiği değerleri taşımaz; yalnız sorunun yeri ve türü (richtext).
+		return richtext.Doc{}, badRequest("validation_error", err.Error())
+	case err != nil:
+		return richtext.Doc{}, err
+	}
+	return doc, nil
 }
 
 type hideReviewRequest struct {
@@ -120,7 +168,8 @@ func handleListReviews(svc reviewService) http.HandlerFunc {
 		for _, row := range rows {
 			items = append(items, publicReviewResponse{
 				ID: row.ID, Author: commentAuthor{ID: row.UserID, DisplayName: row.AuthorName}, AuthorScore: row.AuthorScore,
-				Body: row.Body, HasSpoiler: row.HasSpoiler, CreatedAt: row.CreatedAt, EditedAt: row.EditedAt,
+				Body: row.Body, HasSpoiler: row.HasSpoiler, Doc: reviews.DocJSON(row.Body, row.HasSpoiler, row.BodyDoc),
+				CreatedAt: row.CreatedAt, EditedAt: row.EditedAt,
 			})
 		}
 		writeJSON(w, http.StatusOK, reviewPage{Items: items, Total: total, Limit: limit, Offset: offset})
@@ -158,17 +207,13 @@ func handleSaveReview(svc reviewService) http.HandlerFunc {
 			writeRequestError(w, err)
 			return
 		}
-		req.Body = strings.TrimSpace(req.Body)
-		var v validator
-		v.required("body", req.Body)
-		v.maxLen("body", req.Body, reviews.MaxBodyLen)
-		v.check(req.Version == nil || *req.Version >= 1, "version 1 ya da daha büyük olmalı")
-		if err := v.err(); err != nil {
+		doc, err := req.document()
+		if err != nil {
 			writeRequestError(w, err)
 			return
 		}
 
-		rev, err := svc.Save(r.Context(), user, id, reviews.Draft{Body: req.Body, HasSpoiler: req.HasSpoiler, Version: req.Version})
+		rev, err := svc.Save(r.Context(), user, id, reviews.Draft{Doc: doc, Version: req.Version})
 		if err != nil {
 			writeReviewError(w, "SaveReview", err)
 			return
