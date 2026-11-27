@@ -421,6 +421,78 @@ PR'ı; daraltma ayrı PR.
   3. [`ReviewDoc.test.tsx`](../../frontend/src/components/ReviewDoc.test.tsx): "spoiler parçaları".
   4. [`types.ts`](../../frontend/src/api/types.ts): `ReviewDraft`.
 
+### Adım 6 — Düzenleyici (kayıt)
+
+- **Amaç:** okur incelemesini biçimli yazsın ve yalnız spoiler olan kısmı işaretlesin; gönderilen şey
+  belge olsun.
+- **Parçalar:**
+  - `frontend/package.json`: Tiptap 3.34.0 (11 paket). Kurulum `--before 2026-11-13T23:59:59Z` ile;
+    kilit dosyasına 32 paket girdi (ikisi isteğe bağlı, pakete girmiyor), hepsi MIT, var olan hiçbir
+    paketin sürümü değişmedi.
+  - `components/review-editor/extensions.ts`: şema. Sunucudaki izin listesinin aynısı; spoiler işareti,
+    özniteliksiz sıralı liste, Tab bağlanmamış liste maddesi.
+  - `components/review-editor/ReviewRichEditor.tsx`: editör ve araç çubuğu (ayrı, tembel parça).
+  - `components/review-editor/editor.css`: Tiptap'in eklediği `<style>` etiketinin yerine geçen birkaç
+    satır ve içerik görünümü.
+  - `MyReview.tsx`: metin kutusu ve "Spoiler içeriyor" kutusu gitti; form belge gönderiyor. Sayaç
+    `docLength` (kod noktası), kaydetmeden önce `docProblem` (boş, uzun, fazla iç içe).
+- **Kararlar (bu adımda verildi):**
+  - **Tab hiçbir zaman girinti yapmaz, hep odağı ilerletir.** Adım 1'de ölçülen varsayılan davranışta
+    Tab liste maddesinde girinti yapıyordu; o zaman klavyeyle gezen okur listeden çıkmak için içeriği
+    değiştirmek zorunda kalıyor. Kriter 7 ("klavye tuzağı yok") için Tab ve Shift+Tab bağlanmadı.
+    **Bedeli:** düzenleyicide iç içe liste yazılamaz. Yapıştırılan iç içe liste korunur, okuma tarafı
+    çizer. Adım 3'teki "düzenleyici girintiyi durdurmalı" maddesi böylece gereksizleşti. İstenirse
+    araç çubuğuna "girintiyi artır / azalt" düğmeleri sonra eklenebilir.
+  - **Araç çubuğu düğmeleri yazılı** (Kalın, İtalik, Spoiler, Alıntı, Madde listesi, Numaralı liste):
+    görünen ad ile erişilebilir ad aynı; simge ezberletmiyor.
+  - **Klavyeyle basılan düğme odağı editöre geri verir**; okur yazmaya devam eder. Çubuk kaldığı
+    düğmeyi hatırlar (Shift+Tab ile dönünce aynı düğme).
+  - **`aria-invalid` editörün seçeneklerinden yazılır**, bir etkiden DOM'a değil (aşağıdaki hata).
+- **Bulunan hata (Playwright buldu, birim testi bulamadı):** ilk sürümde `aria-invalid` bir `useEffect`
+  içinde `editor.view.dom`'a yazılıyordu. jsdom'daki 549 test yeşildi; derlenmiş pakette düzenleyici
+  açılır açılmaz çöktü ("The editor view is not available": görünüm o anda henüz bağlanmamış). Adım
+  1'in "editör davranışı Playwright ile sınanır" notunun somut karşılığı.
+- **Sonuç (2026-11-27):**
+  - vitest 547 → 554, `typecheck` temiz. Yeni birim testleri: belge gönderimi ve seçili metne spoiler;
+    araç çubuğu (tek Tab durağı, ok tuşları, Home/End, `aria-pressed`, `aria-controls`); özniteliksiz
+    sıralı liste; kod noktası sayacı ve 5001 karakterde gönderilmeme; `docProblem` sınırları (5000/5001
+    karakter, 12/13 kat, 2000/2001 düğüm: sunucununkilerle aynı).
+  - **Playwright (gerçek chromium, NGINX ve CSP arkasında):** inceleme senaryosu art arda 4 koşuda
+    yeşil (6 sn). Sınadıkları:
+    - **yalnız klavyeyle yazma:** metin, Shift+Tab ile araç çubuğu, ok tuşlarıyla "Spoiler", Enter;
+      odak editöre döner; ikinci Shift+Tab aynı düğmeye gelir; Tab editörden "Vazgeç"e, oradan
+      "Kaydet"e geçer (tuzak yok);
+    - **Markdown kısayolu:** `**kalın**` yazınca kalına dönüyor;
+    - **axe:** düzenleyici açıkken, spoiler parçası kapalı ve açıkken ihlal yok;
+    - **CSP:** `style-src` ihlali yok, sayfada Tiptap'in `<style>` etiketi yok;
+    - **parça parça spoiler (kriter 2):** öteki okurun incelemesinde açık metin ve liste okunuyor,
+      spoiler parçası açılana kadar sayfanın kaynağında yok, Enter ile açılıyor, odak düğmede kalıyor;
+    - **yapıştırma:** başlık, bağlantı, resim ve `<script>` içeren HTML'den yalnız metin kalıyor,
+      işleyici çalışmıyor;
+    - düzenleme belgeyi biçimiyle açıyor; iki sekmede 409, gizliyken düzenleme ve silme aynen.
+    Kitap sayfasına ve parça yüklemeye dokunan öteki dosyalar (`cache-headers`, `resilience`,
+    `library`) 7/7 yeşil. Tam paket yerelde koşmadı; CI'da koşar.
+  - **Paket:** düzenleyici parçası 342 kB (gzip **104,9 kB**) + 1,1 kB stil; yalnız "İnceleme yaz" ya
+    da "Düzenle" denince iner. İlk açılışta inen toplam değişmedi: önce `index` + `toast` gzip 123,6 kB,
+    şimdi `index` + `utils` 122,1 kB (derleyici ortak kodu yeniden böldü). İncelemeler parçası gzip
+    4,23 → 4,70 kB.
+  - Dependabot: npm güncellemeleri küçük ve yama sürümlerde zaten gruplu; Tiptap paketleri (birbirini
+    tam sürümle istiyor) birlikte güncellenir.
+- **Doğrulanamadı / sonraya kalan:**
+  - Ekran okuyucuyla kullanım (axe ve klavye otomatik sınandı; ekran okuyucu denenmedi).
+  - Firefox, Safari ve mobil klavyeler: yalnız chromium koştu.
+  - Araç çubuğundaki ipuçları kısayolu "Ctrl+…" diye yazıyor; macOS'te tuş Cmd.
+  - Düzenleyici parçası yüklenemezse (ağ koptu) ne göründüğü ayrıca denenmedi; uygulamanın genel
+    parça yenileme ve hata sınırı devrede.
+- **Bakılacak yerler:**
+  1. [`extensions.ts`](../../frontend/src/components/review-editor/extensions.ts): şema ve üç uyarlama.
+  2. [`ReviewRichEditor.tsx`](../../frontend/src/components/review-editor/ReviewRichEditor.tsx):
+     `useEditor` seçenekleri ve `Toolbar`.
+  3. [`MyReview.tsx`](../../frontend/src/components/MyReview.tsx): `ReviewEditor`.
+  4. [`rating-comment.spec.ts`](../../frontend/e2e/rating-comment.spec.ts): `writeAndEdit`,
+     `spoilerPieceOpensAlone`, `pasteHostileHtml`.
+  5. [`editor.css`](../../frontend/src/components/review-editor/editor.css).
+
 ## ⚠️ Önemli noktalar
 
 - Editör davranışı bileşen testiyle değil Playwright ile sınanır (gerçek tarayıcı); birim testleri

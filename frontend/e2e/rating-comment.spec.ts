@@ -2,6 +2,8 @@
 //  1. Puan ve yorum (Faz 5).
 //  2. İnceleme (Faz 17B): yaz, düzenle, iki sekmede 409, gizlenince gerekçe ve gizli kalan düzenleme,
 //     spoiler'ın klavyeyle açılması ve axe taraması, silince puanın kalması (spec Doğrulama 12, 14–16).
+//     Faz 17C: zengin metin düzenleyicisi yalnız klavyeyle (araç çubuğu dahil, klavye tuzağı yok),
+//     Markdown kısayolu, yapıştırılan HTML'in düz metne inmesi, parça parça spoiler (#128 kriter 2, 7).
 // RATE LIMIT BÜTÇESİ: 1 login. Tablo: e2e/helpers.ts. İnceleme senaryosu ayrı bir dosya olsaydı kendi
 // girişini yapar ve bütçeyi tavana (11) dayardı; library.spec'teki gibi aynı sayfayı paylaşır. Yönetici
 // tarafı (öteki okurun spoiler'lı incelemesi, gizleme, geri açma) NGINX'i atlayan doğrudan API
@@ -114,11 +116,18 @@ function voteCount(text: string): number {
 /** Öteki okurun (yönetici hesabı) spoiler'lı incelemesinin metni: açılana kadar sayfada OLMAMALI. */
 const SPOILER = `E2E spoiler ${RUN_ID}: sonunda herkes ölüyor`;
 const HIDE_REASON = `E2E gizleme gerekçesi ${RUN_ID}`;
+/** Öteki okurun incelemesindeki TEK spoiler parçası (Faz 17C): gerisi açık, bu açılana kadar sayfada yok. */
+const PIECE = `E2E parça ${RUN_ID}: katil uşak`;
 
 test("inceleme: yaz, düzenle, iki sekmede 409, gizlenince gerekçe, spoiler klavyeyle ve axe, sil", async () => {
   await openBook(page);
   const bookId = Number(new URL(page.url()).pathname.split("/").pop());
   const admin = await adminApi();
+  // Düzenleyici CSP'ye takılmamalı (Faz 17C): Tiptap'in <style> etiketi kapalı (injectCSS: false).
+  const styleViolations: string[] = [];
+  page.on("console", (m) => {
+    if (m.text().includes("Content Security Policy") && m.text().includes("style-src")) styleViolations.push(m.text());
+  });
   try {
     // Yeniden denemede ilk denemenin incelemeleri kalmış olabilir: ikisi de baştan silinir.
     await admin.deleteReview(bookId);
@@ -128,6 +137,7 @@ test("inceleme: yaz, düzenle, iki sekmede 409, gizlenince gerekçe, spoiler kla
     await expectLoggedIn(page, READER_NAME);
 
     await spoilerIsKeyboardAccessible(page);
+    await spoilerPieceOpensAlone(page, admin, bookId);
     await writeAndEdit(page);
     await twoTabConflict(page);
     await hiddenReviewShowsReason(page, admin, bookId);
@@ -139,6 +149,7 @@ test("inceleme: yaz, düzenle, iki sekmede 409, gizlenince gerekçe, spoiler kla
     await dialog.getByRole("button", { name: "Sil", exact: true }).click();
     await expect(page.getByRole("button", { name: "İnceleme yaz" })).toBeVisible();
     await expect(page.getByRole("group", { name: "Senin puanın" }).locator("button[aria-pressed=true]")).toHaveCount(1);
+    expect(styleViolations, "düzenleyici stil yüzünden CSP ihlali üretmemeli").toEqual([]);
   } finally {
     await admin.deleteReview(bookId);
     await admin.dispose();
@@ -148,6 +159,9 @@ test("inceleme: yaz, düzenle, iki sekmede 409, gizlenince gerekçe, spoiler kla
 const reviews = (p: Page) => p.getByRole("region", { name: /^İncelemeler/ });
 const myReview = (p: Page) => p.getByRole("region", { name: "Senin incelemen" });
 const editor = (p: Page) => p.getByRole("form", { name: "İncelemeni yaz" });
+/** Zengin metin alanı (Faz 17C). Ayrı parçada yüklenir; görünmesini beklemek yüklenmesini beklemektir. */
+const field = (p: Page) => editor(p).getByRole("textbox", { name: "İncelemen" });
+const tool = (p: Page, name: string) => editor(p).getByRole("toolbar", { name: "Biçim" }).getByRole("button", { name, exact: true });
 
 /** Kitaba katalogdan (SPA gezintisi, bellekteki oturum korunur); önceki senaryo sayfayı kitapta bırakır. */
 async function openBook(p: Page) {
@@ -196,24 +210,113 @@ async function spoilerIsKeyboardAccessible(p: Page) {
   await expectNoA11yViolations(p, "spoiler açık");
 }
 
-/** İlk yazım (spoiler kutusu klavyeyle) ve düzenleme: ikinci kayıt aynı incelemeyi düzenler (Doğrulama 12). */
+/**
+ * Parça parça spoiler (Faz 17C, #128 kriter 2). Öteki okur incelemesini belgeyle düzenler: yalnız bir
+ * parça spoiler. Gerisi açık okunur; parçanın metni kendi düğmesiyle açılana kadar sayfada yok.
+ */
+async function spoilerPieceOpensAlone(p: Page, admin: AdminApi, bookId: number) {
+  await admin.saveReview(bookId, {
+    version: 1,
+    doc: { type: "doc", content: [
+      { type: "paragraph", content: [
+        { type: "text", text: "Sonunu söylüyorum: " },
+        { type: "text", text: PIECE, marks: [{ type: "bold" }, { type: "spoiler" }] },
+        { type: "text", text: " Yine de okuyun." },
+      ] },
+      { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "E2E madde" }] }] }] },
+    ] },
+  });
+  await p.reload();
+  await expectLoggedIn(p, READER_NAME);
+
+  const card = reviews(p).getByRole("listitem").filter({ hasText: "E2E Admin" });
+  await expect(card).toContainText("Sonunu söylüyorum:");
+  await expect(card).toContainText("Yine de okuyun.");
+  await expect(card.locator("ul > li")).toHaveText("E2E madde");
+  await expect(card.getByText("Spoiler içeriyor")).toHaveCount(0); // tamamı spoiler değil: kart düğmesi yok
+  expect(await p.content(), "spoiler parçası açılmadan sayfada olmamalı").not.toContain(PIECE);
+  const toggle = card.getByRole("button", { name: "Spoiler'ı göster" });
+  await expect(toggle).toHaveCount(1);
+  await expectNoA11yViolations(p, "spoiler parçası kapalı");
+
+  await toggle.focus();
+  await p.keyboard.press("Enter");
+  await expect(card.locator("strong", { hasText: PIECE })).toBeVisible();
+  const hide = card.getByRole("button", { name: "Spoiler'ı gizle" });
+  await expect(hide).toBeFocused(); // düğme yerinde kaldı: odak kaybolmadı
+  await expect(hide).toHaveAttribute("aria-expanded", "true");
+  await expectNoA11yViolations(p, "spoiler parçası açık");
+}
+
+/**
+ * İlk yazım YALNIZ KLAVYEYLE (#128 kriter 7) ve düzenleme (Doğrulama 12). Araç çubuğuna Shift+Tab ile
+ * girilir, ok tuşlarıyla gezilir; düğme odağı editöre geri verir. Tab editörden çıkar (klavye tuzağı yok).
+ */
 async function writeAndEdit(p: Page) {
   await p.getByRole("button", { name: "İnceleme yaz" }).click();
-  await editor(p).getByLabel("İncelemen").fill(`E2E incelemesi ${RUN_ID}`);
-  await editor(p).getByLabel("Spoiler içeriyor").focus();
-  await p.keyboard.press("Space");
-  await expect(editor(p).getByLabel("Spoiler içeriyor")).toBeChecked();
+  await expect(field(p)).toBeVisible();
+  await field(p).focus();
+  await p.keyboard.type(`E2E incelemesi ${RUN_ID} `);
+
+  await p.keyboard.press("Shift+Tab");
+  await expect(tool(p, "Kalın")).toBeFocused();
+  await p.keyboard.press("ArrowRight");
+  await p.keyboard.press("ArrowRight");
+  await expect(tool(p, "Spoiler")).toBeFocused();
+  await p.keyboard.press("Enter");
+  await expect(field(p)).toBeFocused();
+  await expect(tool(p, "Spoiler")).toHaveAttribute("aria-pressed", "true");
+  await p.keyboard.type("gizli son");
+
+  await p.keyboard.press("Shift+Tab"); // çubuk kaldığı düğmeyi hatırlar
+  await expect(tool(p, "Spoiler")).toBeFocused();
+  await p.keyboard.press("Enter");
+  await expect(tool(p, "Spoiler")).toHaveAttribute("aria-pressed", "false");
+  await p.keyboard.type(" **kalın** biter"); // Markdown kısayolu: yazarken kalına döner
+  await expect(field(p).locator("strong")).toHaveText("kalın");
+  await expect(field(p).locator("span[data-spoiler]")).toHaveText("gizli son");
   await expectNoA11yViolations(p, "düzenleyici açık");
-  await editor(p).getByRole("button", { name: "Kaydet" }).click();
-  await expect(myReview(p)).toContainText(`E2E incelemesi ${RUN_ID}`);
+  await expect(p.locator("style[data-tiptap-style]")).toHaveCount(0);
+
+  await p.keyboard.press("Tab"); // editörden çıkış: sıradaki düğme
+  await expect(editor(p).getByRole("button", { name: "Vazgeç" })).toBeFocused();
+  await p.keyboard.press("Tab");
+  await expect(editor(p).getByRole("button", { name: "Kaydet" })).toBeFocused();
+  await p.keyboard.press("Enter");
+
+  await expect(myReview(p)).toContainText(`E2E incelemesi ${RUN_ID} gizli son kalın biter`);
+  await expect(myReview(p).locator("mark")).toHaveText("gizli son");
+  await expect(myReview(p).locator("strong")).toHaveText("kalın");
   await expect(myReview(p)).toContainText("spoiler içeriyor olarak işaretli");
   await expect(myReview(p)).not.toContainText("düzenlendi");
 
   await myReview(p).getByRole("button", { name: "Düzenle" }).click();
-  await editor(p).getByLabel("İncelemen").fill(`E2E düzenlenmiş inceleme ${RUN_ID}`);
+  await expect(field(p)).toContainText(`E2E incelemesi ${RUN_ID} gizli son kalın biter`); // belge biçimiyle açılır
+  await expect(field(p).locator("span[data-spoiler]")).toHaveText("gizli son");
+  await pasteHostileHtml(p);
+  await field(p).fill(`E2E düzenlenmiş inceleme ${RUN_ID}`);
   await editor(p).getByRole("button", { name: "Kaydet" }).click();
   await expect(myReview(p)).toContainText(`E2E düzenlenmiş inceleme ${RUN_ID}`);
   await expect(myReview(p)).toContainText("düzenlendi");
+}
+
+/**
+ * Yapıştırılan HTML şemadan geçer: başlık, bağlantı ve resim öğe olarak giremez, metinleri kalır; olay
+ * işleyicisi çalışmaz. (Sunucu zaten HTML kabul etmiyor; burada bakılan editörün ne ürettiği.)
+ */
+async function pasteHostileHtml(p: Page) {
+  await field(p).focus();
+  await p.keyboard.press("Control+End");
+  await field(p).evaluate((el) => {
+    const data = new DataTransfer();
+    data.setData("text/html", `<h1>E2E başlık</h1><p><a href="https://kotu.example" onclick="window.__pwned=1">E2E bağlantı</a></p><img src="x" onerror="window.__pwned=1"><script>window.__pwned=1</script>`);
+    data.setData("text/plain", "düz");
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await expect(field(p)).toContainText("E2E bağlantı");
+  await expect(field(p)).toContainText("E2E başlık");
+  await expect(field(p).locator("a, h1, img, script")).toHaveCount(0);
+  expect(await p.evaluate(() => (window as { __pwned?: number }).__pwned ?? null)).toBeNull();
 }
 
 /** İki sekme aynı incelemeyi düzenler: sonra kaydeden 409 alır, ötekinin metnini görür, "Benimkini kaydet" yazar. */
@@ -224,19 +327,19 @@ async function twoTabConflict(p: Page) {
     await expectLoggedIn(second, READER_NAME);
     await myReview(p).getByRole("button", { name: "Düzenle" }).click();
     await myReview(second).getByRole("button", { name: "Düzenle" }).click();
-    await editor(second).getByLabel("İncelemen").fill(`E2E ikinci sekme ${RUN_ID}`);
+    await field(second).fill(`E2E ikinci sekme ${RUN_ID}`);
     await editor(second).getByRole("button", { name: "Kaydet" }).click();
     await expect(myReview(second)).toContainText(`E2E ikinci sekme ${RUN_ID}`);
   } finally {
     await second.close();
   }
 
-  await editor(p).getByLabel("İncelemen").fill(`E2E birinci sekme ${RUN_ID}`);
+  await field(p).fill(`E2E birinci sekme ${RUN_ID}`);
   await editor(p).getByRole("button", { name: "Kaydet" }).click();
   const note = editor(p).getByRole("alert");
   await expect(note).toContainText("İncelemen başka bir yerde değişmiş");
   await expect(note).toContainText(`E2E ikinci sekme ${RUN_ID}`);
-  await expect(editor(p).getByLabel("İncelemen")).toHaveValue(`E2E birinci sekme ${RUN_ID}`);
+  await expect(field(p)).toHaveText(`E2E birinci sekme ${RUN_ID}`);
   await editor(p).getByRole("button", { name: "Benimkini kaydet" }).click();
   await expect(myReview(p)).toContainText(`E2E birinci sekme ${RUN_ID}`);
 }
@@ -253,7 +356,7 @@ async function hiddenReviewShowsReason(p: Page, admin: AdminApi, bookId: number)
   await expect(myReview(p)).toContainText(`Bu inceleme yönetici tarafından gizlendi: ${HIDE_REASON}`);
 
   await myReview(p).getByRole("button", { name: "Düzenle" }).click();
-  await editor(p).getByLabel("İncelemen").fill(`E2E gizliyken düzenlendi ${RUN_ID}`);
+  await field(p).fill(`E2E gizliyken düzenlendi ${RUN_ID}`);
   await editor(p).getByRole("button", { name: "Kaydet" }).click();
   await expect(p.getByRole("region", { name: "Bildirimler" })).toContainText("gizli kalmaya devam ediyor");
   await expect(myReview(p)).toContainText(HIDE_REASON);
@@ -282,7 +385,8 @@ async function adminApi() {
     return res;
   };
   return {
-    saveReview: (bookId: number, data: { body: string; has_spoiler: boolean }) =>
+    // İki gövde de (spec karar 7): eski düz metin + kutu, ya da belge.
+    saveReview: (bookId: number, data: { body: string; has_spoiler: boolean } | { doc: object; version?: number }) =>
       ok(api.put(`/api/books/${bookId}/review`, { headers, data }), "yöneticinin incelemesi"),
     deleteReview: (bookId: number) =>
       ok(api.delete(`/api/books/${bookId}/review`, { headers }), "yöneticinin incelemesini silme", [204, 404]),

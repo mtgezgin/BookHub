@@ -60,6 +60,34 @@ export function docLength(doc: DocNode): number {
   return n;
 }
 
+/** Sunucudaki öteki sınırlar (richtext.MaxNodes, MaxDepth): düğüm sayısı ve doc'tan metne kat sayısı. */
+const MAX_NODES = 2000;
+const MAX_DEPTH = 12;
+
+/** Yeni, boş belge: tek boş paragraf (editörün boş hâli). */
+export const emptyDoc = (): DocNode => ({ type: "doc", content: [{ type: "paragraph" }] });
+
+/**
+ * Belge kaydedilebilir mi; değilse okura söylenecek cümle. Sunucunun ErrEmpty ve ErrLimit denetimlerinin
+ * ön kontrolü: okur 400 almadan önce nedenini kendi dilinde görsün. Son söz yine sunucunun.
+ */
+export function docProblem(doc: DocNode): string | null {
+  if (docText(doc).trim() === "") return "İncelemen boş olamaz.";
+  if (docLength(doc) > MAX_REVIEW) return `İncelemen en fazla ${MAX_REVIEW} karakter olabilir.`;
+  let nodes = 0;
+  let deepest = 0;
+  const walk = (n: DocNode, depth: number) => {
+    nodes++;
+    deepest = Math.max(deepest, depth);
+    for (const c of n.content ?? []) walk(c, depth + 1);
+  };
+  walk(doc, 1);
+  if (nodes > MAX_NODES || deepest > MAX_DEPTH) {
+    return "İncelemen çok fazla iç içe liste ya da alıntı içeriyor; sadeleştirip yeniden dene.";
+  }
+  return null;
+}
+
 /** Belgede spoiler işaretli metin var mı. */
 export const docHasSpoiler = (doc: DocNode) => textNodes(doc).some(isSpoiler);
 

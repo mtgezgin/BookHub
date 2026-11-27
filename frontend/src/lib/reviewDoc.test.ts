@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { type DocNode, docHasSpoiler, docLength, docOf, docText, isAllSpoiler, MAX_REVIEW, plainToDoc } from "./reviewDoc";
+import { type DocNode, docHasSpoiler, docLength, docOf, docProblem, docText, emptyDoc, isAllSpoiler, MAX_REVIEW, plainToDoc } from "./reviewDoc";
 
 /*
  * ORTAK ÖRNEKLER: sunucunun doğrulayıcısı (backend/internal/richtext) aynı dosyayı kendi testinde okur.
@@ -59,6 +59,30 @@ describe("düz metinden belge", () => {
   });
   it("Windows satır sonu", () => expect(docText(plainToDoc("bir\r\niki\rüç", false))).toBe("bir\niki\nüç"));
   it("denetim karakteri atılır, sekme kalır", () => expect(docText(plainToDoc("a\u0000b\tc\u007f\u0085", false))).toBe("ab\tc"));
+});
+
+// Sunucudaki ErrEmpty ve ErrLimit'in ön kontrolü (richtext.Parse ile aynı sınırlar).
+describe("kaydedilebilir mi", () => {
+  const nest = (depth: number): DocNode => (depth === 0 ? { type: "paragraph", content: [text("a")] } : { type: "blockquote", content: [nest(depth - 1)] });
+  it("geçerli belge", () => expect(docProblem(para(text("Güzel")))).toBeNull());
+  it("boş ve yalnız boşluk", () => {
+    expect(docProblem(emptyDoc())).toBe("İncelemen boş olamaz.");
+    expect(docProblem(para(text(" \t ")))).toBe("İncelemen boş olamaz.");
+  });
+  it("5000 karakter geçer, 5001 geçmez (çok baytlı)", () => {
+    expect(docProblem(para(text("ş".repeat(5000))))).toBeNull();
+    expect(docProblem(para(text("ş".repeat(5001))))).toBe("İncelemen en fazla 5000 karakter olabilir.");
+  });
+  it("12 kat geçer, 13 geçmez", () => {
+    // doc (1) + alıntılar + paragraf + metin
+    expect(docProblem({ type: "doc", content: [nest(9)] })).toBeNull();
+    expect(docProblem({ type: "doc", content: [nest(10)] })).toMatch(/iç içe/);
+  });
+  it("2000 düğüm geçer, 2001 geçmez", () => {
+    const many = (n: number): DocNode => ({ type: "doc", content: [{ type: "paragraph", content: [text("a")] }, ...Array.from({ length: n - 3 }, () => ({ type: "paragraph" }))] });
+    expect(docProblem(many(2000))).toBeNull();
+    expect(docProblem(many(2001))).toMatch(/iç içe/);
+  });
 });
 
 describe("docOf", () => {
