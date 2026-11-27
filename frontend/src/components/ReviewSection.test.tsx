@@ -148,6 +148,23 @@ describe("liste", () => {
     expect(document.body.textContent).not.toContain("Katil uşak");
   });
 
+  it("sunucunun belgesi çizilir: biçim görünür, yalnız spoiler parçası gizli (Faz 17C)", async () => {
+    list = [publicOf(1, {
+      body: "Sonu katil uşak", has_spoiler: true,
+      doc: { type: "doc", content: [{ type: "paragraph", content: [
+        { type: "text", text: "Sonu ", marks: [{ type: "bold" }] },
+        { type: "text", text: "katil uşak", marks: [{ type: "spoiler" }] },
+      ] }] },
+    })];
+    await render();
+    expect(listed()[0]).toContain("Sonu ");
+    expect(document.querySelector("ul[aria-label=İncelemeler] p strong")!.textContent).toBe("Sonu ");
+    expect(document.body.textContent).not.toContain("katil uşak");
+    expect(document.body.textContent).not.toContain("Spoiler içeriyor"); // tamamı spoiler değil: kart düğmesi yok
+    await click(button("Spoiler'ı göster"));
+    expect(listed()[0]).toContain("katil uşak");
+  });
+
   it("girişsiz: giriş bağlantısı, yazma düğmesi yok, benim incelemem sorulmaz", async () => {
     h.user = null;
     await render();
@@ -184,6 +201,20 @@ describe("benim incelemem", () => {
     await render();
     expect(listed()).toHaveLength(1);
     expect(listed()[0]).toContain("Okur 2");
+  });
+
+  it("kendi incelememde spoiler açık ve işaretli görünür, düğme yok (Faz 17C)", async () => {
+    mine = mineOf({
+      body: "Sonu katil uşak", has_spoiler: true,
+      doc: { type: "doc", content: [{ type: "paragraph", content: [
+        { type: "text", text: "Sonu " }, { type: "text", text: "katil uşak", marks: [{ type: "spoiler" }] },
+      ] }] },
+    });
+    await render();
+    const card = document.querySelector("section[aria-labelledby=my-review-heading]")!;
+    expect(card.querySelector("mark")!.textContent).toBe("katil uşak");
+    expect(card.textContent).toContain("spoiler içeriyor olarak işaretli");
+    expect(Array.from(card.querySelectorAll("button")).map((x) => x.textContent)).toEqual(["Düzenle", "Sil"]);
   });
 
   it("gizlenmiş incelemede gerekçe görünür", async () => {

@@ -372,6 +372,55 @@ PR'ı; daraltma ayrı PR.
   4. [`reviews_test.go`](../../backend/cmd/api/reviews_test.go): `TestSaveReviewRequests`'in "belge:"
      satırları.
 
+### Adım 5 — Arayüz veri katmanı ve `ReviewDoc` (kayıt)
+
+- **Amaç:** belgeyi okuma tarafında çizmek. Yazma tarafı (düzenleyici) bu adımda değişmedi: hâlâ düz
+  metin kutusu ve eski gövde.
+- **Parçalar:**
+  - `lib/reviewDoc.ts`: belge tipi ve saf fonksiyonlar. `docText` ve `docLength` sunucudaki `Text` ile
+    aynı kuralı uygular (paragraf başına bir satır, uzunluk **kod noktası**); `plainToDoc` sunucudaki
+    `FromPlain`'in aynısı; `docOf` incelemenin belgesini verir.
+  - `components/ReviewDoc.tsx`: ağacı React öğelerine çevirir. `dangerouslySetInnerHTML` yok; metin her
+    zaman metin olarak basılır. Tanınmayan düğüm çizilmez.
+  - `api/types.ts`: cevaplarda `doc`; `ReviewDraft` iki biçimli (belge **ya da** düz metin), ikisini
+    birlikte göndermek derleme hatası.
+  - `ReviewSection` ve `MyReview` metni `ReviewDoc` ile çiziyor.
+- **Kararlar (bu adımda verildi):**
+  - **Parça kuralı (karar 9):** bir paragraftaki art arda spoiler metinleri tek parça; aradaki kalın
+    onları bölmez. Parçanın düğmesi yerinde kalır (açınca odak kaybolmaz), aynı düğme kapatır.
+  - **Tamamı spoiler olan inceleme tek düğmeyle açılır.** Eski "spoiler içeriyor" kutusuyla yazılmış
+    incelemeler böyle; kural olmasa beş paragraflı bir incelemede beş düğme çıkardı. Görünüm ve düğme
+    metni 17B'dekiyle aynı.
+  - **Kendi incelemem:** spoiler açık görünür ve işaretlidir (`<mark>`); okur neyi gizlediğini görsün.
+  - **`doc` alanı tipte isteğe bağlı.** Sunucu her zaman gönderir, ama yayın sırasında yeni arayüz
+    birkaç dakika eski API ile konuşabilir; o zaman `docOf` düz metinden çevirir.
+- **Sonuç (2026-11-27):**
+  - vitest 519 → 547, hepsi yeşil; `typecheck` temiz.
+  - **Ortak örnekler:** `reviewDoc.test.ts`, sunucunun `testdata/vectors.json` dosyasını okuyor; altı
+    örnekte düz metin, spoiler ve uzunluk iki tarafta aynı. Adım 3'te "eşlenmiş değil" diye yazılan
+    açık kapandı.
+  - `ReviewDoc.test.tsx`: yapı (paragraf, kalın, italik, alıntı, iç içe liste), boş paragraf, HTML'in
+    metin kalması (`<img onerror>` ve `<script>` öğeye dönüşmüyor), tanınmayan düğüm, parça kuralı,
+    parçaların ayrı ayrı açılması, tamamı spoiler, yazar kipi.
+  - Mutasyon: spoiler metnini DOM'dan çıkarmak yerine `hidden` ile gizleyince 3 test, parçaları
+    birleştirmeyince 2 test kırmızı.
+  - Paket: `ReviewSection` parçası gzip 3,45 → 4,23 kB; ana paket aynı (94,89 kB).
+  - **Yeni arayüz, yeni API:** `scripts/e2e.sh e2e/rating-comment.spec.ts` 2/2 yeşil, senaryo
+    değişmeden (yaz, düzenle, iki sekmede 409, gizleme, klavyeyle spoiler, axe, sil). Okuma artık
+    `ReviewDoc`'tan geçiyor; yazma hâlâ eski gövdeyle.
+- **Yayın sırası riski (adım 7'de karar):** web ve API ayrı servisler ve aynı commit'ten ayrı ayrı
+  yayınlanıyor. Okuma tarafı iki sırada da çalışır (`docOf`). Yazma tarafı adım 6'da belge göndermeye
+  başlayınca, yeni arayüz **eski** API'ye denk gelirse kaydetme 400 alır (eski API `doc` alanını
+  tanımıyor). Seçenekler: API'yi ayrı PR'la önce yayınlamak ya da birkaç dakikalık pencereyi kabul etmek.
+- **Doğrulanamadı / sonraya kalan:** parça parça spoiler'ın tarayıcıda klavye ve axe ile denenmesi
+  (adım 7; belgeyi gönderecek düzenleyici adım 6'da geliyor); ekran okuyucu.
+- **Bakılacak yerler:**
+  1. [`reviewDoc.ts`](../../frontend/src/lib/reviewDoc.ts): `docText`, `docLength`, `isAllSpoiler`,
+     `plainToDoc`.
+  2. [`ReviewDoc.tsx`](../../frontend/src/components/ReviewDoc.tsx): `Block`, `inline`, `SpoilerPiece`.
+  3. [`ReviewDoc.test.tsx`](../../frontend/src/components/ReviewDoc.test.tsx): "spoiler parçaları".
+  4. [`types.ts`](../../frontend/src/api/types.ts): `ReviewDraft`.
+
 ## ⚠️ Önemli noktalar
 
 - Editör davranışı bileşen testiyle değil Playwright ile sınanır (gerçek tarayıcı); birim testleri

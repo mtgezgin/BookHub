@@ -1,3 +1,5 @@
+import type { DocNode } from "../lib/reviewDoc";
+
 // API sözleşmesinin TypeScript karşılığı. Kaynak: backend/cmd/api/*.go içindeki
 // *Response struct'ları (json etiketleri). Backend DTO'su değişirse burası da değişmeli.
 
@@ -105,6 +107,8 @@ export interface PublicReview {
   author_score: number | null;
   body: string;
   has_spoiler: boolean;
+  /** İncelemenin belgesi (Faz 17C). Sunucu her zaman gönderir; okurken lib/reviewDoc `docOf` kullan. */
+  doc?: DocNode;
   created_at: string;
   edited_at: string | null; // null = hiç düzenlenmedi
 }
@@ -118,18 +122,21 @@ export interface Review {
   book_id: number;
   body: string;
   has_spoiler: boolean;
+  doc?: DocNode;
   version: number;
   created_at: string;
   edited_at: string | null;
   hidden: { at: string; reason: string } | null;
 }
 
-/** PUT gövdesi. version: ilk yazımda YOK, düzenlemede incelemenin son bilinen sürümü. */
-export interface ReviewDraft {
-  body: string;
-  has_spoiler: boolean;
-  version?: number;
-}
+/**
+ * PUT gövdesi. version: ilk yazımda YOK, düzenlemede incelemenin son bilinen sürümü.
+ * İki biçim (Faz 17C, spec karar 7): belge ya da düz metin + spoiler kutusu. İkisi birlikte gönderilmez
+ * (sunucu 400 der); tip bunu derleme anında engeller.
+ */
+export type ReviewDraft =
+  | { doc: DocNode; body?: never; has_spoiler?: never; version?: number }
+  | { body: string; has_spoiler: boolean; doc?: never; version?: number };
 
 export interface RatingSummary {
   average_rating: number | null;

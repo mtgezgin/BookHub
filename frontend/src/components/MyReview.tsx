@@ -3,16 +3,15 @@ import { ApiError } from "../api/client";
 import { useDeleteReview, useMyReview, useSaveReview } from "../api/reviewQueries";
 import type { Review } from "../api/types";
 import { formatDate } from "../lib/format";
+import { docOf, MAX_REVIEW } from "../lib/reviewDoc";
 import { ErrorBox } from "./common";
+import { ReviewDoc } from "./ReviewDoc";
 import { useToast } from "./toast";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { Textarea } from "./ui/input";
 import { Label } from "./ui/label";
-
-/** Sunucudaki sınır (reviews.MaxBodyLen). */
-export const MAX_REVIEW = 5000;
 
 /**
  * Okurun bu kitaptaki incelemesi (Faz 17B): yoksa "İnceleme yaz", varsa metni, düzenle ve sil. Gizlenmişse
@@ -60,7 +59,7 @@ function MyReviewCard({ review, userId, bookId, onEdit }: Readonly<{
           Bu inceleme yönetici tarafından gizlendi: {review.hidden.reason}. Başkaları göremiyor.
         </Alert>
       )}
-      <p className="leading-relaxed whitespace-pre-wrap">{review.body}</p>
+      <ReviewDoc doc={docOf(review)} mode="author" />
       <p className="text-xs text-muted-foreground">
         {formatDate(review.created_at)}
         {review.edited_at && " · düzenlendi"}
