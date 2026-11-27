@@ -30,11 +30,10 @@ sertleştirme (Faz 13) + ürün fazları 14–16d.
 - **Gözlemlenebilirlik (2026-11-18):** API OpenTelemetry ile iz ve metrik üretiyor; yerelde
   `make obs-up` (Grafana :3002, Prometheus :9090). Canlıda kapalı: Grafana Cloud'a açmak
   [#96](https://github.com/mtgezgin/BookHub/issues/96) (hazırlık PR #97; kullanıcının hesabı bekleniyor).
-- **Bekleyen operasyon işleri:** şifreli yedek ([#100](https://github.com/mtgezgin/BookHub/issues/100),
-  taslak PR #101: kullanıcının `age` açık anahtarı ve `backup` ortamının sırrı); canlı ayar doğrulaması
-  ([#84](https://github.com/mtgezgin/BookHub/issues/84): `statement_timeout`, `plan_cache_mode`); kapak
-  önerisinin canlıda 400 dönmesi ([#103](https://github.com/mtgezgin/BookHub/issues/103)); geri dönüş
-  provası (F39, önce F22).
+- **Bekleyen operasyon işleri:** şifreli yedek canlıda (PR #101, 2026-11-23);
+  [#100](https://github.com/mtgezgin/BookHub/issues/100) zamanlanmış ilk koşudan (2026-11-30) sonra
+  kapanır; geri dönüş provası (F39, önce F22). #84 (canlı ayar doğrulaması) ve #103 (kapak önerisinin
+  400 dönmesi) canlıda doğrulanıp kapandı (2026-11-23).
 - **MCP sunucusu (2026-11-11):** `backend/cmd/mcp`, kataloğu bir modele altı salt okunur araçla açar; API'nin
   istemcisidir, imaja girmez ([#52](https://github.com/mtgezgin/BookHub/issues/52)) · [PROJECT_MAP](PROJECT_MAP.md).
 - **Kubernetes öğrenimi ertelendi (kullanıcı kararı, 2026-11-09):** önce özellikler. `make k8s-up`'ın
@@ -109,6 +108,7 @@ sertleştirme (Faz 13) + ürün fazları 14–16d.
 | 16b | Türkçe duyarlı arama ve yazarken arama (migration 0014) | ✅ (canlı 2026-11-18) |
 | 16c | Katalog sorguları: tür süzgeci, sayım, derin sayfa (500 bin kitapta ölçüldü) | ✅ (canlı 2026-11-19) |
 | 16d | Arayüz veri katmanı: TanStack Query | ✅ (canlı 2026-11-22) |
+| 17 | Okuma takibi ve inceleme (raf ve ilerleme, okuma kısıtları, incelemeler; migration 0016–0018) | ✅ (canlı 2026-11-26; canlı doğrulama 2026-11-27) |
 
 ## Faz 2'de ne oldu (özet)
 
@@ -210,7 +210,7 @@ Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
    yüklendi (#100; zamanlanmış ilk koşu 2026-11-30, sonra kapanır). #40, #84, #103 canlıda doğrulanıp
    kapandı. Tarihli bekleyenler: #63 (Supabase duraklamadı mı, panel 2026-11-24), #106 (Trivy istisnası
    2026-12-19'da bitiyor; Aralık başında nginx imajına bakılır).
-2. **Şimdi — Faz 17, okuma takibi ve inceleme** (Paket B: READ-01, READ-02, REV-01, REV-02;
+2. **Faz 17, okuma takibi ve inceleme — canlıda** (Paket B: READ-01, READ-02, REV-01, REV-02;
    [#80](https://github.com/mtgezgin/BookHub/issues/80), [spec](phases/phase-17-reading-reviews.md) onaylı).
    Migration'ları `0016`–`0018`. **17A-1** (migration `0016`, raf servisi ve uçları, kitap sayfasında tek
    raf kontrolü, Kitaplığım'da ilerleme) **canlıda** (PR #121, 2026-11-25). Deploy `0016`'dan önce şifreli
@@ -220,10 +220,11 @@ Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
    (`0017`, okuma kısıtları) canlıda (PR #123, 2026-11-25; canlı sayım 0 satır). **17B** (`0018`,
    incelemeler: servis, uçlar, kitap sayfasında İncelemeler bölümü, spoiler, yönetici gizlemesi)
    canlıda (PR #126, 2026-11-26); canlı doğrulama (Doğrulama 17) 2026-11-27'de yeşil
-   ([spec](phases/phase-17-reading-reviews.md#-17b-yayın-ve-canlı-doğrulama-2026-11-27)). #80 kullanıcı
-   onayıyla kapanır. Ardından (ROADMAP,
-   2026-11-23): okuma özeti ve kişisel ana sayfa → yazarın diğer kitapları → bağlantı önizlemesi →
-   notlar ve alıntılar.
+   ([spec](phases/phase-17-reading-reviews.md#-17b-yayın-ve-canlı-doğrulama-2026-11-27)). #80 kapandı
+   (2026-11-27). Şimdi ve ardından (ROADMAP,
+   2026-11-27): zengin metinli inceleme ve seçici spoiler (REV-04, #128; spec onaylandı) → yazarlar ve
+   edebiyatlar (CAT-05, DISC-06) → okuma özeti ve kişisel ana sayfa → bağlantı önizlemesi → notlar ve
+   alıntılar.
 3. **Kullanıcı adımları:** Northflank sağlık kontrolleri (panel), Grafana Cloud hesabı (#96). Sırlar
    artık Bitwarden'da (kullanıcının Mac'i yok; CLAUDE.md).
 4. **Teknik hat (araya, küçük):** CodeQL ve SonarCloud'da test kapsamı (CI öğrenme adımları), F22

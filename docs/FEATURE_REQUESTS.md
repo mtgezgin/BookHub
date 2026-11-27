@@ -233,6 +233,16 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **Kabul kriterleri:** Aynı seride aynı sıra iki kez kullanılamaz. Seriden çıkarılan kitap sayfadan kalkar. Kullanıcının kitaplık durumu seri sayfasında doğru görünür.
 - **Bağımlılıklar:** CAT-02; kullanıcının seri önermesi MOD-01–02 ile.
 
+### CAT-05 — Yazar kaydı ve yazar sayfası
+
+- [ ] **P1 · Önerildi** (2026-11-27)
+- **Kullanıcı ihtiyacı:** Bir yazarı tanımak ve bütün kitaplarını tek yerde görmek.
+- **Ekran/akış:** Kitap detayında yazar adı → yazar sayfası (kısa biyografi, edebiyatı, kitapları) → kitap.
+- **İlk kapsam:** Yazar ayrı bir kayıt (ad, kısa biyografi, sayfa adresi); mevcut kitaplar yazar kayıtlarına bağlanır; yazar sayfası. Yazarı yalnız admin tanımlar ve düzenler.
+- **İş kuralları:** Yazar bugün eserde düz metin (`books.author`). Geçiş genişlet → yayınla → daralt sırasıyla yapılır. Ortak yazarlı eser birden çok yazara bağlanabilir. Aynı yazarın farklı yazılmış adları tek kayıtta birleştirilir; kullanıcı önerisindeki yazar adının nasıl eşleneceği spec'te kararlaştırılır.
+- **Kabul kriterleri:** Her yayındaki kitap en az bir yazar kaydına bağlı. Yazar sayfası yayında olmayan kitapları göstermez. Arama yazar adını eskisi gibi bulur (`search_fold`).
+- **Bağımlılıklar:** CAT-02. DISC-05 ve DISC-06 buna dayanır; DISC-05'in "düz metin eşleşmesi" ilk kapsamı bu kayıtla yer değiştirir.
+
 ## 8. İncelemeler ve değerlendirmeler
 
 ### REV-01 — Kendi kitap incelemesini yazma ve yönetme
@@ -260,6 +270,15 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **İş kuralları:** Kullanıcı-inceleme başına tek oy; kendi incelemesine oy veremez. İşlem kotası uygulanır. Gizli/silinmiş inceleme listelenmez.
 - **Kabul kriterleri:** Tekrarlanan istek sayacı şişirmez. Oy geri alınınca sayı tutarlı azalır. Sayfalama kararlı çalışır.
 - **Bağımlılıklar:** REV-01, MOD-04. İlk sürüm dışında: yanıt zincirleri ve özel mesajlar.
+
+### REV-04 — Zengin metinli inceleme ve seçici spoiler
+
+- [ ] **P1 · Önerildi** (2026-11-27)
+- **Kullanıcı ihtiyacı:** İncelememi biçimlendirmek ve yalnız spoiler olan kısmı gizlemek; okurken spoiler olmayan kısmı görebilmek.
+- **İlk kapsam:** İnceleme düzenleyicisinde paragraf, kalın, italik, alıntı, liste ve **satır içi spoiler**. Okuma tarafında her spoiler parçası kendi düğmesiyle açılır. Başlık, resim ve bağlantı ilk sürümde yok.
+- **İş kuralları:** İnceleme HTML olarak saklanmaz; yapılandırılmış bir belge olarak saklanır ve sunucu her kaydı izin listesine göre doğrular. Okuma tarafı belgeyi kendi bileşenleriyle çizer (editör kütüphanesi yalnız yazana iner). Hazır bir editör çekirdeği kullanılır; sıfırdan editör yazılmaz (kullanıcı kararı, 2026-11-27). Eski düz metin incelemeler tek paragraflı belgeye çevrilir. Uzunluk sınırı görünen metne göre sayılır.
+- **Kabul kriterleri:** Açılmayan spoiler parçasının metni sayfada yok (REV-02'nin kuralı parça başına). İzin listesinde olmayan tür ya da HTML içeren kayıt reddedilir. Düzenleyici klavyeyle ve ekran okuyucuyla kullanılabilir (axe temiz). Sürümlü yazım (409) ve yönetici gizlemesi aynen çalışır.
+- **Bağımlılıklar:** REV-01, REV-02. Editör çekirdeği seçimi (lisans, paket boyutu, sürüm yaşı, erişilebilirlik) spec'te karşılaştırılır. REV-02'deki "karmaşık editör gerekmez" notu ilk sürüm içindi; bu madde onu genişletir.
 
 ## 9. Kullanıcı katkısı ve moderasyon
 
@@ -339,6 +358,16 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - **İş kuralları:** Yazar bugün eserde düz metin (`books.author`); eşleşme `search_fold` ile yapılır, büyük/küçük harf ve Türkçe harfler sorun olmaz (Faz 16b kuralı; `lower()`/`ILIKE` yok). Ortak yazarlı ve farklı yazılmış adlar ilk sürümde ayrı yazardır; yazar kimliği (ayrı tablo) ayrı karardır. Yayında olmayan kitaplar dışlanır.
 - **Kabul kriterleri:** "orhan kemal" ile "Orhan Kemal" aynı listeyi verir. Paylaşılan URL aynı süzgeci açar. Sorgu 500 bin kitaplık deney verisinde ölçülür ve index kullanır (Faz 16c yöntemi).
 - **Bağımlılıklar:** DISC-01; yazar kimliği gelirse DISC-02'nin "yazar benzerliği" de buna dayanır.
+
+### DISC-06 — Edebiyatlara göre keşif
+
+- [ ] **P1 · Önerildi** (2026-11-27)
+- **Kullanıcı ihtiyacı:** Fransız, İngiliz, Türk, Rus edebiyatı gibi bir edebiyatın yazarlarını ve kitaplarını bir arada gezmek.
+- **Ekran/akış:** Ana sayfa → Edebiyatlar → edebiyat sayfası (tanıtım, öne çıkan yazarlar, kitaplar) → yazar ya da kitap. Kitap ve yazar sayfalarından edebiyata bağlantı.
+- **İlk kapsam:** Edebiyat kaydı (ad, kısa tanıtım, sayfa adresi); edebiyat sayfası; edebiyatlar listesi; katalogda edebiyat süzgeci. Edebiyatı yalnız admin tanımlar.
+- **İş kuralları:** Edebiyat türden (genre) ayrı bir sınıflandırmadır. Yazara mı, kitaba mı bağlanacağı spec'in ana kararıdır: çoğu durumda yazara bağlamak yeter; iki dilde yazan ya da göç etmiş yazarlar için kitap düzeyinde ayrıca belirtme gerekebilir. Yayında olmayan kitaplar görünmez.
+- **Kabul kriterleri:** Edebiyat sayfası yazarları ve kitapları kararlı sayfalamayla listeler. Paylaşılan adres aynı sayfayı açar. Sorgular 500 bin kitaplık deney verisinde ölçülür ve index kullanır (Faz 16c yöntemi).
+- **Bağımlılıklar:** CAT-05.
 
 ## 11. Profil, görünürlük ve sosyal akış
 
@@ -538,6 +567,7 @@ Katalog, puan ve yorum temel etkileşimi sağlar. En büyük ürün boşluğu, k
 - DISC-01–03, STATS-01, READ-03, REV-03.
 - 2026-11-23 eklenenler: SOC-01'in kişisel ana sayfa yarısı ("Şu an okuyorum" ve hızlı ilerleme),
   DISC-05, SOC-04, READ-04. Sıra: Faz 17'nin hemen ardından ([ROADMAP](ROADMAP.md)).
+- 2026-11-27 eklenenler: REV-04, CAT-05, DISC-06; üçü de öne alındı ([ROADMAP](ROADMAP.md)).
 - Metadata ve kullanıcı verisi yeterliliği doğrulanır.
 
 ### Paket E — Sosyal ve kişiselleştirilmiş deneyim
