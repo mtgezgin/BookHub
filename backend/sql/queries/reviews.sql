@@ -5,9 +5,10 @@
 -- Kitap sayfasındaki herkese açık liste, en yeni önce. Gizlenenler yok (Doğrulama 15). Yazarın adı
 -- users'tan (hesap silinince inceleme de silindiği için JOIN), puanı ratings'ten (LEFT JOIN: puansız
 -- inceleme de olur; inceleme silmek puanı silmez, puan silmek incelemeyi silmez).
+-- body_doc (Faz 17C) boş olabilir: NULL = belge yok, okuyan taraf body'den çevirir (spec karar 6).
 -- name: ListBookReviews :many
 SELECT r.id, r.user_id, u.display_name AS author_name, rt.score AS author_score,
-       r.body, r.has_spoiler, r.created_at, r.edited_at
+       r.body, r.has_spoiler, r.body_doc, r.created_at, r.edited_at
 FROM reviews r
 JOIN users u ON u.id = r.user_id
 LEFT JOIN ratings rt ON rt.user_id = r.user_id AND rt.book_id = r.book_id
@@ -31,19 +32,21 @@ SELECT * FROM reviews WHERE user_id = $1 AND book_id = $2 FOR UPDATE;
 -- İlk yazım: yalnız yayındaki kitaba (değilse satır üretmez → pgx.ErrNoRows → 404). Aynı anda iki ilk
 -- yazım gelirse ikincisi UNIQUE'e çarpar ve ON CONFLICT DO NOTHING yüzünden yine satır döndürmez;
 -- servis o durumda satırı kilitleyip sürüm kuralına göre karar verir.
+-- body_doc verilmezse NULL yazılır (eski gövdeyle gelen istek; spec karar 7).
 -- name: InsertReview :one
-INSERT INTO reviews (user_id, book_id, body, has_spoiler)
-SELECT sqlc.arg('user_id'), b.id, sqlc.arg('body'), sqlc.arg('has_spoiler')
+INSERT INTO reviews (user_id, book_id, body, has_spoiler, body_doc)
+SELECT sqlc.arg('user_id'), b.id, sqlc.arg('body'), sqlc.arg('has_spoiler'), sqlc.narg('body_doc')
 FROM books b
 WHERE b.id = sqlc.arg('book_id') AND b.status = 'APPROVED'
 ON CONFLICT (user_id, book_id) DO NOTHING
 RETURNING *;
 
 -- Düzenleme: metin ve spoiler bayrağı; edited_at dolar, version artar. Gizleme kolonlarına dokunmaz:
--- gizlenmiş inceleme düzenlenince gizli kalır (REV-01).
+-- gizlenmiş inceleme düzenlenince gizli kalır (REV-01). body_doc her düzenlemede yeniden yazılır:
+-- verilmezse NULL olur, yoksa eski belge yeni metnin yanında bayat kalırdı.
 -- name: UpdateReview :one
 UPDATE reviews
-SET body = sqlc.arg('body'), has_spoiler = sqlc.arg('has_spoiler'),
+SET body = sqlc.arg('body'), has_spoiler = sqlc.arg('has_spoiler'), body_doc = sqlc.narg('body_doc'),
     edited_at = now(), version = version + 1
 WHERE id = sqlc.arg('id')
 RETURNING *;

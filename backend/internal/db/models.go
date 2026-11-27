@@ -163,17 +163,18 @@ type RefreshTokenFamily struct {
 }
 
 type Review struct {
-	ID           int64      `json:"id"`
-	UserID       int64      `json:"user_id"`
-	BookID       int64      `json:"book_id"`
-	Body         string     `json:"body"`
-	HasSpoiler   bool       `json:"has_spoiler"`
-	Version      int32      `json:"version"`
-	CreatedAt    time.Time  `json:"created_at"`
-	EditedAt     *time.Time `json:"edited_at"`
-	HiddenAt     *time.Time `json:"hidden_at"`
-	HiddenBy     *int64     `json:"hidden_by"`
-	HiddenReason string     `json:"hidden_reason"`
+	ID           int64           `json:"id"`
+	UserID       int64           `json:"user_id"`
+	BookID       int64           `json:"book_id"`
+	Body         string          `json:"body"`
+	HasSpoiler   bool            `json:"has_spoiler"`
+	Version      int32           `json:"version"`
+	CreatedAt    time.Time       `json:"created_at"`
+	EditedAt     *time.Time      `json:"edited_at"`
+	HiddenAt     *time.Time      `json:"hidden_at"`
+	HiddenBy     *int64          `json:"hidden_by"`
+	HiddenReason string          `json:"hidden_reason"`
+	BodyDoc      json.RawMessage `json:"body_doc"`
 }
 
 type User struct {

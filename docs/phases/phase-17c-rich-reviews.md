@@ -225,6 +225,43 @@ PR'ı; daraltma ayrı PR.
   });
   ```
 
+### Adım 2 — Şema ve sorgular (kayıt)
+
+- **Amaç:** belgenin duracağı kolonu, canlıdaki kodu bozmadan eklemek (genişletme).
+- **Parçalar:**
+  - `0019_review_doc.sql`: `reviews.body_doc jsonb`, boş olabilir. Tek kısıt: doluysa JSON **nesnesi**
+    olmalı. Belgenin içini veritabanı değil `internal/richtext` doğrular (adım 3).
+  - `reviews.sql`: liste `body_doc`'u da döndürüyor; yazım ve düzenleme `body_doc` parametresi alıyor.
+    Parametre verilmezse NULL yazılır; düzenleme belgeyi her seferinde yeniden yazar (verilmezse
+    boşaltır), yoksa eski belge yeni metnin yanında bayat kalırdı.
+  - `sqlc.yaml`: boş olabilen `jsonb` → `json.RawMessage` (nil = SQL NULL).
+  - Servis ve uçlar **değişmedi**: `internal/reviews` belgeyi henüz vermiyor, her yazım NULL bırakıyor.
+    Davranış bugünküyle aynı; belge adım 4'te bağlanır.
+- **Yeni kavram: JSON null, SQL NULL değildir.** `jsonb` kolonuna `'null'` yazılabilir; bu "değer yok"
+  demek değildir, `IS NULL` onu yakalamaz. "Belgesi yok" durumunu tek anlama indirmek için kısıt JSON
+  null'ı da reddediyor: kolonda ya SQL NULL ya bir nesne durur.
+- **Sonuç (2026-11-27):**
+  - `TestMigration0019ReviewDoc` yeşil. Sınadıkları: var olan inceleme yerinde ve belgesiz;
+    **canlıdaki kodun sorgu metniyle** (`origin/main`'deki `reviews.sql.go`'dan aynen) yazım ve
+    düzenleme 0019'dan sonra da çalışıyor ve belgeyi boş bırakıyor; nesne kabul, JSON null, dizi, metin
+    ve sayı ret; Down kolonu kaldırıyor, incelemeler kalıyor.
+  - Servisin yedi entegrasyon testi değişmeden yeşil: Go'daki nil belge kısıtın altında SQL NULL olarak
+    yazılıyor (JSON null olsaydı kısıt reddederdi).
+  - Bütün backend testleri gerçek Postgres ve Redis'le yeşil; `go vet` temiz; golangci-lint 0 sorun;
+    sqlc `generate` ve `diff` temiz (Docker'daki `sqlc/sqlc:1.31.1` ile; yerelde sqlc kurulu değil).
+- **Kilit:** varsayılanı olmayan, boş olabilen kolon eklemek katalog değişikliğidir; kısıt aynı komutta
+  eklendiği için tablo bir kez taranır. Canlıda `reviews` 1 satır; `lock_timeout` 5 sn.
+- **Doğrulanamadı:** canlıdaki kilit süresi (yayında görülür); CI'daki Yükseltme işi (`release` şeması
+  ve verisi üstüne 0019) PR açılınca koşar.
+- **Bakılacak yerler:**
+  1. [`0019_review_doc.sql`](../../backend/migrations/0019_review_doc.sql): baştaki açıklama ve tek
+     `ALTER TABLE`.
+  2. [`reviews.sql`](../../backend/sql/queries/reviews.sql): `ListBookReviews`, `InsertReview`,
+     `UpdateReview`.
+  3. [`migrate_0019_integration_test.go`](../../backend/internal/database/migrate_0019_integration_test.go).
+  4. [`sqlc.yaml`](../../backend/sqlc.yaml): yeni `jsonb` kuralı.
+  5. `backend/internal/db/*.go`: sqlc'nin ürettiği kod; okumana gerek yok.
+
 ## ⚠️ Önemli noktalar
 
 - Editör davranışı bileşen testiyle değil Playwright ile sınanır (gerçek tarayıcı); birim testleri
