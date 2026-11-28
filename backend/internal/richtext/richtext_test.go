@@ -225,6 +225,11 @@ func TestFromPlain(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFromPlainEdges: boş metin ve sıfır değerli belge. (Ayrı fonksiyon: Sonar S3776, TestFromPlain'in
+// bilişsel karmaşıklığı 16'ydı.)
+func TestFromPlainEdges(t *testing.T) {
 	if _, err := Parse(FromPlain("  \n ", false).JSON()); !errors.Is(err, ErrEmpty) {
 		t.Errorf("boş metinden üretilen belge ErrEmpty vermeli: %v", err)
 	}
