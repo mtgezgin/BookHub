@@ -253,8 +253,12 @@ async function spoilerPieceOpensAlone(p: Page, admin: AdminApi, bookId: number) 
  * girilir, ok tuşlarıyla gezilir; düğme odağı editöre geri verir. Tab editörden çıkar (klavye tuzağı yok).
  */
 async function writeAndEdit(p: Page) {
+  // Editör kütüphanesi ayrı parça (#128 kriter 8): inceleme okuyan sayfa onu istemez, "İnceleme yaz" ister.
+  const editorChunk = () => p.evaluate(() => performance.getEntriesByType("resource").filter((r) => /\/assets\/ReviewRichEditor-.*\.js$/.test(r.name)).length);
+  expect(await editorChunk(), "düzenleyici parçası istenmeden inmemeli").toBe(0);
   await p.getByRole("button", { name: "İnceleme yaz" }).click();
   await expect(field(p)).toBeVisible();
+  expect(await editorChunk()).toBe(1);
   await field(p).focus();
   await p.keyboard.type(`E2E incelemesi ${RUN_ID} `);
 
@@ -275,6 +279,18 @@ async function writeAndEdit(p: Page) {
   await p.keyboard.type(" **kalın** biter"); // Markdown kısayolu: yazarken kalına döner
   await expect(field(p).locator("strong")).toHaveText("kalın");
   await expect(field(p).locator("span[data-spoiler]")).toHaveText("gizli son");
+  // İtalik, liste ve alıntı klavye kısayollarıyla (#128 kriter 1).
+  await p.keyboard.press("Control+i");
+  await p.keyboard.type(" eğik");
+  await p.keyboard.press("Control+i");
+  await p.keyboard.press("Enter");
+  await p.keyboard.press("Control+Shift+8");
+  await p.keyboard.type("E2E madde");
+  await p.keyboard.press("Enter");
+  await p.keyboard.press("Enter"); // boş maddede Enter listeden çıkarır
+  await p.keyboard.press("Control+Shift+b");
+  await p.keyboard.type("E2E alıntı");
+  await expect(tool(p, "Alıntı")).toHaveAttribute("aria-pressed", "true");
   await expectNoA11yViolations(p, "düzenleyici açık");
   await expect(p.locator("style[data-tiptap-style]")).toHaveCount(0);
 
@@ -284,14 +300,24 @@ async function writeAndEdit(p: Page) {
   await expect(editor(p).getByRole("button", { name: "Kaydet" })).toBeFocused();
   await p.keyboard.press("Enter");
 
-  await expect(myReview(p)).toContainText(`E2E incelemesi ${RUN_ID} gizli son kalın biter`);
-  await expect(myReview(p).locator("mark")).toHaveText("gizli son");
-  await expect(myReview(p).locator("strong")).toHaveText("kalın");
+  const formatted = async () => {
+    await expect(myReview(p)).toContainText(`E2E incelemesi ${RUN_ID} gizli son kalın biter eğik`);
+    await expect(myReview(p).locator("mark")).toHaveText("gizli son");
+    await expect(myReview(p).locator("strong")).toHaveText("kalın");
+    await expect(myReview(p).locator("em")).toHaveText(" eğik");
+    await expect(myReview(p).locator("ul > li")).toHaveText("E2E madde");
+    await expect(myReview(p).locator("blockquote")).toHaveText("E2E alıntı");
+  };
+  await formatted();
   await expect(myReview(p)).toContainText("spoiler içeriyor olarak işaretli");
   await expect(myReview(p)).not.toContainText("düzenlendi");
+  await p.reload(); // sunucudan okununca da aynı biçim (#128 kriter 1)
+  await expectLoggedIn(p, READER_NAME);
+  await formatted();
 
   await myReview(p).getByRole("button", { name: "Düzenle" }).click();
-  await expect(field(p)).toContainText(`E2E incelemesi ${RUN_ID} gizli son kalın biter`); // belge biçimiyle açılır
+  await expect(field(p)).toContainText(`E2E incelemesi ${RUN_ID} gizli son kalın biter eğik`); // belge biçimiyle açılır
+  await expect(field(p).locator("blockquote")).toHaveText("E2E alıntı");
   await expect(field(p).locator("span[data-spoiler]")).toHaveText("gizli son");
   await pasteHostileHtml(p);
   await field(p).fill(`E2E düzenlenmiş inceleme ${RUN_ID}`);

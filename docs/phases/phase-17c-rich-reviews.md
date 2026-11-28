@@ -493,6 +493,23 @@ PR'ı; daraltma ayrı PR.
      `spoilerPieceOpensAlone`, `pasteHostileHtml`.
   5. [`editor.css`](../../frontend/src/components/review-editor/editor.css).
 
+### Adım 7 — Uçtan uca test, dokümanlar, PR (kayıt)
+
+- **Parçalar:**
+  - `rating-comment.spec.ts`: adım 6'daki senaryo iki kriter için genişledi. Kriter 1: italik, liste
+    ve alıntı da klavyeyle yazılıyor, kayıttan **ve sayfa yenilendikten** sonra aynı biçim aranıyor.
+    Kriter 8: düzenleyici parçası "İnceleme yaz"dan önce hiç istenmemiş, sonra bir kez istenmiş.
+  - PROJECT_MAP (`reviews.go`, `reviews`, yeni `richtext`, `0019`, `ReviewDoc`, `review-editor/`,
+    `lib/reviewDoc.ts`), ROADMAP ve STATUS.
+  - Aşağıdaki [kriter tablosu](#-doğrulama-başarı-ölçütleri).
+- **Sonuç (2026-11-27):** inceleme senaryosu genişlemiş hâliyle yeşil (7,2 sn). Giriş bütçesi
+  değişmedi (yeni giriş yok). Tam Playwright paketi yerelde koşmadı; PR'da CI koşar.
+- **Yayın sırası (2026-11-28):** iki PR. Önce backend (adım 2–4: `0019`, `internal/richtext`, uçlar),
+  canlıda doğrulanır; sonra arayüz (adım 5–7). Neden: web ve API aynı commit'ten ayrı ayrı
+  yayınlanıyor; tek PR'da yeni arayüz eski API'ye denk gelirse kaydetme 400 alırdı. "Nasıl takip
+  edilecek" bölümündeki "tek özellik PR'ı" cümlesi bununla değişti. Kullanıcı PR'ın açılmasını ve
+  merge'ü onayladı; sırayı ayrıca seçmedi, önerilen yol uygulandı.
+
 ## ⚠️ Önemli noktalar
 
 - Editör davranışı bileşen testiyle değil Playwright ile sınanır (gerçek tarayıcı); birim testleri
@@ -509,6 +526,18 @@ PR'ı; daraltma ayrı PR.
 Issue [#128](https://github.com/mtgezgin/BookHub/issues/128)'in dokuz kabul kriteri; her biri PR'da
 bir teste eşlenir. Yayından sonra canlıda: biçimli inceleme yaz → kısmi spoiler aç → düzenle →
 yönetici gizle ve geri aç.
+
+| # | Kriter | Nerede sınanıyor |
+|---|---|---|
+| 1 | Biçimli inceleme, yenilemeden sonra aynı biçimle | Playwright `writeAndEdit`: kalın, italik, liste, alıntı, spoiler klavyeyle; kayıttan ve yenilemeden sonra `formatted()` |
+| 2 | Açılmamış spoiler parçası DOM'da yok; parçalar ayrı açılır | Playwright `spoilerPieceOpensAlone` (sayfa kaynağında yok); `ReviewDoc.test.tsx` "spoiler parçaları" |
+| 3 | İzin listesi dışı → 400, hiçbir şey yazılmaz | `richtext` `TestParseRejects` (42 satır) ve fuzz; `TestSaveReviewRequests` "belge:" satırları (servis çağrılmıyor) |
+| 4 | Uzunluk görünen metne göre | `richtext` `TestVectors` (madde imi sayılmaz), 5000/5001 testleri; arayüzde `reviewDoc.test.ts` aynı örnekler |
+| 5 | 17B incelemesi eskisi gibi; spoiler'lıysa tek parça | `TestFromPlain`, `TestReviewContracts` (belgesiz inceleme), `ReviewDoc.test.tsx` "tamamı spoiler", Playwright `spoilerIsKeyboardAccessible` (eski gövdeyle yazılmış inceleme) |
+| 6 | 409, silme, gizleme, geri açma aynen | `internal/reviews` entegrasyon testleri (değişmeden yeşil) ve `TestDocRealDB`; Playwright `twoTabConflict`, `hiddenReviewShowsReason`, silme |
+| 7 | Yalnız klavye, tuzak yok, axe temiz | Playwright `writeAndEdit` (Shift+Tab, ok tuşları, Enter, Tab ile çıkış) ve üç axe taraması; birim testi "araç çubuğu" |
+| 8 | Editör yazmayana inmez | Playwright: `ReviewRichEditor` parçası "İnceleme yaz"dan önce 0, sonra 1 istek; `npm run bundle` (ayrı parça, gzip 104,9 kB) |
+| 9 | Eski sekme kaydedebilir, kısmi spoiler'ı açıkta göstermez | `TestSaveReviewRequests` (eski gövde 201); `TestDocRealDB` (kısmi spoiler'da `has_spoiler` true: eski arayüz bütün metni kapatır); adım 4'te bugünkü arayüzle E2E |
 
 ## ✅ Tamamlanma
 
