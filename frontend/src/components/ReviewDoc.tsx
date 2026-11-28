@@ -24,6 +24,21 @@ export function ReviewDoc({ doc, mode = "reader" }: Readonly<{ doc: DocNode; mod
   return <div className="mt-1 flex flex-col gap-2 leading-relaxed">{blocks(doc.content, mode === "author" ? "marked" : "pieces")}</div>;
 }
 
+/*
+ * React anahtarı: sıra numarası değil, düğüm nesnesinin kimliği. Belge sunucudan gelen değişmez bir
+ * ağaçtır; aynı düğüm her çizimde aynı anahtarı alır, araya düğüm girse de anahtarlar kaymaz (Sonar S6479).
+ */
+const nodeKeys = new WeakMap<DocNode, number>();
+let nextKey = 0;
+function keyOf(node: DocNode): number {
+  let key = nodeKeys.get(node);
+  if (key === undefined) {
+    key = nextKey++;
+    nodeKeys.set(node, key);
+  }
+  return key;
+}
+
 /** Spoiler metninin nasıl basılacağı: parça parça gizli, işaretli ama görünür, ya da düz. */
 type SpoilerStyle = "pieces" | "marked" | "plain";
 
@@ -45,8 +60,7 @@ function WholeSpoiler({ doc }: Readonly<{ doc: DocNode }>) {
 }
 
 function blocks(nodes: DocNode[] | undefined, style: SpoilerStyle): ReactNode {
-  // Belge değişmez (sunucudan gelir, yerinde düzenlenmez): sıra numarası anahtar olarak yeterli.
-  return (nodes ?? []).map((n, i) => <Block key={i} node={n} style={style} />);
+  return (nodes ?? []).map((n) => <Block key={keyOf(n)} node={n} style={style} />);
 }
 
 function Block({ node, style }: Readonly<{ node: DocNode; style: SpoilerStyle }>) {
@@ -77,11 +91,12 @@ function inline(nodes: DocNode[], style: SpoilerStyle): ReactNode {
     if (last?.spoiler === spoiler) last.nodes.push(n);
     else runs.push({ spoiler, nodes: [n] });
   }
-  return runs.map((run, i) => {
-    const text = run.nodes.map((n, j) => <Text key={j} node={n} />);
-    if (!run.spoiler) return <span key={i}>{text}</span>;
-    if (style === "marked") return <mark key={i} className="rounded bg-muted px-0.5 text-inherit" title="Spoiler olarak işaretli">{text}</mark>;
-    return <SpoilerPiece key={i}>{text}</SpoilerPiece>;
+  return runs.map((run) => {
+    const key = keyOf(run.nodes[0]); // parçanın anahtarı ilk metin düğümünün kimliği
+    const text = run.nodes.map((n) => <Text key={keyOf(n)} node={n} />);
+    if (!run.spoiler) return <span key={key}>{text}</span>;
+    if (style === "marked") return <mark key={key} className="rounded bg-muted px-0.5 text-inherit" title="Spoiler olarak işaretli">{text}</mark>;
+    return <SpoilerPiece key={key}>{text}</SpoilerPiece>;
   });
 }
 

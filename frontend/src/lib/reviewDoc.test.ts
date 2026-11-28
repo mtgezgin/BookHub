@@ -31,7 +31,7 @@ describe("uzunluk", () => {
     const doc: DocNode = { type: "doc", content: [{ type: "paragraph", content: [text("📚ş")] }, { type: "paragraph", content: [text("a")] }] };
     expect(docText(doc)).toBe("📚ş\na");
     expect(docLength(doc)).toBe(4);
-    expect(docText(doc).length).toBe(5); // string.length emojiyi 2 sayar; sayaç bunu KULLANMAZ
+    expect(docText(doc)).toHaveLength(5); // string.length emojiyi 2 sayar; sayaç bunu KULLANMAZ
   });
   it("sınır sunucununkiyle aynı", () => expect(MAX_REVIEW).toBe(5000));
 });

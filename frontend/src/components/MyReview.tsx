@@ -137,7 +137,7 @@ function ReviewEditor({ mine, mutation, onDone }: Readonly<{
       {conflict && <ConflictNote mine={mine} />}
       <div className="flex flex-col gap-2">
         <span id={labelId} className="text-sm font-medium">İncelemen</span>
-        <Suspense fallback={<p role="status" className="min-h-48 text-sm text-muted-foreground">Düzenleyici yükleniyor…</p>}>
+        <Suspense fallback={<output className="block min-h-48 text-sm text-muted-foreground">Düzenleyici yükleniyor…</output>}>
           <ReviewRichEditor initial={initial} onChange={setDoc} labelledBy={labelId} invalid={error !== null} />
         </Suspense>
       </div>

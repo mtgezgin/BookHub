@@ -515,6 +515,31 @@ PR'ı; daraltma ayrı PR.
   edilecek" bölümündeki "tek özellik PR'ı" cümlesi bununla değişti. Kullanıcı PR'ın açılmasını ve
   merge'ü onayladı; sırayı ayrıca seçmedi, önerilen yol uygulandı.
 
+### Backend yayını ve canlı doğrulama (2026-11-28)
+
+- **PR [#130](https://github.com/mtgezgin/BookHub/pull/130)** (adım 2–4) sekiz kontrol yeşilken merge
+  edildi (`3be5d76`). Sonar'ın tek bulgusu merge'den önce düzeltildi: `TestFromPlain`'in bilişsel
+  karmaşıklığı 16'ydı (S3776); test ikiye bölündü.
+- **Deploy:** migration öncesi şifreli döküm alındı (67.896 bayt), `0019` uygulandı, `release`
+  `3be5d76`'ya ilerledi.
+- **Canlıda (salt okunur):** `GET /api/books/54/reviews` artık `doc` alanını taşıyor. Var olan inceleme
+  (id 1) yerinde: `body` 72 karakter ve `has_spoiler` true, yayından önceki ölçümle aynı; `doc` tek
+  paragraf, metni `body` ile aynı ve tamamı spoiler işaretli (karar 6: belgesiz satır okunurken
+  çevriliyor). Ana sayfa 200.
+- **Doğrulanamadı:** `0019`'un canlıdaki kilit süresi ayrıca ölçülmedi (migration adımı toplam 22 sn,
+  çoğu araç indirme). Bugünkü arayüzle canlıda inceleme yazılmadı: canlıya test verisi bırakmamak
+  için; aynı akış yerelde Playwright'ta sınandı (adım 4).
+
+### Arayüz PR'ında Sonar (2026-11-28)
+
+PR [#131](https://github.com/mtgezgin/BookHub/pull/131) (adım 5–7) kalite kapısından geçti ama 15 bulgu
+yazıldı; hepsi merge'den önce düzeltildi:
+
+- 9 × test savı: `expect(x.length).toBe(n)` yerine `expect(x).toHaveLength(n)` (hata mesajı daha açık).
+- 5 × React anahtarı (S6479): `ReviewDoc` sıra numarasını anahtar yapıyordu. Artık anahtar düğüm
+  nesnesinin kimliği (`WeakMap` ile `keyOf`); araya düğüm girse de anahtarlar kaymaz.
+- 1 × `role="status"` yerine `<output>` (düzenleyici yüklenirken görünen satır).
+
 ## ⚠️ Önemli noktalar
 
 - Editör davranışı bileşen testiyle değil Playwright ile sınanır (gerçek tarayıcı); birim testleri

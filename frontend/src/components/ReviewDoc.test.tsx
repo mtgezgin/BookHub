@@ -33,13 +33,13 @@ describe("yapı", () => {
     expect(el.querySelector("blockquote > p")!.textContent).toBe("alıntı");
     expect(el.querySelector("ul > li p")!.textContent).toBe("madde");
     expect(el.querySelector("ul > li ol > li p")!.textContent).toBe("iç");
-    expect(el.querySelectorAll("button").length).toBe(0);
+    expect(el.querySelectorAll("button")).toHaveLength(0);
   });
 
   it("boş paragraf bir satır yer tutar", () => {
     const el = render(<ReviewDoc doc={doc(p(text("bir")), { type: "paragraph" }, p(text("iki")))} />);
     const paragraphs = el.querySelectorAll("p");
-    expect(paragraphs.length).toBe(3);
+    expect(paragraphs).toHaveLength(3);
     expect(paragraphs[1].querySelector("br")).toBeTruthy();
   });
 
@@ -68,7 +68,7 @@ describe("spoiler parçaları", () => {
 
   it("art arda spoiler metinleri TEK parça; metin açılana kadar DOM'da yok", async () => {
     const el = render(<ReviewDoc doc={overlap} />);
-    expect(buttons(el, "Spoiler'ı göster").length).toBe(1);
+    expect(buttons(el, "Spoiler'ı göster")).toHaveLength(1);
     expect(el.textContent).toBe("Sonu Spoiler'ı göster diye biter.");
     expect(el.innerHTML).not.toContain("uşak");
     const toggle = buttons(el, "Spoiler'ı göster")[0];
@@ -92,28 +92,28 @@ describe("spoiler parçaları", () => {
       p(text("a "), text("BİR", "spoiler"), text(" b "), text("İKİ", "spoiler")),
       p(text("c "), text("ÜÇ", "spoiler")),
     )} />);
-    expect(buttons(el, "Spoiler'ı göster").length).toBe(3);
+    expect(buttons(el, "Spoiler'ı göster")).toHaveLength(3);
     await click(buttons(el, "Spoiler'ı göster")[1]);
     expect(el.textContent).toContain("İKİ");
     expect(el.textContent).not.toContain("BİR");
     expect(el.textContent).not.toContain("ÜÇ");
-    expect(buttons(el, "Spoiler'ı göster").length).toBe(2);
+    expect(buttons(el, "Spoiler'ı göster")).toHaveLength(2);
   });
 
   it("tamamı spoiler olan inceleme tek düğmeyle açılır (eski 'spoiler içeriyor' kutusu)", async () => {
     const el = render(<ReviewDoc doc={doc(p(text("Katil", "spoiler")), { type: "paragraph" }, p(text("uşak", "spoiler")))} />);
     expect(el.textContent).toBe("Spoiler içeriyorSpoiler'ı göster");
-    expect(buttons(el, "Spoiler'ı göster").length).toBe(1);
+    expect(buttons(el, "Spoiler'ı göster")).toHaveLength(1);
     await click(buttons(el, "Spoiler'ı göster")[0]);
     const body = el.querySelector(`[id="${buttons(el, "Spoiler'ı gizle")[0].getAttribute("aria-controls")}"]`)!;
     expect(Array.from(body.querySelectorAll("p")).map((x) => x.textContent)).toEqual(["Katil", "", "uşak"]);
-    expect(body.querySelectorAll("button").length).toBe(0);
+    expect(body.querySelectorAll("button")).toHaveLength(0);
   });
 
   it("yazar kipi: her şey görünür, spoiler parçası işaretli, düğme yok", () => {
     const el = render(<ReviewDoc doc={overlap} mode="author" />);
     expect(el.textContent).toBe("Sonu katil uşak çıkıyor diye biter.");
     expect(el.querySelector("mark")!.textContent).toBe("katil uşak çıkıyor");
-    expect(el.querySelectorAll("button").length).toBe(0);
+    expect(el.querySelectorAll("button")).toHaveLength(0);
   });
 });
