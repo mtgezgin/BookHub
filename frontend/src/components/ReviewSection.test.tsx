@@ -129,6 +129,13 @@ async function type(el: Element | null, value: string) {
  * seçim yok: metin editörün komutlarıyla yazılır (Tiptap, editörü düzenlenebilir alanın `editor` alanına
  * koyar). Yazma, yapıştırma ve klavye davranışı Playwright'ta sınanır (e2e/rating-comment.spec.ts).
  */
+// jsdom'da Range'in ölçüm fonksiyonları yok. ProseMirror odaklanınca imleci görünür alana kaydırmak için
+// onları çağırır; eksik olunca test bittikten sonra "getClientRects is not a function" diye yakalanmamış
+// bir hata düşer ve koşu kırmızıya döner (testlerin kendisi yeşilken). Sıfır ölçü yeter: jsdom yerleşim yapmaz.
+const noRect = { x: 0, y: 0, top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0, toJSON: () => ({}) } as DOMRect;
+Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList;
+Range.prototype.getBoundingClientRect ??= () => noRect;
+
 const field = () => document.querySelector<HTMLElement & { editor?: Editor }>("form[aria-label='İncelemeni yaz'] [role=textbox]");
 async function richEditor(): Promise<Editor> {
   for (let i = 0; i < 100 && !field()?.editor; i++) await act(async () => new Promise((r) => setTimeout(r, 10)));

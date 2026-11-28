@@ -504,6 +504,11 @@ PR'ı; daraltma ayrı PR.
   - Aşağıdaki [kriter tablosu](#-doğrulama-başarı-ölçütleri).
 - **Sonuç (2026-11-27):** inceleme senaryosu genişlemiş hâliyle yeşil (7,2 sn). Giriş bütçesi
   değişmedi (yeni giriş yok). Tam Playwright paketi yerelde koşmadı; PR'da CI koşar.
+- **Push kapısının yakaladığı (2026-11-28):** vitest'in 554 testi geçiyor ama koşu kırmızı bitiyordu.
+  ProseMirror odaklanınca imleci kaydırmak için `Range.getClientRects` çağırıyor; jsdom'da yok ve hata
+  test bittikten sonra "yakalanmamış hata" olarak düşüyor. Adım 6'da "554 yeşil" yazarken çıktıyı
+  yalnız test sayısına süzmüştüm; çıkış kodu 1'di. Testte iki ölçüm fonksiyonu sıfır değerle
+  tanımlandı; üç koşuda çıkış kodu 0. Ders: test sonucunu satır süzerek değil çıkış koduyla oku.
 - **Yayın sırası (2026-11-28):** iki PR. Önce backend (adım 2–4: `0019`, `internal/richtext`, uçlar),
   canlıda doğrulanır; sonra arayüz (adım 5–7). Neden: web ve API aynı commit'ten ayrı ayrı
   yayınlanıyor; tek PR'da yeni arayüz eski API'ye denk gelirse kaydetme 400 alırdı. "Nasıl takip
