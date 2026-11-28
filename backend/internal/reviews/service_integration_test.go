@@ -11,6 +11,7 @@ import (
 
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
+	"github.com/mtgezgin/bookhub/backend/internal/richtext"
 	"github.com/mtgezgin/bookhub/backend/internal/testdb"
 )
 
@@ -43,10 +44,28 @@ const (
 
 func ver(v int32) *int32 { return &v }
 
+// plain, düz metinden doğrulanmış belge: eski gövdeyle gelen isteğin servise ulaşan hâli.
+func plain(body string, spoiler bool) richtext.Doc {
+	doc, err := richtext.Parse(richtext.FromPlain(body, spoiler).JSON())
+	if err != nil {
+		panic("test belgesi geçersiz: " + err.Error())
+	}
+	return doc
+}
+
+// rich, ham JSON'dan doğrulanmış belge: yeni arayüzün gönderdiği.
+func rich(raw string) richtext.Doc {
+	doc, err := richtext.Parse([]byte(raw))
+	if err != nil {
+		panic("test belgesi geçersiz: " + err.Error())
+	}
+	return doc
+}
+
 // mustSave, beklenen başarılı yazım; hata testi düşürür.
 func (f fixture) mustSave(user int64, body string, version *int32) db.Review {
 	f.t.Helper()
-	r, err := f.s.Save(f.ctx, user, f.book, Draft{Body: body, Version: version})
+	r, err := f.s.Save(f.ctx, user, f.book, Draft{Doc: plain(body, false), Version: version})
 	if err != nil {
 		f.t.Fatalf("Save(%q): %v", body, err)
 	}
@@ -84,12 +103,12 @@ func TestSaveRealDB(t *testing.T) {
 		wantVer    int32
 		wantEdited bool
 	}{
-		{"ilk yazım", Draft{Body: "İlk"}, nil, 1, false},
-		{"sürümsüz ikinci yazım (başka sekme az önce yazdı)", Draft{Body: "Ezme"}, ErrVersionConflict, 0, false},
-		{"eski sürüm", Draft{Body: "Ezme", Version: ver(0)}, ErrVersionConflict, 0, false},
-		{"aynı metin ve bayrak yazılmaz", Draft{Body: "İlk", Version: ver(1)}, nil, 1, false},
-		{"metin düzenleme", Draft{Body: editedBody, Version: ver(1)}, nil, 2, true},
-		{"yalnız spoiler bayrağı", Draft{Body: editedBody, HasSpoiler: true, Version: ver(2)}, nil, 3, true},
+		{"ilk yazım", Draft{Doc: plain("İlk", false)}, nil, 1, false},
+		{"sürümsüz ikinci yazım (başka sekme az önce yazdı)", Draft{Doc: plain("Ezme", false)}, ErrVersionConflict, 0, false},
+		{"eski sürüm", Draft{Doc: plain("Ezme", false), Version: ver(0)}, ErrVersionConflict, 0, false},
+		{"aynı metin ve bayrak yazılmaz", Draft{Doc: plain("İlk", false), Version: ver(1)}, nil, 1, false},
+		{"metin düzenleme", Draft{Doc: plain(editedBody, false), Version: ver(1)}, nil, 2, true},
+		{"yalnız spoiler bayrağı", Draft{Doc: plain(editedBody, true), Version: ver(2)}, nil, 3, true},
 	} {
 		r, err := f.s.Save(f.ctx, f.reader, f.book, c.draft)
 		expectErr(t, c.name, err, c.wantErr)
@@ -109,12 +128,59 @@ func TestSaveRealDB(t *testing.T) {
 	expectErr(t, "incelemesi olmayanın Mine'ı", err, ErrNotFound)
 }
 
+// TestDocRealDB: belge üç kolona birlikte yazılır (Faz 17C). body düz metin, has_spoiler belgeden,
+// body_doc kanonik JSON; aynı belgenin başka yazımı düzenleme sayılmaz; belgesi olmayan eski satır
+// düz metninden çevrilerek karşılaştırılır.
+func TestDocRealDB(t *testing.T) {
+	f := setup(t)
+	const doc = `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Sonu "},{"type":"text","marks":[{"type":"bold"},{"type":"spoiler"}],"text":"uşak"}]},{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"madde"}]}]}]}]}`
+	r, err := f.s.Save(f.ctx, f.reader, f.book, Draft{Doc: rich(doc)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Body != "Sonu uşak\nmadde" || !r.HasSpoiler {
+		t.Errorf("düz metin ve spoiler belgeden türetilmeli: %q %v", r.Body, r.HasSpoiler)
+	}
+	// jsonb anahtar sırasını ve boşlukları değiştirir; karşılaştırma belge üstünden.
+	if stored, err := richtext.Parse(r.BodyDoc); err != nil || !richtext.Equal(stored, rich(doc)) {
+		t.Errorf("saklanan belge gönderilenle aynı olmalı: %s %v", r.BodyDoc, err)
+	}
+
+	// Aynı belge, işaretler ters sırada ve metin iki düğüme bölünmüş: düzenleme değil.
+	const same = `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"So"},{"type":"text","text":"nu "},{"type":"text","marks":[{"type":"spoiler"},{"type":"bold"}],"text":"uşak"}]},{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"madde"}]}]}]}]}`
+	if r, err = f.s.Save(f.ctx, f.reader, f.book, Draft{Doc: rich(same), Version: ver(1)}); err != nil || r.Version != 1 || r.EditedAt != nil {
+		t.Errorf("aynı belgenin başka yazımı yazılmamalı: sürüm %d düzenlendi=%v %v", r.Version, r.EditedAt != nil, err)
+	}
+	// Yalnız biçim değişti (kalın kalktı), metin aynı: düzenleme.
+	const unbold = `{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Sonu "},{"type":"text","marks":[{"type":"spoiler"}],"text":"uşak"}]},{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"madde"}]}]}]}]}`
+	if r, err = f.s.Save(f.ctx, f.reader, f.book, Draft{Doc: rich(unbold), Version: ver(1)}); err != nil || r.Version != 2 || r.Body != "Sonu uşak\nmadde" {
+		t.Errorf("biçim değişikliği düzenlemedir: sürüm %d %v", r.Version, err)
+	}
+
+	// Eski satır: 0019'dan önce ya da eski kodla yazılmış, belgesi yok.
+	testdb.Exec(t, f.pool, `INSERT INTO reviews (user_id, book_id, body, has_spoiler) VALUES ($1, $2, 'bir' || chr(10) || 'iki', true)`, f.other, f.book)
+	old, err := f.s.Save(f.ctx, f.other, f.book, Draft{Doc: plain("bir\niki", true), Version: ver(1)})
+	if err != nil || old.Version != 1 || old.BodyDoc != nil {
+		t.Errorf("eski satırın aynısı yazılmamalı, satır belgesiz kalmalı: sürüm %d belge %s %v", old.Version, old.BodyDoc, err)
+	}
+	old, err = f.s.Save(f.ctx, f.other, f.book, Draft{Doc: plain("bir\niki", false), Version: ver(1)})
+	if err != nil || old.Version != 2 || old.BodyDoc == nil || old.HasSpoiler {
+		t.Errorf("eski satır düzenlenince belgesini almalı: sürüm %d belge %s %v", old.Version, old.BodyDoc, err)
+	}
+
+	// Liste belgeyi de döndürür.
+	list, _, err := f.s.List(f.ctx, f.book, 20, 0)
+	if err != nil || len(list) != 2 || list[0].BodyDoc == nil || list[1].BodyDoc == nil {
+		t.Errorf("liste iki incelemeyi belgeleriyle vermeli: %+v %v", list, err)
+	}
+}
+
 // TestUnpublishedBookRealDB: yayında olmayan kitapta liste, okuma ve yazım "kitap yok".
 func TestUnpublishedBookRealDB(t *testing.T) {
 	f := setup(t)
 	for _, st := range []string{books.StatusPending, books.StatusRejected, books.StatusArchived} {
 		book := testdb.CreateBook(t, f.pool, "", st)
-		_, err := f.s.Save(f.ctx, f.reader, book, Draft{Body: "Merhaba"})
+		_, err := f.s.Save(f.ctx, f.reader, book, Draft{Doc: plain("Merhaba", false)})
 		expectErr(t, st+" kitaba yazım", err, books.ErrNotFound)
 		_, err = f.s.Mine(f.ctx, f.reader, book)
 		expectErr(t, st+" kitapta Mine", err, books.ErrNotFound)
@@ -133,12 +199,12 @@ func TestDeleteRealDB(t *testing.T) {
 
 	expectErr(t, "silme", f.s.Delete(f.ctx, f.reader, f.book), nil)
 	expectErr(t, "ikinci silme", f.s.Delete(f.ctx, f.reader, f.book), ErrNotFound)
-	_, err := f.s.Save(f.ctx, f.reader, f.book, Draft{Body: "Eski sekme", Version: ver(1)})
+	_, err := f.s.Save(f.ctx, f.reader, f.book, Draft{Doc: plain("Eski sekme", false), Version: ver(1)})
 	expectErr(t, "silinmiş incelemeye sürümlü yazım (başka sekme sildi)", err, ErrVersionConflict)
 
 	again := f.mustSave(f.reader, "Yeniden", nil)
 	testdb.Exec(t, f.pool, `UPDATE books SET status = 'ARCHIVED' WHERE id = $1`, f.book)
-	_, err = f.s.Save(f.ctx, f.reader, f.book, Draft{Body: "Düzenleme", Version: ver(again.Version)})
+	_, err = f.s.Save(f.ctx, f.reader, f.book, Draft{Doc: plain("Düzenleme", false), Version: ver(again.Version)})
 	expectErr(t, "yayından kalkmış kitapta düzenleme", err, books.ErrNotFound)
 	expectErr(t, "yayından kalkmış kitapta silme", f.s.Delete(f.ctx, f.reader, f.book), nil)
 
@@ -258,7 +324,7 @@ func TestConcurrentFirstWriteRealDB(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := f.s.Save(ctx, f.reader, f.book, Draft{Body: "İkinci sekme"})
+		_, err := f.s.Save(ctx, f.reader, f.book, Draft{Doc: plain("İkinci sekme", false)})
 		done <- err
 	}()
 	waitBlocked(ctx, t, f.pool, conn.Conn().PgConn().PID())

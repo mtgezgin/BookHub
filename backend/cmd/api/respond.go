@@ -179,6 +179,11 @@ func hasNUL(v reflect.Value) bool {
 			}
 		}
 	case reflect.Slice, reflect.Array:
+		// Bayt dilimi metin değildir (json.RawMessage: inceleme belgesi). İçindeki metinleri kendi
+		// doğrulayıcısı denetler (internal/richtext); 100 KiB'lık dilimi bayt bayt gezmeye gerek yok.
+		if v.Type().Elem().Kind() == reflect.Uint8 {
+			return false
+		}
 		for i := range v.Len() {
 			if hasNUL(v.Index(i)) {
 				return true

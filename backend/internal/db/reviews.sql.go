@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -40,7 +41,7 @@ func (q *Queries) DeleteMyReview(ctx context.Context, arg DeleteMyReviewParams) 
 }
 
 const getMyReview = `-- name: GetMyReview :one
-SELECT id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason FROM reviews WHERE user_id = $1 AND book_id = $2
+SELECT id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason, body_doc FROM reviews WHERE user_id = $1 AND book_id = $2
 `
 
 type GetMyReviewParams struct {
@@ -64,6 +65,7 @@ func (q *Queries) GetMyReview(ctx context.Context, arg GetMyReviewParams) (Revie
 		&i.HiddenAt,
 		&i.HiddenBy,
 		&i.HiddenReason,
+		&i.BodyDoc,
 	)
 	return i, err
 }
@@ -72,7 +74,7 @@ const hideReview = `-- name: HideReview :one
 UPDATE reviews
 SET hidden_at = now(), hidden_by = $1, hidden_reason = $2
 WHERE id = $3
-RETURNING id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason
+RETURNING id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason, body_doc
 `
 
 type HideReviewParams struct {
@@ -96,34 +98,39 @@ func (q *Queries) HideReview(ctx context.Context, arg HideReviewParams) (Review,
 		&i.HiddenAt,
 		&i.HiddenBy,
 		&i.HiddenReason,
+		&i.BodyDoc,
 	)
 	return i, err
 }
 
 const insertReview = `-- name: InsertReview :one
-INSERT INTO reviews (user_id, book_id, body, has_spoiler)
-SELECT $1, b.id, $2, $3
+INSERT INTO reviews (user_id, book_id, body, has_spoiler, body_doc)
+SELECT $1, b.id, $2, $3, $4
 FROM books b
-WHERE b.id = $4 AND b.status = 'APPROVED'
+WHERE b.id = $5 AND b.status = 'APPROVED'
 ON CONFLICT (user_id, book_id) DO NOTHING
-RETURNING id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason
+RETURNING id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason, body_doc
 `
 
 type InsertReviewParams struct {
-	UserID     int64  `json:"user_id"`
-	Body       string `json:"body"`
-	HasSpoiler bool   `json:"has_spoiler"`
-	BookID     int64  `json:"book_id"`
+	UserID     int64           `json:"user_id"`
+	Body       string          `json:"body"`
+	HasSpoiler bool            `json:"has_spoiler"`
+	BodyDoc    json.RawMessage `json:"body_doc"`
+	BookID     int64           `json:"book_id"`
 }
 
 // İlk yazım: yalnız yayındaki kitaba (değilse satır üretmez → pgx.ErrNoRows → 404). Aynı anda iki ilk
 // yazım gelirse ikincisi UNIQUE'e çarpar ve ON CONFLICT DO NOTHING yüzünden yine satır döndürmez;
 // servis o durumda satırı kilitleyip sürüm kuralına göre karar verir.
+// body_doc: servis her yazımda belgeyi verir (eski gövdeyle gelen istek de belgeye çevrilir, spec
+// karar 7). Parametre boş olabilir kalıyor, çünkü kolon daraltma PR'ına kadar boş olabilir.
 func (q *Queries) InsertReview(ctx context.Context, arg InsertReviewParams) (Review, error) {
 	row := q.db.QueryRow(ctx, insertReview,
 		arg.UserID,
 		arg.Body,
 		arg.HasSpoiler,
+		arg.BodyDoc,
 		arg.BookID,
 	)
 	var i Review
@@ -139,6 +146,7 @@ func (q *Queries) InsertReview(ctx context.Context, arg InsertReviewParams) (Rev
 		&i.HiddenAt,
 		&i.HiddenBy,
 		&i.HiddenReason,
+		&i.BodyDoc,
 	)
 	return i, err
 }
@@ -146,7 +154,7 @@ func (q *Queries) InsertReview(ctx context.Context, arg InsertReviewParams) (Rev
 const listBookReviews = `-- name: ListBookReviews :many
 
 SELECT r.id, r.user_id, u.display_name AS author_name, rt.score AS author_score,
-       r.body, r.has_spoiler, r.created_at, r.edited_at
+       r.body, r.has_spoiler, r.body_doc, r.created_at, r.edited_at
 FROM reviews r
 JOIN users u ON u.id = r.user_id
 LEFT JOIN ratings rt ON rt.user_id = r.user_id AND rt.book_id = r.book_id
@@ -162,14 +170,15 @@ type ListBookReviewsParams struct {
 }
 
 type ListBookReviewsRow struct {
-	ID          int64      `json:"id"`
-	UserID      int64      `json:"user_id"`
-	AuthorName  string     `json:"author_name"`
-	AuthorScore *int16     `json:"author_score"`
-	Body        string     `json:"body"`
-	HasSpoiler  bool       `json:"has_spoiler"`
-	CreatedAt   time.Time  `json:"created_at"`
-	EditedAt    *time.Time `json:"edited_at"`
+	ID          int64           `json:"id"`
+	UserID      int64           `json:"user_id"`
+	AuthorName  string          `json:"author_name"`
+	AuthorScore *int16          `json:"author_score"`
+	Body        string          `json:"body"`
+	HasSpoiler  bool            `json:"has_spoiler"`
+	BodyDoc     json.RawMessage `json:"body_doc"`
+	CreatedAt   time.Time       `json:"created_at"`
+	EditedAt    *time.Time      `json:"edited_at"`
 }
 
 // reviews.sql — kitap incelemeleri (Faz 17B). Yazımları yalnız internal/reviews servisi yapar.
@@ -178,6 +187,7 @@ type ListBookReviewsRow struct {
 // Kitap sayfasındaki herkese açık liste, en yeni önce. Gizlenenler yok (Doğrulama 15). Yazarın adı
 // users'tan (hesap silinince inceleme de silindiği için JOIN), puanı ratings'ten (LEFT JOIN: puansız
 // inceleme de olur; inceleme silmek puanı silmez, puan silmek incelemeyi silmez).
+// body_doc (Faz 17C) boş olabilir: NULL = belge yok, okuyan taraf body'den çevirir (spec karar 6).
 func (q *Queries) ListBookReviews(ctx context.Context, arg ListBookReviewsParams) ([]ListBookReviewsRow, error) {
 	rows, err := q.db.Query(ctx, listBookReviews, arg.BookID, arg.Offset, arg.Limit)
 	if err != nil {
@@ -194,6 +204,7 @@ func (q *Queries) ListBookReviews(ctx context.Context, arg ListBookReviewsParams
 			&i.AuthorScore,
 			&i.Body,
 			&i.HasSpoiler,
+			&i.BodyDoc,
 			&i.CreatedAt,
 			&i.EditedAt,
 		); err != nil {
@@ -208,7 +219,7 @@ func (q *Queries) ListBookReviews(ctx context.Context, arg ListBookReviewsParams
 }
 
 const lockMyReview = `-- name: LockMyReview :one
-SELECT id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason FROM reviews WHERE user_id = $1 AND book_id = $2 FOR UPDATE
+SELECT id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason, body_doc FROM reviews WHERE user_id = $1 AND book_id = $2 FOR UPDATE
 `
 
 type LockMyReviewParams struct {
@@ -234,12 +245,13 @@ func (q *Queries) LockMyReview(ctx context.Context, arg LockMyReviewParams) (Rev
 		&i.HiddenAt,
 		&i.HiddenBy,
 		&i.HiddenReason,
+		&i.BodyDoc,
 	)
 	return i, err
 }
 
 const lockReview = `-- name: LockReview :one
-SELECT id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason FROM reviews WHERE id = $1 FOR UPDATE
+SELECT id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason, body_doc FROM reviews WHERE id = $1 FOR UPDATE
 `
 
 // Yönetici: gizleme ve geri açma, audit kaydıyla aynı transaction'da. Satır kilitlenir ki iki yönetici
@@ -259,6 +271,7 @@ func (q *Queries) LockReview(ctx context.Context, id int64) (Review, error) {
 		&i.HiddenAt,
 		&i.HiddenBy,
 		&i.HiddenReason,
+		&i.BodyDoc,
 	)
 	return i, err
 }
@@ -267,7 +280,7 @@ const unhideReview = `-- name: UnhideReview :one
 UPDATE reviews
 SET hidden_at = NULL, hidden_by = NULL, hidden_reason = ''
 WHERE id = $1
-RETURNING id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason
+RETURNING id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason, body_doc
 `
 
 func (q *Queries) UnhideReview(ctx context.Context, id int64) (Review, error) {
@@ -285,28 +298,36 @@ func (q *Queries) UnhideReview(ctx context.Context, id int64) (Review, error) {
 		&i.HiddenAt,
 		&i.HiddenBy,
 		&i.HiddenReason,
+		&i.BodyDoc,
 	)
 	return i, err
 }
 
 const updateReview = `-- name: UpdateReview :one
 UPDATE reviews
-SET body = $1, has_spoiler = $2,
+SET body = $1, has_spoiler = $2, body_doc = $3,
     edited_at = now(), version = version + 1
-WHERE id = $3
-RETURNING id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason
+WHERE id = $4
+RETURNING id, user_id, book_id, body, has_spoiler, version, created_at, edited_at, hidden_at, hidden_by, hidden_reason, body_doc
 `
 
 type UpdateReviewParams struct {
-	Body       string `json:"body"`
-	HasSpoiler bool   `json:"has_spoiler"`
-	ID         int64  `json:"id"`
+	Body       string          `json:"body"`
+	HasSpoiler bool            `json:"has_spoiler"`
+	BodyDoc    json.RawMessage `json:"body_doc"`
+	ID         int64           `json:"id"`
 }
 
 // Düzenleme: metin ve spoiler bayrağı; edited_at dolar, version artar. Gizleme kolonlarına dokunmaz:
-// gizlenmiş inceleme düzenlenince gizli kalır (REV-01).
+// gizlenmiş inceleme düzenlenince gizli kalır (REV-01). body, has_spoiler ve body_doc hep birlikte
+// yazılır: üçü aynı belgeden türer, biri bayat kalamaz.
 func (q *Queries) UpdateReview(ctx context.Context, arg UpdateReviewParams) (Review, error) {
-	row := q.db.QueryRow(ctx, updateReview, arg.Body, arg.HasSpoiler, arg.ID)
+	row := q.db.QueryRow(ctx, updateReview,
+		arg.Body,
+		arg.HasSpoiler,
+		arg.BodyDoc,
+		arg.ID,
+	)
 	var i Review
 	err := row.Scan(
 		&i.ID,
@@ -320,6 +341,7 @@ func (q *Queries) UpdateReview(ctx context.Context, arg UpdateReviewParams) (Rev
 		&i.HiddenAt,
 		&i.HiddenBy,
 		&i.HiddenReason,
+		&i.BodyDoc,
 	)
 	return i, err
 }

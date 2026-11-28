@@ -112,6 +112,14 @@ sql:
             go_type:
               import: "encoding/json"
               type: "RawMessage"
+          # NULL olabilen jsonb (Faz 17C: reviews.body_doc ve sqlc.narg parametresi) → yine
+          # json.RawMessage; nil = SQL NULL (JSON'daki null değil; 0019'un testi ikisini ayırır).
+          # Override olmasa düz []byte üretirdi ve cevaba gömülürse base64 olurdu.
+          - db_type: "jsonb"
+            nullable: true
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
           # NULL olabilen metin (sqlc.narg parametreleri ve nullable text kolonlar) →
           # *string. Override olmasa pgtype.Text ({String, Valid}) üretirdi — JSON'da çirkin.
           - db_type: "text"

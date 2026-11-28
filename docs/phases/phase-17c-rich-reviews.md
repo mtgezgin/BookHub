@@ -102,13 +102,14 @@ Doğrulanamadı (adım 1 deneyinde bakılacak):
 | 9 | Spoiler parçası: art arda gelen spoiler işaretli metinler tek parça; açılana kadar metin DOM'da yok; düğme `aria-expanded` taşır. | 17B'nin kuralı, parça başına. |
 | 10 | Sürümlü yazım (409), silme, gizleme ve audit aynen. "Değişmedi" karşılaştırması belge üstünden yapılır. | 17B davranışı korunur. |
 
-İki küçük karar önerildiği gibi onaylandı: spoiler kısayolu `Ctrl+Shift+S`, düğme metni "Spoiler".
-Kısayolun tarayıcıların kendi kısayollarıyla çakışıp çakışmadığına adım 1'de bakılır; çakışırsa burada
-değişir.
+İki küçük karar: düğme metni "Spoiler". Spoiler kısayolu önce `Ctrl+Shift+S` olarak onaylandı;
+adım 1 deneyi Firefox ve Edge'de belgeli bir çakışma bulduğu için **kısayolsuz** başlanıyor
+([adım 1 kaydı](#adım-1--deney-kayıt), 2026-11-27).
 
 ## 🚫 Kapsam dışı
 
-Başlık, resim, bağlantı, tablo, kod bloğu, renk, hizalama; yorumlarda zengin metin; Markdown; ortak
+Başlık, resim, bağlantı, tablo, kod bloğu, renk, hizalama; yorumlarda zengin metin; saklama ya da
+aktarma biçimi olarak Markdown (yazarken `**kalın**` gibi kısayollar açık, adım 1 kaydı); ortak
 düzenleme; taslak kaydetme; sürüm geçmişi; sıfırdan editör.
 
 ## 🧭 Nasıl takip edilecek
@@ -134,6 +135,242 @@ PR'ı; daraltma ayrı PR.
 7. **Playwright, axe, dokümanlar, PR.**
 8. **Ayrı PR, yayın doğrulandıktan sonra (daraltma):** kalan satırların kalıcı çevirisi,
    `body_doc NOT NULL`, eski gövde desteğinin kaldırılması.
+
+### Adım 1 — Deney (kayıt)
+
+- **Amaç:** önerilen çekirdeği üretim koduna dokunmadan denemek ve "doğrulanamadı" listesini kapatmak.
+- **Nasıl:** depo dışında, geçici bir klasörde küçük bir Vite + React uygulaması; projeyle aynı React
+  (19.3.1), Vite (8.3.8), vitest (5.1.0), jsdom (31.0.1) ve Playwright (1.65.0) sürümleri. Tiptap
+  3.34.0 `--before 2026-11-13T13:30Z` ile kuruldu. Derlenen sayfa, `security-headers.conf`'taki CSP
+  başlığıyla küçük bir Node sunucusundan sunuldu ve gerçek chromium'da klavye ve yapıştırma olaylarıyla
+  denendi. Depoya kod ve bağımlılık girmedi.
+- **Sonuç (2026-11-27):**
+  - **Paket boyutu.** Düzenleyici ayrı parça olarak 335,6 kB (gzip **102,7 kB**). Karşılaştırma: bugünkü
+    ana paketimiz gzip 94,9 kB. Yani düzenleyiciyi açan okur uygulamanın kendisinden büyük bir parça
+    indirir; açmayan hiçbir şey indirmez (karar 8). Dağılım (her grup ayrı sıkıştırılınca; toplamları bu
+    yüzden 103'ü aşar): ProseMirror 66 kB, Tiptap çekirdeği 27 kB, React bağı ve iki yardımcısı 9 kB,
+    uzantılarımız 9 kB. Liste ve geri alma
+    uzantıları alt yoldan içe aktarılınca (`@tiptap/extension-list/bullet-list` gibi) 110,6 → 102,7 kB.
+  - **CSP.** Bugünkü başlıkla ihlal yok. Tiptap sayfaya bir `<style>` etiketi ekliyor; bu yalnız
+    `'unsafe-inline'` sayesinde çalışıyor (`style-src 'self'` ile denendi: etiket engellendi, editör
+    çalıştı ama boşluk kuralları uygulanmadı). `injectCSS: false` ile etiket hiç eklenmiyor ve iki
+    başlıkta da ihlal yok.
+  - **Sıralı liste öznitelikleri.** Varsayılan `orderedList` JSON'a `attrs: {start: 1, type: null}`
+    yazıyor. `OrderedList.extend({ addAttributes: () => ({}) })` ile öznitelik üretmiyor; `5. ` yazım
+    kuralı ve `<ol start="7" type="a">` yapıştırması hata vermeden özniteliksiz listeye dönüyor.
+  - **Belge biçimi.** Spoiler işareti kalınla üst üste biniyor:
+    `{"type":"text","marks":[{"type":"bold"},{"type":"spoiler"}],"text":"uşak"}`. Üç ayrıntı
+    doğrulayıcıyı ve `ReviewDoc`'u etkiler: (1) kalın, spoiler'ın ortasında başlarsa spoiler **üç ayrı
+    metin düğümüne** bölünür (karar 9'un "art arda gelenler tek parça" kuralı gerekli); (2) boş
+    paragrafın `content` alanı **yok** (`{"type":"paragraph"}`), boş belge tek boş paragraftır;
+    (3) işaretlerin sırası şemadaki sıradır, istemci elle başka sırada gönderebilir.
+  - **Yapıştırma.** Başlık, bağlantı, üstü çizili, kod, renkli yazı, tablo, resim, `<script>`, `<pre>`,
+    `<hr>` içeren HTML yapıştırıldı: şemada olmayan her şey düştü, metinleri paragraf olarak kaldı;
+    kalın, italik, liste ve alıntı korundu. Word biçimli HTML temiz kalın ve italiğe döndü. Düz metinde
+    her satır bir paragraf oldu. `onerror`, `onload`, `<script>` ve `iframe srcdoc` CSP **olmadan** da
+    çalışmadı; resim isteği de gitmedi (içerik ayrı, etkisiz bir belgede ayrıştırılıyor). CSP açıkken
+    konsola iki "inline event handler" ihlal satırı düşüyor; çalışan bir şey yok.
+  - **Markdown benzeri kurallar varsayılan olarak açık.** `**kalın**`, `*italik*`, `> `, `- ` ve `1. `
+    yazınca biçime dönüyor; düz metin olarak yapıştırılan `**kalın**` da kalın oluyor (yapıştırılan
+    `1. bir` listeye dönmüyor). `enableInputRules` ve `enablePasteRules` ile kapatılabilir.
+  - **Klavye.** `Ctrl+B`, `Ctrl+I`, `Ctrl+Shift+7/8` (liste), `Ctrl+Shift+B` (alıntı), `Ctrl+Z`,
+    `Ctrl+Y` çalışıyor. Enter iki kez listeden çıkarıyor. **Tab:** paragrafta odağı editörden çıkarıyor
+    (klavye tuzağı yok), liste maddesinde girinti yapıyor, girinti yapılamayan ilk maddede yine odağı
+    çıkarıyor. `Shift+Enter` hiçbir şey yapmıyor (şemada satır sonu düğümü yok).
+  - **İç içe liste sınırsız.** Sekiz Tab'la derinliği 21 olan bir belge üretildi. Karar 4'ün derinlik
+    sınırı yalnız sunucuda kalırsa okur 400 alır; düzenleyici de aynı sınırda girintiyi durdurmalı.
+  - **Erişilebilirlik öznitelikleri.** `role="textbox"`, `aria-multiline` ve `aria-label`
+    `editorProps.attributes` ile verilebiliyor; editör `tabindex="0"` alıyor.
+  - **jsdom.** Çekirdek editör jsdom'da kuruluyor; komutlar, `setContent` ve `getJSON` çalışıyor, React
+    bileşeni çiziliyor (vitest 2/2). Yazma ve seçim jsdom'da denenmedi; onlar Playwright'ta kalır.
+  - **Bağımlılıklar.** Çalışma zamanı için 30 yeni paket (11 Tiptap, 13 ProseMirror, 6 küçük yardımcı),
+    hepsi MIT. `@tiptap/react` iki isteğe bağlı paket daha istiyor (`extension-bubble-menu`,
+    `extension-floating-menu`; `@floating-ui` ile 5 paket): kilit dosyasına girer, pakete girmez.
+    `--omit=optional` kullanılamaz, çünkü Vite'ın Windows'a özel yerel paketi de isteğe bağlı.
+  - **`Ctrl+Shift+S`.** Chromium'da sayfa tuşu yakalıyor (`defaultPrevented`). Ama Firefox'un ve
+    Edge'in kendi dokümanları aynı tuşu ekran görüntüsü aracına veriyor
+    ([Firefox](https://support.mozilla.org/en-US/kb/take-screenshots-firefox),
+    [Edge](https://learn.microsoft.com/en-us/deployedge/edge-learnmore-configurable-edge-commands)).
+    Bu iki tarayıcıda hangisinin kazandığı sınanamadı: otomasyonun gönderdiği tuşlar tarayıcının kendi
+    kısayollarını tetiklemez.
+- **Deneyden çıkan kararlar (kullanıcı onayladı, 2026-11-27):**
+  1. Sıralı liste özniteliksiz kurulur; belgede hiçbir düğümün `attrs` alanı olmaz. Karar 3 sadeleşir:
+     `attrs` görülürse 400.
+  2. `injectCSS: false`; gereken birkaç satır kendi stil dosyamıza yazılır. Böylece düzenleyici
+     `'unsafe-inline'`'a yaslanmaz.
+  3. Markdown benzeri yazım ve yapıştırma kuralları **açık kalır**: bilen okur `**kalın**`, `> `,
+     `- `, `1. ` yazar, bilmeyen düğmeyi kullanır. Saklama biçimi JSON kalır; Markdown saklanmaz.
+     Neden saklama biçimi değil: her metin geçerli Markdown olduğu için izin listesi (karar 3)
+     uygulanamaz; Markdown içine HTML yazılabilir; spoiler Markdown'da tanımlı değil; sunucu (Go) ve
+     tarayıcı ayrı ayrıştırıcılarla aynı metni farklı okuyabilir. İlk öneri "kapatılsın" idi;
+     kullanıcının sorusu üzerine değişti.
+  4. `Shift+Enter` için şemaya satır sonu eklenmez.
+  5. Doğrulayıcı işaret sırasına bakmaz, aynı işaretin tekrarını reddeder; "değişmedi" karşılaştırması
+     sıradan bağımsız yapılır.
+  6. Spoiler kısayolu: **kısayolsuz başlanır**; düğme araç çubuğunda klavyeyle erişilir (kriter 7).
+     Önce onaylanan `Ctrl+Shift+S` bırakıldı, çünkü çakışma belgeli ve sınanamıyor.
+  7. Çekirdek değişmiyor: Tiptap 3.34.0. Bilerek kabul edilen bedel 103 kB'lık tembel parça.
+- **Doğrulanamadı:** ekran okuyucuyla kullanım; Firefox, Safari ve mobil klavyelerde davranış (yalnız
+  chromium denendi); `Ctrl+Shift+S`'in Firefox ve Edge'deki gerçek davranışı.
+- **Deneydeki spoiler işareti** (adım 6'nın başlangıç noktası):
+
+  ```ts
+  export const Spoiler = Mark.create({
+    name: "spoiler",
+    parseHTML: () => [{ tag: "span[data-spoiler]" }],
+    renderHTML: ({ HTMLAttributes }) => ["span", mergeAttributes(HTMLAttributes, { "data-spoiler": "" }), 0],
+    addCommands() {
+      return { toggleSpoiler: () => ({ commands }) => commands.toggleMark(this.name) };
+    },
+  });
+  ```
+
+### Adım 2 — Şema ve sorgular (kayıt)
+
+- **Amaç:** belgenin duracağı kolonu, canlıdaki kodu bozmadan eklemek (genişletme).
+- **Parçalar:**
+  - `0019_review_doc.sql`: `reviews.body_doc jsonb`, boş olabilir. Tek kısıt: doluysa JSON **nesnesi**
+    olmalı. Belgenin içini veritabanı değil `internal/richtext` doğrular (adım 3).
+  - `reviews.sql`: liste `body_doc`'u da döndürüyor; yazım ve düzenleme `body_doc` parametresi alıyor.
+    Parametre verilmezse NULL yazılır; düzenleme belgeyi her seferinde yeniden yazar (verilmezse
+    boşaltır), yoksa eski belge yeni metnin yanında bayat kalırdı.
+  - `sqlc.yaml`: boş olabilen `jsonb` → `json.RawMessage` (nil = SQL NULL).
+  - Servis ve uçlar **değişmedi**: `internal/reviews` belgeyi henüz vermiyor, her yazım NULL bırakıyor.
+    Davranış bugünküyle aynı; belge adım 4'te bağlanır.
+- **Yeni kavram: JSON null, SQL NULL değildir.** `jsonb` kolonuna `'null'` yazılabilir; bu "değer yok"
+  demek değildir, `IS NULL` onu yakalamaz. "Belgesi yok" durumunu tek anlama indirmek için kısıt JSON
+  null'ı da reddediyor: kolonda ya SQL NULL ya bir nesne durur.
+- **Sonuç (2026-11-27):**
+  - `TestMigration0019ReviewDoc` yeşil. Sınadıkları: var olan inceleme yerinde ve belgesiz;
+    **canlıdaki kodun sorgu metniyle** (`origin/main`'deki `reviews.sql.go`'dan aynen) yazım ve
+    düzenleme 0019'dan sonra da çalışıyor ve belgeyi boş bırakıyor; nesne kabul, JSON null, dizi, metin
+    ve sayı ret; Down kolonu kaldırıyor, incelemeler kalıyor.
+  - Servisin yedi entegrasyon testi değişmeden yeşil: Go'daki nil belge kısıtın altında SQL NULL olarak
+    yazılıyor (JSON null olsaydı kısıt reddederdi).
+  - Bütün backend testleri gerçek Postgres ve Redis'le yeşil; `go vet` temiz; golangci-lint 0 sorun;
+    sqlc `generate` ve `diff` temiz (Docker'daki `sqlc/sqlc:1.31.1` ile; yerelde sqlc kurulu değil).
+- **Kilit:** varsayılanı olmayan, boş olabilen kolon eklemek katalog değişikliğidir; kısıt aynı komutta
+  eklendiği için tablo bir kez taranır. Canlıda `reviews` 1 satır; `lock_timeout` 5 sn.
+- **Doğrulanamadı:** canlıdaki kilit süresi (yayında görülür); CI'daki Yükseltme işi (`release` şeması
+  ve verisi üstüne 0019) PR açılınca koşar.
+- **Bakılacak yerler:**
+  1. [`0019_review_doc.sql`](../../backend/migrations/0019_review_doc.sql): baştaki açıklama ve tek
+     `ALTER TABLE`.
+  2. [`reviews.sql`](../../backend/sql/queries/reviews.sql): `ListBookReviews`, `InsertReview`,
+     `UpdateReview`.
+  3. [`migrate_0019_integration_test.go`](../../backend/internal/database/migrate_0019_integration_test.go).
+  4. [`sqlc.yaml`](../../backend/sqlc.yaml): yeni `jsonb` kuralı.
+  5. `backend/internal/db/*.go`: sqlc'nin ürettiği kod; okumana gerek yok.
+
+### Adım 3 — `internal/richtext` (kayıt)
+
+- **Amaç:** belgenin tek kapısı. Bu adımda paketi hiçbir şey çağırmıyor; servis adım 4'te bağlanır.
+- **Parçalar:**
+  - `Parse(raw)`: ham JSON'u izin listesine göre doğrular. Biçim dosyanın başında yazılı (hangi düğüm
+    neyin içinde durabilir). Hata her zaman `ErrInvalid`'i sarar; sınır aşımı ayrıca `ErrLimit`,
+    görünen metnin olmaması `ErrEmpty`.
+  - `Doc.Text()`: düz metin; her paragraf bir satır. `reviews.body`'ye bu yazılacak.
+  - `Doc.HasSpoiler()`: belgede spoiler işareti var mı. `reviews.has_spoiler`'a bu yazılacak.
+  - `Doc.JSON()`: kanonik JSON; veritabanına ve cevaba bu gider.
+  - `Equal(a, b)`: "değişmedi" karşılaştırması.
+  - `FromPlain(body, spoiler)`: düz metinden belge (karar 6 ve 7).
+- **Yeni kavramlar:**
+  1. **Kanonik hâl.** Aynı içerik birden çok JSON'la yazılabilir (işaret sırası, metnin kaç düğüme
+     bölündüğü, boş dizi ya da alanın hiç olmaması). `Parse` hepsini tek biçime indirir ve veritabanına
+     o yazılır. İki kazanç: karşılaştırma basitleşir ve **saklanan şey doğrulanan şeyin kendisidir**,
+     istemcinin gönderdiği baytlar değil.
+  2. **Fuzz testi.** Elle yazılan örnekler aklımıza gelen hataları sınar. Fuzz, girdiyi rastgele
+     bozarak milyonlarca kez dener ve bir *sözün* her girdide tuttuğuna bakar. Buradaki sözler: panik
+     yok; kabul edilen belgenin kanonik hâli yeniden doğrulanınca aynı belgeyi verir; düz metin
+     sınırların içindedir ve denetim karakteri taşımaz.
+  3. **Mutasyon denemesi.** Testin işe yaradığını görmenin yolu koda bilerek hata koymaktır: test
+     kırmızıya dönmüyorsa o satırı aslında sınamıyordur.
+- **Kararlar (bu adımda verildi):**
+  - **Sınırlar (karar 4'ün rakamları):** metin 5000 karakter (kod noktası; satır sonları dahil, çünkü
+    `body`'nin CHECK'i onları da sayar), ham JSON 128 KiB, 2000 düğüm, 12 kat (bir alıntının içinde
+    dört kat iç içe liste). Düzenleyici girintiyi bundan önce durdurmalı (adım 6).
+  - **Alan adları harfi harfine.** Go'nun `encoding/json`'ı struct alanlarını büyük/küçük harfe
+    bakmadan eşler (`"Type"` kabul edilirdi); düğümler bu yüzden elle açılıyor.
+  - **Metin kuralları:** boş metin düğümü yok; sekme dışında denetim karakteri yok. Satır sonu da
+    yasak: paragraf içinde satır sonu yoktur, yeni satır yeni paragraftır. NUL ayrıca Postgres'in
+    kabul etmediği tek karakter.
+  - **Hata mesajı girdiyi geri yazmaz:** yalnız sorunun yeri (`doc.content[2].marks[0]`) ve türü.
+  - **Boş dizi hoş görülür:** `"content": []` ile alanın hiç olmaması aynı belgedir (kanonik hâlde
+    alan yok). "Bilinmeyen şey → 400" kuralı aynen duruyor.
+- **Sonuç (2026-11-27):**
+  - 76 alt test yeşil: 6 geçerli örnek (`testdata/vectors.json`), 42 ret, sınırların tam üstü, kanonik
+    hâl, `FromPlain`. Ret listesinde adım 1'in varsayılan çıktısı da var (`attrs`'lı sıralı liste).
+  - Fuzz: `FuzzParse` 45 sn'de 8,4 milyon, `FuzzFromPlain` 30 sn'de 142 bin deneme; söz bozulmadı.
+    Normal `go test` yalnız tohumları koşturur.
+  - Mutasyon: bilerek konmuş 11 hatanın 8'i ilk seferde yakalandı. **İki boşluk bulundu ve
+    kapatıldı:** derinlik testi sınırın iki üstünü deniyordu (bir üstü kaçıyordu); boyut testi aslında
+    metin sınırına takılıyordu. Yakalanmayan sonuncusu eşdeğer bir değişiklik (JSON null zaten bir
+    sonraki satırda reddediliyor).
+  - Ölçüm (`BenchmarkParse`, bu makinede): 5000 karakterlik biçimli bir inceleme 1,3 ms ve 0,5 MB
+    geçici bellek; düğüm sınırına dayanan en kötü belge 9,1 ms ve 4,2 MB. Yazma ucu için kabul
+    edilebilir; kod sadelik için her katı yeniden çözüyor, hız gerekirse yeri belli.
+  - Bütün backend testleri gerçek Postgres ve Redis'le yeşil; `go vet` temiz; golangci-lint 0 sorun.
+- **Doğrulanamadı / sonraya kalan:**
+  - Arayüzdeki sayaç aynı kuralla saymalı (kod noktası, paragraf başına bir satır sonu). Adım 5'te
+    TypeScript tarafı `vectors.json`'ın aynısıyla sınanacak; o zamana kadar iki taraf eşlenmiş değil.
+  - Fuzz yalnız yerelde ve kısa koştu; CI'da sürekli fuzz yok.
+- **Bakılacak yerler:**
+  1. [`richtext.go`](../../backend/internal/richtext/richtext.go): baştaki açıklama (biçim), sınırlar,
+     `Parse`, `checkContent`.
+  2. [`derive.go`](../../backend/internal/richtext/derive.go): `Text`, `HasSpoiler`, `FromPlain`.
+  3. [`richtext_test.go`](../../backend/internal/richtext/richtext_test.go): `TestParseRejects` tablosu.
+  4. [`fuzz_test.go`](../../backend/internal/richtext/fuzz_test.go): `FuzzParse`'ın sözleri.
+
+### Adım 4 — Servis ve API (kayıt)
+
+- **Amaç:** belgeyi yazma ve okuma yoluna bağlamak; bugünkü arayüz hiçbir şey fark etmemeli.
+- **Parçalar:**
+  - `internal/reviews`: `Draft` artık metin ve bayrak değil, doğrulanmış **belge** taşıyor. Servis üç
+    kolonu aynı belgeden yazıyor: `body_doc` (kanonik JSON), `body` (düz metin), `has_spoiler`
+    (belgede spoiler işareti var mı). "Değişmedi" karşılaştırması belge üstünden (`unchanged`).
+  - `PUT /api/books/{id}/review` iki gövde kabul ediyor (karar 7):
+    yeni `{"doc": {...}, "version": n}`, eski `{"body": "...", "has_spoiler": b, "version": n}`.
+    İkisi birlikte gelirse 400. Eski gövde bugünkü kurallarıyla denetlenip belgeye çevriliyor.
+  - Cevaplar (liste ve "benim incelemem") `doc` alanını da taşıyor; **hiçbir zaman null değil**:
+    belgesi olmayan eski inceleme düz metninden çevriliyor (karar 6). `body` ve `has_spoiler` duruyor.
+  - `readJSON`'daki NUL taraması bayt dilimlerini atlıyor (belgeyi kendi doğrulayıcısı denetliyor).
+- **Adım 2'ye göre değişen:** orada "eski gövdeyle gelen istek belgeyi boş bırakır" yazıyordu. Yeni kodda
+  eski gövde de belgeye çevrilip yazılıyor; belgesiz satır yalnız **eski kodun** yazdığıdır (bugünkü
+  canlı satır ve yayın sırasında eski sürümün yazdıkları). Böylece daraltma PR'ına az iş kalır.
+- **Davranış farkları (bilerek):**
+  - Eski gövdede satır sonları `\n`'e iner, sekme dışındaki denetim karakterleri atılır (belgede
+    yasaklar). Bugünkü arayüz bunları zaten üretmiyor.
+  - Eski gövdeyle 1000'den çok satırlı bir inceleme artık 400 alır (düğüm sınırı: satır başına iki
+    düğüm). 5000 karakterde 1000 satır gerçek bir inceleme değil.
+  - Belge yolunda metin kırpılmaz (baştaki boş paragraf metne `\n` olarak girer); "yalnız boşluk" yine
+    400.
+  - Kaydedilmiş bir belgenin `doc` alanı veritabanının yazdığı hâliyle döner (`jsonb` anahtar sırasını
+    ve boşlukları değiştirir). İçerik kanoniktir, baytlar değil.
+- **Sonuç (2026-11-27):**
+  - Servis (gerçek Postgres): `TestDocRealDB` yeşil. Üç kolon belgeden türüyor; aynı belgenin başka
+    yazımı (işaret sırası, bölünmüş metin) düzenleme sayılmıyor; yalnız biçim değişirse düzenleme;
+    belgesiz eski satırın aynısı yazılmıyor, düzenlenince belgesini alıyor. Var olan yedi servis testi
+    belgeye çevrilmiş taslaklarla yeşil (sürüm, 409, yarış, gizleme aynen).
+  - Uçlar: 15 yeni PUT senaryosu (geçerli belge, bilinmeyen düğüm, bağlantı işareti, `attrs`, boş,
+    5001 karakter, NUL, HTML metni, iki gövde birlikte, `doc: null`, ikisi de yok, çok satırlı eski
+    gövde). Hata mesajı girdiyi geri yazmıyor. Sözleşme testi iki cevapta da `doc`'u arıyor.
+  - Bütün backend testleri gerçek Postgres ve Redis'le yeşil (22 paket); `go vet` temiz; golangci-lint
+    0 sorun; sqlc `diff` temiz.
+  - **Bugünkü arayüz, yeni API:** `scripts/e2e.sh e2e/rating-comment.spec.ts` 2/2 yeşil (inceleme
+    senaryosu 3,7 sn: yaz, düzenle, iki sekmede 409, gizlenince gerekçe, klavyeyle spoiler, axe, sil).
+    Yığın bu dalın API'siyle kuruldu (yerel şema sürümü 19); arayüz değişmedi, yani eski gövdeyi
+    gönderdi. Karar 7'nin "açık duran eski sekme bozulmaz" sözünün yereldeki kanıtı bu.
+- **Doğrulanamadı / sonraya kalan:** yeni gövdenin tarayıcıdan gönderilmesi (arayüz adım 5 ve 6);
+  yayın sırasında eski ve yeni sürümün aynı anda yazması (canlıda görülür; kural 0019 testinde ve
+  `unchanged`'de sınandı).
+- **Bakılacak yerler:**
+  1. [`service.go`](../../backend/internal/reviews/service.go): `Draft`, `create`, `edit`, `unchanged`,
+     `DocJSON`.
+  2. [`reviews.go`](../../backend/cmd/api/reviews.go): `saveReviewRequest` ve `document()`.
+  3. [`service_integration_test.go`](../../backend/internal/reviews/service_integration_test.go):
+     `TestDocRealDB`.
+  4. [`reviews_test.go`](../../backend/cmd/api/reviews_test.go): `TestSaveReviewRequests`'in "belge:"
+     satırları.
 
 ## ⚠️ Önemli noktalar
 

@@ -1,0 +1,53 @@
+[
+  {
+    "name": "tek paragraf",
+    "doc": {"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Güzel bir kitap."}]}]},
+    "text": "Güzel bir kitap.",
+    "has_spoiler": false
+  },
+  {
+    "name": "kalın ve spoiler üst üste (adım 1 deneyinin çıktısı)",
+    "doc": {"type":"doc","content":[{"type":"paragraph","content":[
+      {"type":"text","text":"Sonu "},
+      {"type":"text","marks":[{"type":"spoiler"}],"text":"katil "},
+      {"type":"text","marks":[{"type":"bold"},{"type":"spoiler"}],"text":"uşak"},
+      {"type":"text","marks":[{"type":"spoiler"}],"text":" çıkıyor"},
+      {"type":"text","text":" diye biter."}]}]},
+    "text": "Sonu katil uşak çıkıyor diye biter.",
+    "has_spoiler": true
+  },
+  {
+    "name": "paragraflar ve aradaki boş paragraf",
+    "doc": {"type":"doc","content":[
+      {"type":"paragraph","content":[{"type":"text","text":"bir"}]},
+      {"type":"paragraph"},
+      {"type":"paragraph","content":[{"type":"text","text":"iki"}]}]},
+    "text": "bir\n\niki",
+    "has_spoiler": false
+  },
+  {
+    "name": "sıralı liste, madde imi metne yazılmaz",
+    "doc": {"type":"doc","content":[{"type":"orderedList","content":[
+      {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"bir"}]}]},
+      {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"iki"}]}]}]}]},
+    "text": "bir\niki",
+    "has_spoiler": false
+  },
+  {
+    "name": "iç içe liste ve alıntı",
+    "doc": {"type":"doc","content":[
+      {"type":"bulletList","content":[{"type":"listItem","content":[
+        {"type":"paragraph","content":[{"type":"text","text":"a"}]},
+        {"type":"bulletList","content":[{"type":"listItem","content":[
+          {"type":"paragraph","content":[{"type":"text","text":"b","marks":[{"type":"italic"}]}]}]}]}]}]},
+      {"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"alıntı"}]}]}]},
+    "text": "a\nb\nalıntı",
+    "has_spoiler": false
+  },
+  {
+    "name": "Türkçe harfler, emoji ve sekme",
+    "doc": {"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"İIıi ŞşĞğ\t📚"}]}]},
+    "text": "İIıi ŞşĞğ\t📚",
+    "has_spoiler": false
+  }
+]

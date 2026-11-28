@@ -5,12 +5,15 @@
 // ve sürüm kuralına bağlı; aynı anda iki ilk yazım yarışabiliyor; gizleme ve geri açma audit kaydıyla
 // aynı transaction'da ve bir kez yazılmalı.
 //
-// Metin ve gerekçe uzunluğu handler'da doğrulanır (yorumlardaki gibi; sınırlar aşağıdaki sabitler).
+// İnceleme bir BELGEDİR (Faz 17C, internal/richtext): servis yalnız doğrulanmış richtext.Doc alır ve
+// üç kolonu ondan yazar: body_doc (kanonik JSON), body (düz metin), has_spoiler (belgede spoiler
+// işareti var mı). İstemcinin "spoiler var" demesine bakılmaz. Gerekçe uzunluğu handler'da doğrulanır.
 // Veritabanındaki CHECK'ler son güvence: handler'ı atlayan bir yazım reddedilir.
 package reviews
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -20,11 +23,12 @@ import (
 	"github.com/mtgezgin/bookhub/backend/internal/books"
 	"github.com/mtgezgin/bookhub/backend/internal/database"
 	"github.com/mtgezgin/bookhub/backend/internal/db"
+	"github.com/mtgezgin/bookhub/backend/internal/richtext"
 )
 
-// Sınırlar: 0018'deki CHECK'lerin aynısı (karakter, bayt değil).
+// Sınırlar: 0018'deki CHECK'lerin aynısı (karakter, bayt değil). Metin sınırının sahibi richtext.
 const (
-	MaxBodyLen   = 5000
+	MaxBodyLen   = richtext.MaxTextLen
 	MaxReasonLen = 500
 )
 
@@ -45,8 +49,9 @@ var (
 
 // Draft, okurun gönderdiği inceleme.
 type Draft struct {
-	Body       string
-	HasSpoiler bool
+	// Doc, doğrulanmış belge: richtext.Parse'tan geçmiş olmalı (handler'ın işi). Düz metin ve spoiler
+	// bayrağı bundan türetilir.
+	Doc richtext.Doc
 	// Version, istemcinin okuduğu sürüm. nil = "bu kitapta incelemem yok" (ilk yazım). Sürüm her iki
 	// yönde de karşılaştırılır: inceleme varken nil gelirse başka bir sekme az önce yazmıştır, yokken
 	// sayı gelirse başka bir sekme silmiştir. İkisi de 409; hiçbir yazım haberi olmadan ezilmez.
@@ -185,7 +190,9 @@ func create(ctx context.Context, q *db.Queries, userID, bookID int64, d Draft) (
 	if d.Version != nil {
 		return db.Review{}, ErrVersionConflict
 	}
-	r, err := q.InsertReview(ctx, db.InsertReviewParams{UserID: userID, BookID: bookID, Body: d.Body, HasSpoiler: d.HasSpoiler})
+	r, err := q.InsertReview(ctx, db.InsertReviewParams{
+		UserID: userID, BookID: bookID, Body: d.Doc.Text(), HasSpoiler: d.Doc.HasSpoiler(), BodyDoc: d.Doc.JSON(),
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Review{}, lostInsert(ctx, q, userID, bookID)
 	}
@@ -210,20 +217,43 @@ func lostInsert(ctx context.Context, q *db.Queries, userID, bookID int64) error 
 	}
 }
 
-// edit, düzenleme. Sürüm uyuşmalı; metin ve spoiler bayrağı aynıysa hiçbir şey yazılmaz (sürüm artmaz,
-// "düzenlendi" görünmez: kaydet'e iki kez basmak düzenleme değildir).
+// edit, düzenleme. Sürüm uyuşmalı; belge aynıysa hiçbir şey yazılmaz (sürüm artmaz, "düzenlendi"
+// görünmez: kaydet'e iki kez basmak düzenleme değildir).
 func edit(ctx context.Context, q *db.Queries, cur db.Review, d Draft) (db.Review, error) {
 	if d.Version == nil || *d.Version != cur.Version {
 		return db.Review{}, ErrVersionConflict
 	}
-	if d.Body == cur.Body && d.HasSpoiler == cur.HasSpoiler {
+	if unchanged(cur, d.Doc) {
 		return cur, nil
 	}
-	r, err := q.UpdateReview(ctx, db.UpdateReviewParams{ID: cur.ID, Body: d.Body, HasSpoiler: d.HasSpoiler})
+	r, err := q.UpdateReview(ctx, db.UpdateReviewParams{
+		ID: cur.ID, Body: d.Doc.Text(), HasSpoiler: d.Doc.HasSpoiler(), BodyDoc: d.Doc.JSON(),
+	})
 	if err != nil {
 		return db.Review{}, fmt.Errorf("inceleme düzenlenemedi (id=%d): %w", cur.ID, err)
 	}
 	return r, nil
+}
+
+// unchanged: yeni belge saklananla aynı mı. Belgesi olmayan eski satır (0019'dan önce ya da eski kodla
+// yazılmış) düz metninden çevrilerek karşılaştırılır; aynıysa yazılmaz ve satır belgesiz kalır (kalıcı
+// çeviri daraltma PR'ının işi). Saklanan belge okunamıyorsa "değişti" sayılır: yeni yazım onu onarır.
+func unchanged(cur db.Review, doc richtext.Doc) bool {
+	if cur.BodyDoc == nil {
+		return richtext.Equal(richtext.FromPlain(cur.Body, cur.HasSpoiler), doc)
+	}
+	stored, err := richtext.Parse(cur.BodyDoc)
+	return err == nil && richtext.Equal(stored, doc)
+}
+
+// DocJSON, bir incelemenin cevaba yazılacak belgesi: saklanan belge varsa o, yoksa düz metinden
+// çevrilmişi (spec karar 6). Saklanan belge yalnız Parse'tan geçmiş yazımlardan gelir; okurken yeniden
+// doğrulanmaz.
+func DocJSON(body string, hasSpoiler bool, stored json.RawMessage) json.RawMessage {
+	if stored != nil {
+		return stored
+	}
+	return richtext.FromPlain(body, hasSpoiler).JSON()
 }
 
 // lockMine, okurun bu kitaptaki incelemesini transaction sonuna kadar kilitler. nil = inceleme yok.
