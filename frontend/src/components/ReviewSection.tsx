@@ -1,13 +1,15 @@
 import { Star } from "lucide-react";
-import { useId, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { useModerateReview, useReviews } from "../api/reviewQueries";
 import type { PublicReview } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { formatDate, initialOf, timeAgo } from "../lib/format";
+import { docOf } from "../lib/reviewDoc";
 import { ErrorBox } from "./common";
 import { MyReview } from "./MyReview";
+import { ReviewDoc } from "./ReviewDoc";
 import { useToast } from "./toast";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
@@ -84,14 +86,10 @@ export function ReviewSection({ bookId }: Readonly<{ bookId: number }>) {
 }
 
 /**
- * Bir inceleme. Spoiler'lı incelemenin metni kullanıcı açana kadar DOM'da HİÇ yok (spec kavram 8): CSS ile
- * gizlemek ekran okuyucuya ve sayfa içi aramaya metni sızdırırdı. Düğme gerçek bir <button aria-expanded>;
- * aria-controls yalnız metin varken (olmayan bir kimliği göstermesin).
+ * Bir inceleme. Metni ve spoiler parçalarını ReviewDoc çizer: spoiler metni kullanıcı açana kadar DOM'da
+ * HİÇ yok (CSS ile gizlemek ekran okuyucuya ve sayfa içi aramaya metni sızdırırdı).
  */
 function ReviewCard({ review, onHide }: Readonly<{ review: PublicReview; onHide?: () => void }>) {
-  const [revealed, setRevealed] = useState(false);
-  const bodyId = useId();
-  const showBody = !review.has_spoiler || revealed;
   return (
     <div className="flex gap-3">
       <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-accent font-serif font-semibold text-accent-foreground">
@@ -112,15 +110,7 @@ function ReviewCard({ review, onHide }: Readonly<{ review: PublicReview; onHide?
             <Button variant="link" size="sm" className="ml-auto h-auto text-destructive" onClick={onHide}>gizle</Button>
           )}
         </div>
-        {review.has_spoiler && (
-          <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            Spoiler içeriyor
-            <Button variant="outline" size="sm" aria-expanded={revealed} aria-controls={revealed ? bodyId : undefined} onClick={() => setRevealed(!revealed)}>
-              {revealed ? "Spoiler'ı gizle" : "Spoiler'ı göster"}
-            </Button>
-          </p>
-        )}
-        {showBody && <p id={bodyId} className="mt-1 leading-relaxed whitespace-pre-wrap">{review.body}</p>}
+        <ReviewDoc doc={docOf(review)} />
       </div>
     </div>
   );

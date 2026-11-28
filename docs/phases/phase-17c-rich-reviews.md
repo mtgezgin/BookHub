@@ -372,6 +372,174 @@ PR'ı; daraltma ayrı PR.
   4. [`reviews_test.go`](../../backend/cmd/api/reviews_test.go): `TestSaveReviewRequests`'in "belge:"
      satırları.
 
+### Adım 5 — Arayüz veri katmanı ve `ReviewDoc` (kayıt)
+
+- **Amaç:** belgeyi okuma tarafında çizmek. Yazma tarafı (düzenleyici) bu adımda değişmedi: hâlâ düz
+  metin kutusu ve eski gövde.
+- **Parçalar:**
+  - `lib/reviewDoc.ts`: belge tipi ve saf fonksiyonlar. `docText` ve `docLength` sunucudaki `Text` ile
+    aynı kuralı uygular (paragraf başına bir satır, uzunluk **kod noktası**); `plainToDoc` sunucudaki
+    `FromPlain`'in aynısı; `docOf` incelemenin belgesini verir.
+  - `components/ReviewDoc.tsx`: ağacı React öğelerine çevirir. `dangerouslySetInnerHTML` yok; metin her
+    zaman metin olarak basılır. Tanınmayan düğüm çizilmez.
+  - `api/types.ts`: cevaplarda `doc`; `ReviewDraft` iki biçimli (belge **ya da** düz metin), ikisini
+    birlikte göndermek derleme hatası.
+  - `ReviewSection` ve `MyReview` metni `ReviewDoc` ile çiziyor.
+- **Kararlar (bu adımda verildi):**
+  - **Parça kuralı (karar 9):** bir paragraftaki art arda spoiler metinleri tek parça; aradaki kalın
+    onları bölmez. Parçanın düğmesi yerinde kalır (açınca odak kaybolmaz), aynı düğme kapatır.
+  - **Tamamı spoiler olan inceleme tek düğmeyle açılır.** Eski "spoiler içeriyor" kutusuyla yazılmış
+    incelemeler böyle; kural olmasa beş paragraflı bir incelemede beş düğme çıkardı. Görünüm ve düğme
+    metni 17B'dekiyle aynı.
+  - **Kendi incelemem:** spoiler açık görünür ve işaretlidir (`<mark>`); okur neyi gizlediğini görsün.
+  - **`doc` alanı tipte isteğe bağlı.** Sunucu her zaman gönderir, ama yayın sırasında yeni arayüz
+    birkaç dakika eski API ile konuşabilir; o zaman `docOf` düz metinden çevirir.
+- **Sonuç (2026-11-27):**
+  - vitest 519 → 547, hepsi yeşil; `typecheck` temiz.
+  - **Ortak örnekler:** `reviewDoc.test.ts`, sunucunun `testdata/vectors.json` dosyasını okuyor; altı
+    örnekte düz metin, spoiler ve uzunluk iki tarafta aynı. Adım 3'te "eşlenmiş değil" diye yazılan
+    açık kapandı.
+  - `ReviewDoc.test.tsx`: yapı (paragraf, kalın, italik, alıntı, iç içe liste), boş paragraf, HTML'in
+    metin kalması (`<img onerror>` ve `<script>` öğeye dönüşmüyor), tanınmayan düğüm, parça kuralı,
+    parçaların ayrı ayrı açılması, tamamı spoiler, yazar kipi.
+  - Mutasyon: spoiler metnini DOM'dan çıkarmak yerine `hidden` ile gizleyince 3 test, parçaları
+    birleştirmeyince 2 test kırmızı.
+  - Paket: `ReviewSection` parçası gzip 3,45 → 4,23 kB; ana paket aynı (94,89 kB).
+  - **Yeni arayüz, yeni API:** `scripts/e2e.sh e2e/rating-comment.spec.ts` 2/2 yeşil, senaryo
+    değişmeden (yaz, düzenle, iki sekmede 409, gizleme, klavyeyle spoiler, axe, sil). Okuma artık
+    `ReviewDoc`'tan geçiyor; yazma hâlâ eski gövdeyle.
+- **Yayın sırası riski (adım 7'de karar):** web ve API ayrı servisler ve aynı commit'ten ayrı ayrı
+  yayınlanıyor. Okuma tarafı iki sırada da çalışır (`docOf`). Yazma tarafı adım 6'da belge göndermeye
+  başlayınca, yeni arayüz **eski** API'ye denk gelirse kaydetme 400 alır (eski API `doc` alanını
+  tanımıyor). Seçenekler: API'yi ayrı PR'la önce yayınlamak ya da birkaç dakikalık pencereyi kabul etmek.
+- **Doğrulanamadı / sonraya kalan:** parça parça spoiler'ın tarayıcıda klavye ve axe ile denenmesi
+  (adım 7; belgeyi gönderecek düzenleyici adım 6'da geliyor); ekran okuyucu.
+- **Bakılacak yerler:**
+  1. [`reviewDoc.ts`](../../frontend/src/lib/reviewDoc.ts): `docText`, `docLength`, `isAllSpoiler`,
+     `plainToDoc`.
+  2. [`ReviewDoc.tsx`](../../frontend/src/components/ReviewDoc.tsx): `Block`, `inline`, `SpoilerPiece`.
+  3. [`ReviewDoc.test.tsx`](../../frontend/src/components/ReviewDoc.test.tsx): "spoiler parçaları".
+  4. [`types.ts`](../../frontend/src/api/types.ts): `ReviewDraft`.
+
+### Adım 6 — Düzenleyici (kayıt)
+
+- **Amaç:** okur incelemesini biçimli yazsın ve yalnız spoiler olan kısmı işaretlesin; gönderilen şey
+  belge olsun.
+- **Parçalar:**
+  - `frontend/package.json`: Tiptap 3.34.0 (11 paket). Kurulum `--before 2026-11-13T23:59:59Z` ile;
+    kilit dosyasına 32 paket girdi (ikisi isteğe bağlı, pakete girmiyor), hepsi MIT, var olan hiçbir
+    paketin sürümü değişmedi.
+  - `components/review-editor/extensions.ts`: şema. Sunucudaki izin listesinin aynısı; spoiler işareti,
+    özniteliksiz sıralı liste, Tab bağlanmamış liste maddesi.
+  - `components/review-editor/ReviewRichEditor.tsx`: editör ve araç çubuğu (ayrı, tembel parça).
+  - `components/review-editor/editor.css`: Tiptap'in eklediği `<style>` etiketinin yerine geçen birkaç
+    satır ve içerik görünümü.
+  - `MyReview.tsx`: metin kutusu ve "Spoiler içeriyor" kutusu gitti; form belge gönderiyor. Sayaç
+    `docLength` (kod noktası), kaydetmeden önce `docProblem` (boş, uzun, fazla iç içe).
+- **Kararlar (bu adımda verildi):**
+  - **Tab hiçbir zaman girinti yapmaz, hep odağı ilerletir.** Adım 1'de ölçülen varsayılan davranışta
+    Tab liste maddesinde girinti yapıyordu; o zaman klavyeyle gezen okur listeden çıkmak için içeriği
+    değiştirmek zorunda kalıyor. Kriter 7 ("klavye tuzağı yok") için Tab ve Shift+Tab bağlanmadı.
+    **Bedeli:** düzenleyicide iç içe liste yazılamaz. Yapıştırılan iç içe liste korunur, okuma tarafı
+    çizer. Adım 3'teki "düzenleyici girintiyi durdurmalı" maddesi böylece gereksizleşti. İstenirse
+    araç çubuğuna "girintiyi artır / azalt" düğmeleri sonra eklenebilir.
+  - **Araç çubuğu düğmeleri yazılı** (Kalın, İtalik, Spoiler, Alıntı, Madde listesi, Numaralı liste):
+    görünen ad ile erişilebilir ad aynı; simge ezberletmiyor.
+  - **Klavyeyle basılan düğme odağı editöre geri verir**; okur yazmaya devam eder. Çubuk kaldığı
+    düğmeyi hatırlar (Shift+Tab ile dönünce aynı düğme).
+  - **`aria-invalid` editörün seçeneklerinden yazılır**, bir etkiden DOM'a değil (aşağıdaki hata).
+- **Bulunan hata (Playwright buldu, birim testi bulamadı):** ilk sürümde `aria-invalid` bir `useEffect`
+  içinde `editor.view.dom`'a yazılıyordu. jsdom'daki 549 test yeşildi; derlenmiş pakette düzenleyici
+  açılır açılmaz çöktü ("The editor view is not available": görünüm o anda henüz bağlanmamış). Adım
+  1'in "editör davranışı Playwright ile sınanır" notunun somut karşılığı.
+- **Sonuç (2026-11-27):**
+  - vitest 547 → 554, `typecheck` temiz. Yeni birim testleri: belge gönderimi ve seçili metne spoiler;
+    araç çubuğu (tek Tab durağı, ok tuşları, Home/End, `aria-pressed`, `aria-controls`); özniteliksiz
+    sıralı liste; kod noktası sayacı ve 5001 karakterde gönderilmeme; `docProblem` sınırları (5000/5001
+    karakter, 12/13 kat, 2000/2001 düğüm: sunucununkilerle aynı).
+  - **Playwright (gerçek chromium, NGINX ve CSP arkasında):** inceleme senaryosu art arda 4 koşuda
+    yeşil (6 sn). Sınadıkları:
+    - **yalnız klavyeyle yazma:** metin, Shift+Tab ile araç çubuğu, ok tuşlarıyla "Spoiler", Enter;
+      odak editöre döner; ikinci Shift+Tab aynı düğmeye gelir; Tab editörden "Vazgeç"e, oradan
+      "Kaydet"e geçer (tuzak yok);
+    - **Markdown kısayolu:** `**kalın**` yazınca kalına dönüyor;
+    - **axe:** düzenleyici açıkken, spoiler parçası kapalı ve açıkken ihlal yok;
+    - **CSP:** `style-src` ihlali yok, sayfada Tiptap'in `<style>` etiketi yok;
+    - **parça parça spoiler (kriter 2):** öteki okurun incelemesinde açık metin ve liste okunuyor,
+      spoiler parçası açılana kadar sayfanın kaynağında yok, Enter ile açılıyor, odak düğmede kalıyor;
+    - **yapıştırma:** başlık, bağlantı, resim ve `<script>` içeren HTML'den yalnız metin kalıyor,
+      işleyici çalışmıyor;
+    - düzenleme belgeyi biçimiyle açıyor; iki sekmede 409, gizliyken düzenleme ve silme aynen.
+    Kitap sayfasına ve parça yüklemeye dokunan öteki dosyalar (`cache-headers`, `resilience`,
+    `library`) 7/7 yeşil. Tam paket yerelde koşmadı; CI'da koşar.
+  - **Paket:** düzenleyici parçası 342 kB (gzip **104,9 kB**) + 1,1 kB stil; yalnız "İnceleme yaz" ya
+    da "Düzenle" denince iner. İlk açılışta inen toplam değişmedi: önce `index` + `toast` gzip 123,6 kB,
+    şimdi `index` + `utils` 122,1 kB (derleyici ortak kodu yeniden böldü). İncelemeler parçası gzip
+    4,23 → 4,70 kB.
+  - Dependabot: npm güncellemeleri küçük ve yama sürümlerde zaten gruplu; Tiptap paketleri (birbirini
+    tam sürümle istiyor) birlikte güncellenir.
+- **Doğrulanamadı / sonraya kalan:**
+  - Ekran okuyucuyla kullanım (axe ve klavye otomatik sınandı; ekran okuyucu denenmedi).
+  - Firefox, Safari ve mobil klavyeler: yalnız chromium koştu.
+  - Araç çubuğundaki ipuçları kısayolu "Ctrl+…" diye yazıyor; macOS'te tuş Cmd.
+  - Düzenleyici parçası yüklenemezse (ağ koptu) ne göründüğü ayrıca denenmedi; uygulamanın genel
+    parça yenileme ve hata sınırı devrede.
+- **Bakılacak yerler:**
+  1. [`extensions.ts`](../../frontend/src/components/review-editor/extensions.ts): şema ve üç uyarlama.
+  2. [`ReviewRichEditor.tsx`](../../frontend/src/components/review-editor/ReviewRichEditor.tsx):
+     `useEditor` seçenekleri ve `Toolbar`.
+  3. [`MyReview.tsx`](../../frontend/src/components/MyReview.tsx): `ReviewEditor`.
+  4. [`rating-comment.spec.ts`](../../frontend/e2e/rating-comment.spec.ts): `writeAndEdit`,
+     `spoilerPieceOpensAlone`, `pasteHostileHtml`.
+  5. [`editor.css`](../../frontend/src/components/review-editor/editor.css).
+
+### Adım 7 — Uçtan uca test, dokümanlar, PR (kayıt)
+
+- **Parçalar:**
+  - `rating-comment.spec.ts`: adım 6'daki senaryo iki kriter için genişledi. Kriter 1: italik, liste
+    ve alıntı da klavyeyle yazılıyor, kayıttan **ve sayfa yenilendikten** sonra aynı biçim aranıyor.
+    Kriter 8: düzenleyici parçası "İnceleme yaz"dan önce hiç istenmemiş, sonra bir kez istenmiş.
+  - PROJECT_MAP (`reviews.go`, `reviews`, yeni `richtext`, `0019`, `ReviewDoc`, `review-editor/`,
+    `lib/reviewDoc.ts`), ROADMAP ve STATUS.
+  - Aşağıdaki [kriter tablosu](#-doğrulama-başarı-ölçütleri).
+- **Sonuç (2026-11-27):** inceleme senaryosu genişlemiş hâliyle yeşil (7,2 sn). Giriş bütçesi
+  değişmedi (yeni giriş yok). Tam Playwright paketi yerelde koşmadı; PR'da CI koşar.
+- **Push kapısının yakaladığı (2026-11-28):** vitest'in 554 testi geçiyor ama koşu kırmızı bitiyordu.
+  ProseMirror odaklanınca imleci kaydırmak için `Range.getClientRects` çağırıyor; jsdom'da yok ve hata
+  test bittikten sonra "yakalanmamış hata" olarak düşüyor. Adım 6'da "554 yeşil" yazarken çıktıyı
+  yalnız test sayısına süzmüştüm; çıkış kodu 1'di. Testte iki ölçüm fonksiyonu sıfır değerle
+  tanımlandı; üç koşuda çıkış kodu 0. Ders: test sonucunu satır süzerek değil çıkış koduyla oku.
+- **Yayın sırası (2026-11-28):** iki PR. Önce backend (adım 2–4: `0019`, `internal/richtext`, uçlar),
+  canlıda doğrulanır; sonra arayüz (adım 5–7). Neden: web ve API aynı commit'ten ayrı ayrı
+  yayınlanıyor; tek PR'da yeni arayüz eski API'ye denk gelirse kaydetme 400 alırdı. "Nasıl takip
+  edilecek" bölümündeki "tek özellik PR'ı" cümlesi bununla değişti. Kullanıcı PR'ın açılmasını ve
+  merge'ü onayladı; sırayı ayrıca seçmedi, önerilen yol uygulandı.
+
+### Backend yayını ve canlı doğrulama (2026-11-28)
+
+- **PR [#130](https://github.com/mtgezgin/BookHub/pull/130)** (adım 2–4) sekiz kontrol yeşilken merge
+  edildi (`3be5d76`). Sonar'ın tek bulgusu merge'den önce düzeltildi: `TestFromPlain`'in bilişsel
+  karmaşıklığı 16'ydı (S3776); test ikiye bölündü.
+- **Deploy:** migration öncesi şifreli döküm alındı (67.896 bayt), `0019` uygulandı, `release`
+  `3be5d76`'ya ilerledi.
+- **Canlıda (salt okunur):** `GET /api/books/54/reviews` artık `doc` alanını taşıyor. Var olan inceleme
+  (id 1) yerinde: `body` 72 karakter ve `has_spoiler` true, yayından önceki ölçümle aynı; `doc` tek
+  paragraf, metni `body` ile aynı ve tamamı spoiler işaretli (karar 6: belgesiz satır okunurken
+  çevriliyor). Ana sayfa 200.
+- **Doğrulanamadı:** `0019`'un canlıdaki kilit süresi ayrıca ölçülmedi (migration adımı toplam 22 sn,
+  çoğu araç indirme). Bugünkü arayüzle canlıda inceleme yazılmadı: canlıya test verisi bırakmamak
+  için; aynı akış yerelde Playwright'ta sınandı (adım 4).
+
+### Arayüz PR'ında Sonar (2026-11-28)
+
+PR [#131](https://github.com/mtgezgin/BookHub/pull/131) (adım 5–7) kalite kapısından geçti ama 15 bulgu
+yazıldı; hepsi merge'den önce düzeltildi:
+
+- 9 × test savı: `expect(x.length).toBe(n)` yerine `expect(x).toHaveLength(n)` (hata mesajı daha açık).
+- 5 × React anahtarı (S6479): `ReviewDoc` sıra numarasını anahtar yapıyordu. Artık anahtar düğüm
+  nesnesinin kimliği (`WeakMap` ile `keyOf`); araya düğüm girse de anahtarlar kaymaz.
+- 1 × `role="status"` yerine `<output>` (düzenleyici yüklenirken görünen satır).
+
 ## ⚠️ Önemli noktalar
 
 - Editör davranışı bileşen testiyle değil Playwright ile sınanır (gerçek tarayıcı); birim testleri
@@ -388,6 +556,18 @@ PR'ı; daraltma ayrı PR.
 Issue [#128](https://github.com/mtgezgin/BookHub/issues/128)'in dokuz kabul kriteri; her biri PR'da
 bir teste eşlenir. Yayından sonra canlıda: biçimli inceleme yaz → kısmi spoiler aç → düzenle →
 yönetici gizle ve geri aç.
+
+| # | Kriter | Nerede sınanıyor |
+|---|---|---|
+| 1 | Biçimli inceleme, yenilemeden sonra aynı biçimle | Playwright `writeAndEdit`: kalın, italik, liste, alıntı, spoiler klavyeyle; kayıttan ve yenilemeden sonra `formatted()` |
+| 2 | Açılmamış spoiler parçası DOM'da yok; parçalar ayrı açılır | Playwright `spoilerPieceOpensAlone` (sayfa kaynağında yok); `ReviewDoc.test.tsx` "spoiler parçaları" |
+| 3 | İzin listesi dışı → 400, hiçbir şey yazılmaz | `richtext` `TestParseRejects` (42 satır) ve fuzz; `TestSaveReviewRequests` "belge:" satırları (servis çağrılmıyor) |
+| 4 | Uzunluk görünen metne göre | `richtext` `TestVectors` (madde imi sayılmaz), 5000/5001 testleri; arayüzde `reviewDoc.test.ts` aynı örnekler |
+| 5 | 17B incelemesi eskisi gibi; spoiler'lıysa tek parça | `TestFromPlain`, `TestReviewContracts` (belgesiz inceleme), `ReviewDoc.test.tsx` "tamamı spoiler", Playwright `spoilerIsKeyboardAccessible` (eski gövdeyle yazılmış inceleme) |
+| 6 | 409, silme, gizleme, geri açma aynen | `internal/reviews` entegrasyon testleri (değişmeden yeşil) ve `TestDocRealDB`; Playwright `twoTabConflict`, `hiddenReviewShowsReason`, silme |
+| 7 | Yalnız klavye, tuzak yok, axe temiz | Playwright `writeAndEdit` (Shift+Tab, ok tuşları, Enter, Tab ile çıkış) ve üç axe taraması; birim testi "araç çubuğu" |
+| 8 | Editör yazmayana inmez | Playwright: `ReviewRichEditor` parçası "İnceleme yaz"dan önce 0, sonra 1 istek; `npm run bundle` (ayrı parça, gzip 104,9 kB) |
+| 9 | Eski sekme kaydedebilir, kısmi spoiler'ı açıkta göstermez | `TestSaveReviewRequests` (eski gövde 201); `TestDocRealDB` (kısmi spoiler'da `has_spoiler` true: eski arayüz bütün metni kapatır); adım 4'te bugünkü arayüzle E2E |
 
 ## ✅ Tamamlanma
 

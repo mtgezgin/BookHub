@@ -222,7 +222,8 @@ Sıra tek yerde: [ROADMAP.md](ROADMAP.md). Kısaca:
    canlıda (PR #126, 2026-11-26); canlı doğrulama (Doğrulama 17) 2026-11-27'de yeşil
    ([spec](phases/phase-17-reading-reviews.md#-17b-yayın-ve-canlı-doğrulama-2026-11-27)). #80 kapandı
    (2026-11-27). Şimdi ve ardından (ROADMAP,
-   2026-11-27): zengin metinli inceleme ve seçici spoiler (REV-04, #128; spec onaylandı) → yazarlar ve
+   2026-11-27): zengin metinli inceleme ve seçici spoiler (REV-04, #128; [spec](phases/phase-17c-rich-reviews.md) onaylandı, uygulama PR'da: migration `0019`,
+   `internal/richtext`, Tiptap düzenleyicisi) → yazarlar ve
    edebiyatlar (CAT-05, DISC-06) → okuma özeti ve kişisel ana sayfa → bağlantı önizlemesi → notlar ve
    alıntılar.
 3. **Kullanıcı adımları:** Northflank sağlık kontrolleri (panel), Grafana Cloud hesabı (#96). Sırlar

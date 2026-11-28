@@ -1,18 +1,18 @@
-import { useState } from "react";
+import { lazy, Suspense, useId, useState } from "react";
 import { ApiError } from "../api/client";
 import { useDeleteReview, useMyReview, useSaveReview } from "../api/reviewQueries";
 import type { Review } from "../api/types";
 import { formatDate } from "../lib/format";
+import { type DocNode, docLength, docOf, docProblem, emptyDoc, MAX_REVIEW } from "../lib/reviewDoc";
 import { ErrorBox } from "./common";
+import { ReviewDoc } from "./ReviewDoc";
 import { useToast } from "./toast";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
-import { Textarea } from "./ui/input";
-import { Label } from "./ui/label";
 
-/** Sunucudaki sınır (reviews.MaxBodyLen). */
-export const MAX_REVIEW = 5000;
+// Düzenleyici ayrı parça (Tiptap, gzip ~100 kB): yalnız yazmak isteyen okur indirir (spec karar 8).
+const ReviewRichEditor = lazy(() => import("./review-editor/ReviewRichEditor"));
 
 /**
  * Okurun bu kitaptaki incelemesi (Faz 17B): yoksa "İnceleme yaz", varsa metni, düzenle ve sil. Gizlenmişse
@@ -60,7 +60,7 @@ function MyReviewCard({ review, userId, bookId, onEdit }: Readonly<{
           Bu inceleme yönetici tarafından gizlendi: {review.hidden.reason}. Başkaları göremiyor.
         </Alert>
       )}
-      <p className="leading-relaxed whitespace-pre-wrap">{review.body}</p>
+      <ReviewDoc doc={docOf(review)} mode="author" />
       <p className="text-xs text-muted-foreground">
         {formatDate(review.created_at)}
         {review.edited_at && " · düzenlendi"}
@@ -94,26 +94,33 @@ function MyReviewCard({ review, userId, bookId, onEdit }: Readonly<{
  * hâlle yeniden çizilir. Form açık kalır, yazılan metin korunur, üstte ne olduğu söylenir: başka bir yerde
  * değişmişse şimdiki metin, silinmişse "silinmiş". "Benimkini kaydet" aynı metni GÜNCEL sürümle gönderir
  * (silinmişse sürümsüz, yeni inceleme olarak). Sessiz yeniden deneme yok.
+ *
+ * Faz 17C: metin kutusu yerine zengin metin düzenleyicisi; gönderilen şey belgedir (`doc`). "Spoiler
+ * içeriyor" kutusu yok: okur spoiler olan kısmı seçip araç çubuğundan işaretler. Sayaç belgenin düz
+ * metnini sunucunun saydığı gibi sayar (kod noktası; paragraf arası bir karakter).
  */
 function ReviewEditor({ mine, mutation, onDone }: Readonly<{
   mine: Review | null; mutation: ReturnType<typeof useSaveReview>; onDone: () => void;
 }>) {
   const toast = useToast();
-  const [body, setBody] = useState(mine?.body ?? "");
-  const [spoiler, setSpoiler] = useState(mine?.has_spoiler ?? false);
+  // Açılıştaki belge bir kez hesaplanır: 409'dan sonra `mine` değişse de yazılan metin yerinde kalır.
+  const [initial] = useState<DocNode>(() => (mine ? docOf(mine) : emptyDoc()));
+  const [doc, setDoc] = useState(initial);
+  const labelId = useId();
+  const length = docLength(doc);
   const [conflict, setConflict] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (mutation.isPending) return;
-    const text = body.trim();
-    if (text === "") {
-      setError("İncelemen boş olamaz.");
+    const problem = docProblem(doc);
+    if (problem !== null) {
+      setError(problem);
       return;
     }
     setError(null);
-    mutation.mutate({ body: text, has_spoiler: spoiler, version: mine?.version }, {
+    mutation.mutate({ doc, version: mine?.version }, {
       onSuccess: (saved) => {
         toast(saved.hidden ? "İncelemen kaydedildi; gizli kalmaya devam ediyor" : "İncelemen yayında");
         onDone();
@@ -128,22 +135,16 @@ function ReviewEditor({ mine, mutation, onDone }: Readonly<{
   return (
     <form aria-label="İncelemeni yaz" noValidate onSubmit={submit} className="mt-4 flex flex-col gap-3 rounded-lg border p-4">
       {conflict && <ConflictNote mine={mine} />}
-      <Label>
-        İncelemen
-        <Textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          maxLength={MAX_REVIEW}
-          rows={6}
-          aria-invalid={error !== null}
-          placeholder="Kitap hakkında ne düşünüyorsun?"
-        />
-      </Label>
-      <span className="self-end text-xs text-muted-foreground tabular-nums">{body.length}/{MAX_REVIEW}</span>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={spoiler} onChange={(e) => setSpoiler(e.target.checked)} className="size-4 accent-primary" />
-        <span>Spoiler içeriyor</span>
-      </label>
+      <div className="flex flex-col gap-2">
+        <span id={labelId} className="text-sm font-medium">İncelemen</span>
+        <Suspense fallback={<output className="block min-h-48 text-sm text-muted-foreground">Düzenleyici yükleniyor…</output>}>
+          <ReviewRichEditor initial={initial} onChange={setDoc} labelledBy={labelId} invalid={error !== null} />
+        </Suspense>
+      </div>
+      <p className="flex flex-wrap justify-between gap-x-4 text-xs text-muted-foreground">
+        <span>Spoiler olan kısmı seçip "Spoiler"a bas; okuyan yalnız o kısmı açmadan görmez.</span>
+        <span className={length > MAX_REVIEW ? "font-medium text-destructive tabular-nums" : "tabular-nums"}>{length}/{MAX_REVIEW}</span>
+      </p>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onDone}>Vazgeç</Button>
@@ -172,7 +173,7 @@ function ConflictNote({ mine }: Readonly<{ mine: Review | null }>) {
   return (
     <div role="alert" className="flex flex-col gap-1 text-sm">
       <p>İncelemen başka bir yerde değişmiş. Şimdiki hâli:</p>
-      <blockquote className="border-l-2 pl-3 whitespace-pre-wrap text-muted-foreground">{mine.body}</blockquote>
+      <div className="border-l-2 pl-3 text-muted-foreground"><ReviewDoc doc={docOf(mine)} mode="author" /></div>
       <p>Metnin aşağıda duruyor; kaydedersen onun yerine geçer.</p>
     </div>
   );
